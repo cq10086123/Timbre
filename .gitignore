@@ -20,6 +20,8 @@ captures
 google-services.json
 local.properties
 play_service_account.json
+*.keystore
+signing.properties
 releases
 reports
 testResults
