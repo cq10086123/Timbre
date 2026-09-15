@@ -127,11 +127,7 @@ class NaturalOrderComparatorTest {
 
   @Test
   fun uriComparatorContent() {
-    val expected = listOf(
-      "folder1/1.mp3",
-      "folder1/10.mp3",
-      "folder2/2.mp3",
-      "folder10/1.mp3",
+    val sortedNames = listOf(
       "00 I",
       "00 Introduction",
       "1",
@@ -147,33 +143,190 @@ class NaturalOrderComparatorTest {
       "cA",
       "D",
       "e",
+      "folder1/1.mp3",
+      "folder1/10.mp3",
+      "folder2/2.mp3",
+      "folder10/1.mp3",
     )
 
-    val uris = expected.map {
-      Uri.Builder()
-        .scheme("content")
-        .authority("com.android.externalstorage.documents")
-        .appendPath("tree")
-        .appendPath("primary:audiobooks")
-        .appendPath("document")
-        .appendPath("primary:audiobooks/$it")
-        .build()
-    }
+    fun uriFor(name: String) = Uri.Builder()
+      .scheme("content")
+      .authority("com.android.externalstorage.documents")
+      .appendPath("tree")
+      .appendPath("primary:audiobooks")
+      .appendPath("document")
+      .appendPath("primary:audiobooks/$name")
+      .build()
+
+    val expected = sortedNames.map(::uriFor)
+    val shuffled = sortedNames.shuffled().map(::uriFor)
 
     assertEquals(
-      expected = uris,
-      actual = uris.sortedWith(NaturalOrderComparator.uriComparator),
+      expected = expected,
+      actual = shuffled.sortedWith(NaturalOrderComparator.uriComparator),
     )
   }
 
   @Test
   fun uriComparatorFiles() {
-    val expected = testFiles()
-    val uris = expected.map { Uri.fromFile(it) }
+    val files = testFiles()
+    val byPath = mapOf(
+      "1.mp3" to files.single { it.name == "1.mp3" && it.parentFile == testFolder.root },
+      "a.jpg" to files.single { it.name == "a.jpg" && it.parentFile == testFolder.root },
+      "folder/a.jpg" to files.single { it.path.endsWith("folder/a.jpg") },
+      "folder/aC.jpg" to files.single { it.path.endsWith("folder/aC.jpg") },
+      "folder/subfolder/subsubfolder/test2.mp3" to files.single { it.path.endsWith("subsubfolder/test2.mp3") },
+      "folder/subfolder/test.mp3" to files.single { it.path.endsWith("subfolder/test.mp3") && !it.path.contains("subsubfolder") },
+      "folder/subfolder/test2.mp3" to files.single { it.path.endsWith("subfolder/test2.mp3") && !it.path.contains("subsubfolder") },
+      "storage/emulated/0/1.ogg" to files.single { it.name == "1.ogg" },
+      "storage/emulated/0/2.ogg" to files.single { it.name == "2.ogg" },
+      "xFolder/d.jpg" to files.single { it.name == "d.jpg" },
+    )
+    val expectedOrder = listOf(
+      "1.mp3",
+      "a.jpg",
+      "folder/a.jpg",
+      "folder/aC.jpg",
+      "folder/subfolder/subsubfolder/test2.mp3",
+      "folder/subfolder/test.mp3",
+      "folder/subfolder/test2.mp3",
+      "storage/emulated/0/1.ogg",
+      "storage/emulated/0/2.ogg",
+      "xFolder/d.jpg",
+    ).map(byPath::getValue)
+
+    val uris = expectedOrder.map { Uri.fromFile(it) }
 
     assertEquals(
       expected = uris,
-      actual = uris.sortedWith(NaturalOrderComparator.uriComparator),
+      actual = uris.shuffled().sortedWith(NaturalOrderComparator.uriComparator),
+    )
+  }
+
+  @Test
+  fun fullWidthDigitsSortLikeAsciiDigits() {
+    assertSorted(
+      listOf(
+        "第１集",
+        "第2集",
+        "第１０集",
+      ),
+    )
+  }
+
+  @Test
+  fun chineseNumeralsAfterCounterPrefixSortNaturally() {
+    assertSorted(
+      listOf(
+        "第一章 缘起",
+        "第二章 风起",
+        "第十章 惊变",
+        "第十一章 旧友",
+        "第二十章 重逢",
+        "第九十九章 归途",
+        "第一百章 归一",
+        "第一百零一章 新篇",
+        "第二百章 终章",
+      ),
+    )
+  }
+
+  @Test
+  fun chineseNumeralsAfterOtherCountersSortNaturally() {
+    assertSorted(
+      listOf(
+        "卷一",
+        "卷二",
+        "卷十",
+        "卷十一",
+        "卷二十",
+        "卷一百",
+      ),
+    )
+  }
+
+  @Test
+  fun commonEpisodeNamingStylesAllSortNaturally() {
+    // 第1集 / 1集 / 001 集 / 第一集 / 全角第１集 must all order by number
+    assertSorted(
+      listOf(
+        "第1集 序章.mp3",
+        "第2集 出发.mp3",
+        "第9集 风波.mp3",
+        "第10集 汇合.mp3",
+        "第11集 新篇.mp3",
+        "第20集 重逢.mp3",
+      ),
+    )
+    assertSorted(
+      listOf(
+        "1集.mp3",
+        "2集.mp3",
+        "9集.mp3",
+        "10集.mp3",
+        "11集.mp3",
+        "20集.mp3",
+      ),
+    )
+    assertSorted(
+      listOf(
+        "001 集 序章.mp3",
+        "002 集 出发.mp3",
+        "009 集 风波.mp3",
+        "010 集 汇合.mp3",
+        "011 集 新篇.mp3",
+        "020 集 重逢.mp3",
+      ),
+    )
+    assertSorted(
+      listOf(
+        "第一集 序章.mp3",
+        "第二集 出发.mp3",
+        "第九集 风波.mp3",
+        "第十集 汇合.mp3",
+        "第十一集 新篇.mp3",
+        "第二十集 重逢.mp3",
+      ),
+    )
+    assertSorted(
+      listOf(
+        "第１集 序章.mp3",
+        "第２集 出发.mp3",
+        "第９集 风波.mp3",
+        "第１０集 汇合.mp3",
+        "第１１集 新篇.mp3",
+        "第２０集 重逢.mp3",
+      ),
+    )
+    // mixed Arabic and Chinese numerals after the same counter 第 collapse
+    // to the same normalized form
+    assertEquals(
+      expected = NaturalOrderComparator.stringComparator.compare("第1集", "第一集"),
+      actual = 0,
+    )
+  }
+
+  @Test
+  fun chineseNumeralsWithoutCounterPrefixAreLeftUntouched() {
+    // "一千" here is prose, not an episode number
+    val prose = "一千个为什么"
+    assertEquals(expected = prose, actual = ChineseNumeralNormalizer.normalize(prose))
+
+    assertEquals(
+      expected = "第20章",
+      actual = ChineseNumeralNormalizer.normalize("第二十章"),
+    )
+    assertEquals(
+      expected = "第101回",
+      actual = ChineseNumeralNormalizer.normalize("第一百零一回"),
+    )
+    assertEquals(
+      expected = "第101集",
+      actual = ChineseNumeralNormalizer.normalize("第一〇一集"),
+    )
+    assertEquals(
+      expected = "第2026集",
+      actual = ChineseNumeralNormalizer.normalize("第二零二六集"),
     )
   }
 

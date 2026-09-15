@@ -1,8 +1,15 @@
 package voice.core.scanner
 
 import dev.zacsweers.metro.Inject
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.joinAll
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import voice.core.data.BookId
-import voice.core.data.audioFileCount
 import voice.core.data.folders.FolderType
 import voice.core.data.isAudioFile
 import voice.core.data.repo.BookContentRepo
@@ -16,36 +23,18 @@ internal class MediaScanner(
   private val chapterParser: ChapterParser,
   private val bookParser: BookParser,
   private val deviceHasPermissionBug: DeviceHasStoragePermissionBug,
+  private val scanProgressReporter: ScanProgressReporter,
+  @MediaAnalysisSemaphore private val semaphore: Semaphore,
 ) {
 
   suspend fun scan(folders: Map<FolderType, List<CachedDocumentFile>>) {
-    val files = folders.flatMap { (folderType, files) ->
-      when (folderType) {
-        FolderType.SingleFile, FolderType.SingleFolder -> {
-          files
-        }
-        FolderType.Root -> {
-          files.flatMap { file ->
-            file.children
-          }
-        }
-        FolderType.Author -> {
-          files.flatMap { folder ->
-            folder.children.flatMap { author ->
-              if (author.isFile) {
-                listOf(author)
-              } else {
-                author.children
-              }
-            }
-          }
-        }
-      }
-    }
+    // bookshelf model: every registered folder or file is exactly one book,
+    // regardless of the (legacy) folder type
+    val files = folders.values.flatten()
 
     contentRepo.setAllInactiveExcept(files.map { BookId(it.uri) })
 
-    val probeFile = folders.values.flatten().findProbeFile()
+    val probeFile = files.findProbeFile()
     if (probeFile != null) {
       if (deviceHasPermissionBug.checkForBugAndSet(probeFile)) {
         Logger.w("Device has permission bug, aborting scan! Probed $probeFile")
@@ -53,11 +42,46 @@ internal class MediaScanner(
       }
     }
 
-    files
-      .sortedBy { it.audioFileCount() }
-      .forEach { file ->
-        scan(file)
-      }
+    // enumerate every book's chapters up front (directory listing only, no
+    // media parsing) so the import progress has an exact total and the bar
+    // never moves backwards
+    val entries: List<BookEntry> = coroutineScope {
+      files
+        .map { bookFile ->
+          async(Dispatchers.IO) {
+            semaphore.withPermit {
+              val audioFiles = bookFile.walk()
+                .filter { it.isAudioFile() }
+                .toList()
+              BookEntry(bookFile, audioFiles)
+            }
+          }
+        }
+        .awaitAll()
+    }
+
+    scanProgressReporter.begin(
+      booksTotal = entries.size,
+      chaptersTotal = entries.sumOf { it.audioFiles.size },
+    )
+
+    coroutineScope {
+      entries
+        .map { entry ->
+          async(Dispatchers.IO) {
+            try {
+              scan(entry)
+            } catch (e: CancellationException) {
+              throw e
+            } catch (e: Exception) {
+              Logger.w(e, "Error while scanning ${entry.bookFile}")
+            } finally {
+              scanProgressReporter.bookScanned()
+            }
+          }
+        }
+        .joinAll()
+    }
   }
 
   private fun List<CachedDocumentFile>.findProbeFile(): CachedDocumentFile? {
@@ -67,8 +91,9 @@ internal class MediaScanner(
       }
   }
 
-  private suspend fun scan(file: CachedDocumentFile) {
-    val parseResult = chapterParser.parse(file)
+  private suspend fun scan(entry: BookEntry) {
+    val file = entry.bookFile
+    val parseResult = chapterParser.parse(file, entry.audioFiles)
     val chapters = parseResult.chapters
     if (chapters.isEmpty()) return
 
@@ -89,4 +114,9 @@ internal class MediaScanner(
       contentRepo.put(updated)
     }
   }
+
+  private data class BookEntry(
+    val bookFile: CachedDocumentFile,
+    val audioFiles: List<CachedDocumentFile>,
+  )
 }

@@ -18,4 +18,7 @@ public interface ChapterDao {
 
   @Insert(onConflict = OnConflictStrategy.REPLACE)
   public suspend fun insert(chapter: Chapter)
+
+  @Insert(onConflict = OnConflictStrategy.REPLACE)
+  public suspend fun insertAll(chapters: List<Chapter>)
 }

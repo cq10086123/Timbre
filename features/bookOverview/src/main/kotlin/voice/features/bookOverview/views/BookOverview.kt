@@ -3,19 +3,14 @@ package voice.features.bookOverview.views
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Icon
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SheetValue.Expanded
 import androidx.compose.material3.SheetValue.Hidden
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.runtime.Composable
@@ -26,9 +21,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.retain.retain
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.tooling.preview.PreviewParameter
 import androidx.compose.ui.tooling.preview.PreviewParameterProvider
@@ -43,7 +38,6 @@ import voice.core.common.rootGraphAs
 import voice.core.data.BookId
 import voice.core.ui.PlayButton
 import voice.core.ui.VoiceTheme
-import voice.core.ui.icons.VoiceIcons
 import voice.core.ui.playButtonSharedBoundsModifier
 import voice.features.bookOverview.bottomSheet.BottomSheetContent
 import voice.features.bookOverview.bottomSheet.BottomSheetItem
@@ -59,7 +53,6 @@ import voice.features.bookOverview.views.topbar.BookOverviewTopBar
 import voice.navigation.Destination
 import voice.navigation.NavEntryProvider
 import kotlin.uuid.Uuid
-import voice.core.strings.R as StringsR
 
 @ContributesTo(AppScope::class)
 interface BookOverviewProvider {
@@ -111,7 +104,7 @@ fun BookOverviewScreen(modifier: Modifier = Modifier) {
       showBottomSheet = true
     },
     onBookFolderClick = bookOverviewViewModel::onBookFolderClick,
-    onFolderPickerMovedDialogDismiss = bookOverviewViewModel::onFolderPickerMovedDialogDismiss,
+    onAddBookClick = bookOverviewViewModel::onAddBookClick,
     onPlayButtonClick = bookOverviewViewModel::playPause,
     onSearchActiveChange = bookOverviewViewModel::onSearchActiveChange,
     onSearchQueryChange = bookOverviewViewModel::onSearchQueryChange,
@@ -174,7 +167,7 @@ internal fun BookOverview(
   onBookClick: (BookId) -> Unit,
   onBookLongClick: (BookId) -> Unit,
   onBookFolderClick: () -> Unit,
-  onFolderPickerMovedDialogDismiss: () -> Unit,
+  onAddBookClick: () -> Unit,
   onPlayButtonClick: () -> Unit,
   onSearchActiveChange: (Boolean) -> Unit,
   onSearchQueryChange: (String) -> Unit,
@@ -214,64 +207,42 @@ internal fun BookOverview(
         .padding(contentPadding)
         .consumeWindowInsets(contentPadding),
     ) {
-      when (viewState.layoutMode) {
-        BookOverviewLayoutMode.List -> {
-          ListBooks(
-            books = viewState.books,
-            onBookClick = onBookClick,
-            onBookLongClick = onBookLongClick,
-            showPermissionBugCard = viewState.showStoragePermissionBugCard,
-            onPermissionBugCardClick = onPermissionBugCardClick,
-          )
-        }
-        BookOverviewLayoutMode.Grid -> {
-          GridBooks(
-            books = viewState.books,
-            onBookClick = onBookClick,
-            onBookLongClick = onBookLongClick,
-            showPermissionBugCard = viewState.showStoragePermissionBugCard,
-            onPermissionBugCardClick = onPermissionBugCardClick,
-          )
+      val shelfEmpty = viewState.books.values.none { it.isNotEmpty() }
+      if (shelfEmpty &&
+        !viewState.isLoading &&
+        !viewState.showStoragePermissionBugCard &&
+        !viewState.searchActive
+      ) {
+        EmptyShelf(onAddClick = onAddBookClick)
+      } else {
+        when (viewState.layoutMode) {
+          BookOverviewLayoutMode.List -> {
+            ListBooks(
+              books = viewState.books,
+              onBookClick = onBookClick,
+              onBookLongClick = onBookLongClick,
+              showPermissionBugCard = viewState.showStoragePermissionBugCard,
+              onPermissionBugCardClick = onPermissionBugCardClick,
+            )
+          }
+          BookOverviewLayoutMode.Grid -> {
+            GridBooks(
+              books = viewState.books,
+              onBookClick = onBookClick,
+              onBookLongClick = onBookLongClick,
+              showPermissionBugCard = viewState.showStoragePermissionBugCard,
+              onPermissionBugCardClick = onPermissionBugCardClick,
+            )
+          }
         }
       }
-    }
-  }
-  Dialog(
-    dialog = viewState.dialog,
-    onFolderPickerMovedDialogDismiss = onFolderPickerMovedDialogDismiss,
-  )
-}
 
-@Composable
-private fun Dialog(
-  dialog: BookOverviewViewState.Dialog?,
-  onFolderPickerMovedDialogDismiss: () -> Unit,
-) {
-  when (dialog) {
-    BookOverviewViewState.Dialog.FolderPickerMovedToSettings -> {
-      AlertDialog(
-        onDismissRequest = onFolderPickerMovedDialogDismiss,
-        icon = {
-          Row {
-            Icon(imageVector = VoiceIcons.ArrowForward, contentDescription = null)
-            Icon(imageVector = VoiceIcons.Settings, contentDescription = null)
-            Icon(imageVector = VoiceIcons.ArrowBack, contentDescription = null)
-          }
-        },
-        title = {
-          Text(stringResource(StringsR.string.library_folders_moved_dialog_title))
-        },
-        text = {
-          Text(stringResource(StringsR.string.library_folders_moved_dialog_message))
-        },
-        confirmButton = {
-          TextButton(onClick = onFolderPickerMovedDialogDismiss) {
-            Text(stringResource(StringsR.string.common_dialog_ok))
-          }
-        },
+      ImportProgressOverlay(
+        visible = viewState.isLoading && !viewState.searchActive,
+        progress = viewState.importProgress,
+        modifier = Modifier.align(Alignment.BottomCenter),
       )
     }
-    null -> Unit
   }
 }
 
@@ -289,7 +260,7 @@ fun BookOverviewPreview(
       onBookClick = {},
       onBookLongClick = {},
       onBookFolderClick = {},
-      onFolderPickerMovedDialogDismiss = {},
+      onAddBookClick = {},
       onPlayButtonClick = {},
       onSearchActiveChange = {},
       onSearchQueryChange = {},
@@ -337,6 +308,7 @@ internal class BookOverviewPreviewParameterProvider : PreviewParameterProvider<B
       showAddBookHint = false,
       showSearchIcon = true,
       isLoading = true,
+      importProgress = null,
       searchActive = true,
       searchViewState = BookSearchViewState.EmptySearch(
         suggestedAuthors = emptyList(),
@@ -345,7 +317,6 @@ internal class BookOverviewPreviewParameterProvider : PreviewParameterProvider<B
       ),
       showStoragePermissionBugCard = false,
       showFolderPickerIcon = true,
-      dialog = null,
     ),
   )
 }

@@ -15,6 +15,8 @@ import androidx.media3.extractor.metadata.vorbis.VorbisComment
 import androidx.media3.inspector.MetadataRetriever
 import dev.zacsweers.metro.Inject
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.guava.await
@@ -44,15 +46,12 @@ internal class MediaAnalyzer(
 
   suspend fun analyze(file: CachedDocumentFile): Metadata? {
     val builder = Metadata.Builder(file.nameWithoutExtension())
-    val duration = retrieveDuration(file.uri)
+    val (duration, trackGroups) = retrieveDurationAndMetadata(file.uri)
       ?: return null
     if (duration <= Duration.ZERO) {
       Logger.w("Duration is zero or negative for file: ${file.uri}")
       return null
     }
-
-    val trackGroups = retrieveMetadata(file.uri)
-      ?: return null
 
     repeat(trackGroups.length) { trackGroupsIndex ->
       val trackGroup = trackGroups[trackGroupsIndex]
@@ -195,28 +194,35 @@ internal class MediaAnalyzer(
     }
   }
 
-  private suspend fun retrieveMetadata(uri: Uri): TrackGroupArray? {
+  private suspend fun retrieveDurationAndMetadata(uri: Uri): Pair<Duration, TrackGroupArray>? {
     return try {
       MetadataRetriever.Builder(context, MediaItem.fromUri(uri))
         .setMediaSourceFactory(mediaSourceFactory)
         .build()
-        .use {
-          it.retrieveTrackGroups().await()
-        }
-    } catch (e: Exception) {
-      if (e is CancellationException) currentCoroutineContext().ensureActive()
-      Logger.w(e, "Error retrieving metadata")
-      null
-    }
-  }
-
-  private suspend fun retrieveDuration(uri: Uri): Duration? {
-    return try {
-      MetadataRetriever.Builder(context, MediaItem.fromUri(uri))
-        .setMediaSourceFactory(mediaSourceFactory)
-        .build()
-        .use {
-          it.retrieveDurationUs().await().microseconds
+        .use { retriever ->
+          // run both retrievals on the same retriever instance so the file
+          // is only opened and parsed once
+          coroutineScope {
+            val durationDeferred = async {
+              runCatching { retriever.retrieveDurationUs().await().microseconds }
+                .getOrElse {
+                  if (it is CancellationException) throw it
+                  Logger.w(it, "Error retrieving duration")
+                  null
+                }
+            }
+            val trackGroupsDeferred = async {
+              runCatching { retriever.retrieveTrackGroups().await() }
+                .getOrElse {
+                  if (it is CancellationException) throw it
+                  Logger.w(it, "Error retrieving metadata")
+                  null
+                }
+            }
+            val duration = durationDeferred.await() ?: return@coroutineScope null
+            val trackGroups = trackGroupsDeferred.await() ?: return@coroutineScope null
+            duration to trackGroups
+          }
         }
     } catch (e: Exception) {
       if (e is CancellationException) currentCoroutineContext().ensureActive()

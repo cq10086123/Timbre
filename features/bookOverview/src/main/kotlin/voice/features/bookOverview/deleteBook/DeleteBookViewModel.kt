@@ -6,9 +6,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.documentfile.provider.DocumentFile
 import dev.zacsweers.metro.ContributesIntoSet
 import dev.zacsweers.metro.SingleIn
-import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.launch
+import voice.core.common.DispatcherProvider
+import voice.core.common.MainScope
 import voice.core.data.BookId
+import voice.core.data.folders.AudiobookFolders
+import voice.core.data.toUri
 import voice.core.logging.api.Logger
 import voice.core.scanner.MediaScanTrigger
 import voice.features.bookOverview.bottomSheet.BottomSheetItem
@@ -19,10 +22,12 @@ import voice.features.bookOverview.di.BookOverviewScope
 @ContributesIntoSet(BookOverviewScope::class)
 class DeleteBookViewModel(
   private val application: Application,
+  private val audiobookFolders: AudiobookFolders,
   private val mediaScanTrigger: MediaScanTrigger,
+  dispatcherProvider: DispatcherProvider,
 ) : BottomSheetItemViewModel {
 
-  private val scope = MainScope()
+  private val scope = MainScope(dispatcherProvider)
 
   private val _state = mutableStateOf<DeleteBookViewState?>(null)
   internal val state: State<DeleteBookViewState?> get() = _state
@@ -66,12 +71,13 @@ class DeleteBookViewModel(
     if (state != null) {
       check(state.confirmButtonEnabled)
       scope.launch {
-        val uri = state.id.toUri()
-        val documentFile = DocumentFile.fromSingleUri(application, uri)
-        scope.launch {
-          documentFile?.delete()
-          mediaScanTrigger.scan(restartIfScanning = true)
+        val documentFile = DocumentFile.fromSingleUri(application, state.id.toUri())
+        val deleted = documentFile?.delete() == true
+        if (deleted) {
+          // unregister the shelf entry so the removed book isn't scanned back in
+          audiobookFolders.removeBookRegistration(state.id)
         }
+        mediaScanTrigger.scan(restartIfScanning = true)
       }
     }
     _state.value = null

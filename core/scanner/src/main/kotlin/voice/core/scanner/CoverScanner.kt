@@ -4,21 +4,51 @@ import android.content.Context
 import androidx.documentfile.provider.DocumentFile
 import dev.zacsweers.metro.Inject
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.joinAll
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import voice.core.data.Book
 import voice.core.data.toUri
 import voice.core.logging.api.Logger
+import java.io.File
 import java.io.IOException
+import java.security.MessageDigest
 
 @Inject
 internal class CoverScanner(
   private val context: Context,
   private val coverSaver: CoverSaver,
   private val coverExtractor: CoverExtractor,
+  @MediaAnalysisSemaphore private val semaphore: Semaphore,
 ) {
 
+  // remembers books that have no cover anywhere, so we don't re-extract the
+  // first chapters on every single scan
+  private val markerDir: File by lazy {
+    File(context.filesDir, "bookCoversNoArt").also { it.mkdirs() }
+  }
+
   suspend fun scan(books: List<Book>) {
-    books.forEach { findCoverForBook(it) }
+    coroutineScope {
+      books
+        .map { book ->
+          async(Dispatchers.IO) {
+            semaphore.withPermit {
+              try {
+                findCoverForBook(book)
+              } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+              } catch (e: Exception) {
+                Logger.w(e, "Error while finding a cover for ${book.id}")
+              }
+            }
+          }
+        }
+        .joinAll()
+    }
   }
 
   private suspend fun findCoverForBook(book: Book) {
@@ -27,12 +57,39 @@ internal class CoverScanner(
       return
     }
 
+    val marker = markerFile(book)
+    if (marker.exists()) {
+      return
+    }
+
     val foundOnDisc = findAndSaveCoverFromDisc(book)
     if (foundOnDisc) {
       return
     }
 
-    scanForEmbeddedCover(book)
+    val foundEmbedded = scanForEmbeddedCover(book)
+    if (!foundEmbedded) {
+      runCatching { marker.createNewFile() }
+        .onFailure { Logger.w(it, "Could not write no-cover marker for ${book.id}") }
+    }
+  }
+
+  private fun markerFile(book: Book): File {
+    val digestInput = buildString {
+      append(book.id.value)
+      book.chapters.forEach { chapter ->
+        append(chapter.id.value)
+        append('|')
+        append(chapter.fileLastModified)
+        append('|')
+        append(chapter.fileSize)
+        append(';')
+      }
+    }
+    val digest = MessageDigest.getInstance("SHA-1")
+      .digest(digestInput.toByteArray())
+      .joinToString("") { "%02x".format(it) }
+    return File(markerDir, digest)
   }
 
   private suspend fun findAndSaveCoverFromDisc(book: Book): Boolean = withContext(Dispatchers.IO) {
@@ -74,7 +131,7 @@ internal class CoverScanner(
     false
   }
 
-  private suspend fun scanForEmbeddedCover(book: Book) {
+  private suspend fun scanForEmbeddedCover(book: Book): Boolean {
     val coverFile = coverSaver.newBookCoverFile()
     book.chapters
       .take(5).forEach { chapter ->
@@ -84,8 +141,9 @@ internal class CoverScanner(
         )
         if (success && coverFile.exists() && coverFile.length() > 0) {
           coverSaver.setBookCover(coverFile, bookId = book.id)
-          return
+          return true
         }
       }
+    return false
   }
 }

@@ -10,7 +10,6 @@ import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.flow.updateAndGet
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import voice.core.data.BookContent
@@ -58,22 +57,27 @@ public class BookContentRepoImpl(private val dao: BookContentDao) : BookContentR
   override suspend fun setAllInactiveExcept(ids: List<BookId>) {
     fillCache()
 
-    cache
-      .updateAndGet { contents ->
-        contents!!.map { content ->
-          content.copy(isActive = content.id in ids)
-        }
-      }!!
-      .forEach { dao.insert(it) }
+    val activeIds = ids.toHashSet()
+    val changed = cache.value!!
+      .filter { it.isActive != (it.id in activeIds) }
+      .map { it.copy(isActive = it.id in activeIds) }
+    if (changed.isEmpty()) return
+
+    dao.insertAll(changed)
+    cache.update { contents ->
+      contents!!.map { existing ->
+        changed.firstOrNull { it.id == existing.id } ?: existing
+      }
+    }
   }
 
   override suspend fun put(content: BookContent) {
     fillCache()
+    dao.insert(content)
     cache.update { contents ->
       val newContents = contents!!.toMutableList()
       newContents.removeAll { it.id == content.id }
       newContents.add(content)
-      dao.insert(content)
       newContents
     }
   }

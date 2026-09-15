@@ -76,7 +76,7 @@ class BookParserTest {
   }
 
   @Test
-  fun albumAlwaysWinsOverTitleAndFolderName() {
+  fun folderNameAlwaysWinsOverAlbumTag() {
     val bookFolder = testFolder.newFolder("Folder Name")
     val chapters = listOf(
       chapter(File(bookFolder, "1.mp3").apply { createNewFile() }),
@@ -88,6 +88,21 @@ class BookParserTest {
       id = BookId(bookFolder.toUri()),
       analyzed = metadata(album = "Album Name", title = "First Chapter Title"),
       file = FileBasedDocumentFile(bookFolder),
+    )
+
+    assertEquals(expected = "Folder Name", actual = content.name)
+  }
+
+  @Test
+  fun singleFileBookUsesAlbumWhenPresent() {
+    val bookFile = testFolder.newFile("book.mp3")
+    val chapters = listOf(chapter(bookFile))
+
+    val content = parser.parse(
+      chapters = chapters,
+      id = BookId(bookFile.toUri()),
+      analyzed = metadata(album = "Album Name", title = "The Title"),
+      file = FileBasedDocumentFile(bookFile),
     )
 
     assertEquals(expected = "Album Name", actual = content.name)

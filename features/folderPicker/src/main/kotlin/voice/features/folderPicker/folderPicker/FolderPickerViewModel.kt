@@ -9,12 +9,16 @@ import dev.zacsweers.metro.Inject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import voice.core.common.DispatcherProvider
+import voice.core.common.MainScope
 import voice.core.data.folders.AudiobookFolders
 import voice.core.data.folders.FolderType
 import voice.core.documentfile.nameWithoutExtension
 import voice.core.featureflag.FeatureFlag
 import voice.core.featureflag.KioskModeFeatureFlagQualifier
+import voice.core.scanner.MediaScanTrigger
 import voice.navigation.Destination
 import voice.navigation.Navigator
 import voice.navigation.Origin
@@ -22,10 +26,14 @@ import voice.navigation.Origin
 @Inject
 class FolderPickerViewModel(
   private val audiobookFolders: AudiobookFolders,
+  private val mediaScanTrigger: MediaScanTrigger,
+  dispatcherProvider: DispatcherProvider,
   private val navigator: Navigator,
   @KioskModeFeatureFlagQualifier
   private val kioskModeFeatureFlag: FeatureFlag<Boolean>,
 ) {
+
+  private val scope = MainScope(dispatcherProvider)
 
   @Composable
   fun viewState(): FolderPickerViewState {
@@ -72,16 +80,14 @@ class FolderPickerViewModel(
   }
 
   fun removeFolder(item: FolderPickerViewState.Item) {
-    audiobookFolders.remove(item.id, item.folderType)
+    scope.launch {
+      audiobookFolders.remove(item.id, item.folderType)
+      mediaScanTrigger.scan(restartIfScanning = true)
+    }
   }
 
   private companion object {
     val kioskModeItems = listOf(
-      FolderPickerViewState.Item(
-        name = "Audiobooks",
-        id = Uri.EMPTY,
-        folderType = FolderType.Root,
-      ),
       FolderPickerViewState.Item(
         name = "Sci-Fi",
         id = Uri.EMPTY,

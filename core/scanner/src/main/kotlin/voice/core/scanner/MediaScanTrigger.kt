@@ -15,7 +15,6 @@ import voice.core.data.folders.AudiobookFolders
 import voice.core.data.folders.FolderType
 import voice.core.data.repo.BookRepository
 import voice.core.documentfile.CachedDocumentFile
-import voice.core.documentfile.CachedDocumentFileFactory
 import voice.core.logging.api.Logger
 import kotlin.time.measureTime
 
@@ -27,11 +26,13 @@ internal constructor(
   private val scanner: MediaScanner,
   private val coverScanner: CoverScanner,
   private val bookRepo: BookRepository,
-  private val documentFileFactory: CachedDocumentFileFactory,
+  private val scanProgressReporter: ScanProgressReporter,
 ) {
 
   public val scannerActive: Flow<Boolean>
     field = MutableStateFlow(false)
+
+  public val scanProgress: Flow<ScanProgress?> = scanProgressReporter.progress
 
   private val scope = CoroutineScope(Dispatchers.IO)
   private var scanningJob: Job? = null
@@ -46,22 +47,27 @@ internal constructor(
       scannerActive.value = true
       oldJob?.cancelAndJoin()
 
-      measureTime {
-        val folders: Map<FolderType, List<CachedDocumentFile>> = audiobookFolders.all()
-          .first()
-          .mapValues { (_, documentFilesWithUri) ->
-            documentFilesWithUri.map {
-              documentFileFactory.create(it.documentFile.uri)
+      try {
+        measureTime {
+          audiobookFolders.migrateLegacyFolders()
+          val folders: Map<FolderType, List<CachedDocumentFile>> = audiobookFolders.all()
+            .first()
+            .mapValues { (_, documentFilesWithUri) ->
+              documentFilesWithUri.map { it.documentFile }
             }
-          }
-        scanner.scan(folders)
-      }.also {
-        Logger.i("scan took $it")
+          scanner.scan(folders)
+        }.also {
+          Logger.i("scan took $it")
+        }
+        // determinate chapter progress is done; cover lookup has no progress
+        // so the UI falls back to an indeterminate bar while this runs
+        scanProgressReporter.finish()
+        val books = bookRepo.all()
+        coverScanner.scan(books)
+      } finally {
+        scanProgressReporter.finish()
+        scannerActive.value = false
       }
-      scannerActive.value = false
-
-      val books = bookRepo.all()
-      coverScanner.scan(books)
     }
   }
 }
