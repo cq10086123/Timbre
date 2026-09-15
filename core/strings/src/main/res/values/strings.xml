@@ -93,7 +93,7 @@
     <!-- Title for folder mode where the selected folder is one book. -->
     <string name="folder.mode.single.title">Single Book Mode: One folder equals one book.</string>
     <!-- Empty-state message when no books are detected from selected files. -->
-    <string name="folder.type.book_example.empty">Voice could not detect any books. Are there any audio files?</string>
+    <string name="folder.type.book_example.empty">Timbre could not detect any books. Are there any audio files?</string>
     <!-- Header above the preview of books detected from a folder structure. -->
     <string name="folder.type.book_example.header">This would lead to the following books being detected</string>
     <!-- Pluralized file count shown in folder structure previews. -->
@@ -122,7 +122,7 @@
     <!-- Button label for granting the storage permission workaround. -->
     <string name="library.storage_permission_bug.action">Grant permission</string>
     <!-- Message explaining why a storage permission workaround is needed. -->
-    <string name="library.storage_permission_bug.message">For certain devices, a system app is missing the necessary permission to access the external storage. This access is essential for Voice to read your audiobooks.</string>
+    <string name="library.storage_permission_bug.message">For certain devices, a system app is missing the necessary permission to access the external storage. This access is essential for Timbre to read your audiobooks.</string>
     <!-- Title for the card explaining a required storage permission workaround. -->
     <string name="library.storage_permission_bug.title">Permission required</string>
     <!-- Media browser title for recently played audiobooks. -->
@@ -140,21 +140,21 @@
     <!-- Description for analytics consent during onboarding. -->
     <string name="onboarding.analytics_consent.description">Allow us to collect anonymous usage data to help improve the app. You can change this later in settings.</string>
     <!-- Title for analytics consent during onboarding. -->
-    <string name="onboarding.analytics_consent.title">Help improve Voice</string>
+    <string name="onboarding.analytics_consent.title">Help improve Timbre</string>
     <!-- Button label for leaving onboarding and starting playback. -->
     <string name="onboarding.completion.action.start_listening">Start Listening</string>
     <!-- Subtitle on the onboarding completion screen. -->
-    <string name="onboarding.completion.subtitle">Your first audiobook is ready to play. Enjoy your journey with Voice!</string>
+    <string name="onboarding.completion.subtitle">Your first audiobook is ready to play. Enjoy your journey with Timbre!</string>
     <!-- Title on the onboarding completion screen. -->
     <string name="onboarding.completion.title">You\'re All Set!</string>
     <!-- Subtitle explaining file and folder choices in onboarding. -->
-    <string name="onboarding.explanation.subtitle">With Voice, you can add books as individual files or organize them in folders. You choose!</string>
+    <string name="onboarding.explanation.subtitle">With Timbre, you can add books as individual files or organize them in folders. You choose!</string>
     <!-- Title on the onboarding explanation screen. -->
     <string name="onboarding.explanation.title">Your Library, Your Way</string>
     <!-- Subtitle on the onboarding welcome screen. -->
     <string name="onboarding.welcome.subtitle">Your personal pocket audiobook player. Let\'s get you set up.</string>
     <!-- Title on the onboarding welcome screen. -->
-    <string name="onboarding.welcome.title">Welcome to Voice!</string>
+    <string name="onboarding.welcome.title">Welcome to Timbre!</string>
     <!-- Label for the playback action that skips forward. -->
     <string name="playback.action.fast_forward">Fast forward</string>
     <!-- Content description for a playback button that pauses audio. -->
@@ -196,7 +196,7 @@
     <!-- Message for the dialog asking happy users to rate the app. -->
     <string name="review.request.message" tools:ignore="UnusedResources">Your feedback matters to us! If you have a moment, rate us and share your experience. It helps us to make improvements and offer a better listening experience.</string>
     <!-- Title for the dialog asking happy users to rate the app. -->
-    <string name="review.request.title" tools:ignore="UnusedResources">Enjoying Voice?</string>
+    <string name="review.request.title" tools:ignore="UnusedResources">Enjoying Timbre?</string>
     <!-- Settings about row showing the app version. -->
     <string name="settings.about.app_version.title">App version</string>
     <!-- Title and content description for opening settings. -->
@@ -213,7 +213,7 @@
     <!-- Description for Android dynamic color. -->
     <string name="settings.appearance.color_scheme.dynamic.summary">Uses colors from your wallpaper and system theme.</string>
     <!-- Label for selecting Voice blue as app color scheme. -->
-    <string name="settings.appearance.color_scheme.voice_blue">Voice blue</string>
+    <string name="settings.appearance.color_scheme.voice_blue">Timbre blue</string>
     <!-- Label for forcing dark mode. -->
     <string name="settings.appearance.theme.dark">Dark</string>
     <!-- Label for following the system light or dark setting. -->
@@ -243,11 +243,11 @@
     <!-- Settings support row for getting help. -->
     <string name="settings.support.get_support.title">Get help</string>
     <!-- Settings support row for helping translate the app. -->
-    <string name="settings.support.help_translating.title">Help translating Voice</string>
+    <string name="settings.support.help_translating.title">Help translating Timbre</string>
     <!-- Settings support row for reporting a problem. -->
     <string name="settings.support.report_issue.title">Report a problem</string>
     <!-- Settings row description for opening the donation/support screen. -->
-    <string name="settings.support.support_voice.summary">Donations help keep Voice maintained</string>
+    <string name="settings.support.support_voice.summary">Donations help keep Timbre maintained</string>
     <!-- Settings row for opening the donation/support screen. -->
     <string name="settings.support.support_voice.title">Support development</string>
     <!-- Settings support row for suggesting a product idea. -->
@@ -255,7 +255,7 @@
     <!-- Support screen action for donating through Ko-fi. -->
     <string name="support.action.donate_kofi">Donate on Ko-fi</string>
     <!-- Support screen text explaining why support is useful. -->
-    <string name="support.description.maintenance">Voice is free, open source, and maintained by one developer.</string>
+    <string name="support.description.maintenance">Timbre is free, open source, and maintained by one developer.</string>
     <!-- Support screen text under the main description. -->
     <string name="support.description.maintenance_subtitle">Donations help fund ongoing maintenance and development.</string>
     <!-- Support screen heading above the list of what donations enable. -->
@@ -265,7 +265,7 @@
     <!-- Support screen list item: new features. -->
     <string name="support.helps.features">New features</string>
     <!-- Support screen list item: keeping Voice free, open source, and ad-free. -->
-    <string name="support.helps.open_source">Keeping Voice ad-free</string>
+    <string name="support.helps.open_source">Keeping Timbre ad-free</string>
     <!-- Title of the support screen. -->
     <string name="support.title">Support development</string>
     <!-- Short label for the launcher shortcut that plays the current book. -->
