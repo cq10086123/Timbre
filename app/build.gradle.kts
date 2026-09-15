@@ -30,7 +30,7 @@ android {
   }
 
   defaultConfig {
-    applicationId = "de.ph1b.audiobook"
+    applicationId = providers.gradleProperty("voice.applicationId").orNull ?: "app.timbre.audiobook"
     versionName = providers.gradleProperty("voice.versionName").orNull ?: "1.0.0"
     versionCode = providers.gradleProperty("voice.versionCode").orNull?.toInt() ?: Int.MAX_VALUE
 
@@ -43,7 +43,7 @@ android {
     register("free") {
       dimension = distributionFlavor
       buildConfigField(type = "Boolean", name = "INCLUDE_ANALYTICS", value = "false")
-      buildConfigField(type = "Boolean", name = "SUPPORT_DEVELOPMENT_INCLUDED", value = "true")
+      buildConfigField(type = "Boolean", name = "SUPPORT_DEVELOPMENT_INCLUDED", value = "false")
       pluginManager.withPlugin(libs.plugins.crashlytics.get().pluginId) {
         extensions.configure<CrashlyticsExtension>("firebaseCrashlytics") {
           mappingFileUploadEnabled = false

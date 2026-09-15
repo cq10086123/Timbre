@@ -180,15 +180,15 @@ class SettingsViewModel(
   }
 
   override fun getSupport() {
-    navigator.goTo(Destination.Website("https://github.com/PaulWoitaschek/Voice/discussions/categories/q-a"))
+    navigator.goTo(Destination.Website("https://github.com/cq10086123/Timbre/issues"))
   }
 
   override fun suggestIdea() {
-    navigator.goTo(Destination.Website("https://github.com/PaulWoitaschek/Voice/discussions/categories/ideas"))
+    navigator.goTo(Destination.Website("https://github.com/cq10086123/Timbre/issues"))
   }
 
   override fun openBugReport() {
-    val url = "https://github.com/PaulWoitaschek/Voice/issues/new".toUri()
+    val url = "https://github.com/cq10086123/Timbre/issues/new".toUri()
       .buildUpon()
       .appendQueryParameter("template", "bug.yml")
       .appendQueryParameter("version", appInfoProvider.versionName)
@@ -204,7 +204,7 @@ class SettingsViewModel(
   }
 
   override fun openFaq() {
-    navigator.goTo(Destination.Website("https://voice.woitaschek.de/faq/"))
+    navigator.goTo(Destination.Website("https://github.com/cq10086123/Timbre/blob/main/docs/faq.md"))
   }
 
   override fun openSupportVoice() {
