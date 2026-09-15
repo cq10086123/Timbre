@@ -33,25 +33,20 @@
     <plurals name="duration.seconds">
         <item quantity="other">%d 秒</item>
     </plurals>
-    <string name="folder.add.title.default">添加你的有声书</string>
+    <string name="folder.add.title.default">往书架添加有声书</string>
     <string name="folder.add.title.onboarding">添加你的第一本有声书</string>
     <string name="folder.add.type.file">文件</string>
     <string name="folder.add.type.folder">文件夹</string>
-    <string name="folder.add.type.subtitle">你想将单个文件添加为书本还是文件夹？</string>
-    <string name="folder.mode.author.title">作者-书籍模式：子文件夹为作者，子文件夹下的文件夹为书籍。</string>
-    <string name="folder.mode.root.title">顶层书籍模式：子文件夹是书籍</string>
-    <string name="folder.mode.single.title">单本书模式：一个文件夹等于一本书。</string>
-    <string name="folder.type.book_example.empty">Timbre没有找到任何有声书。声音文件是否存在？</string>
-    <string name="folder.type.book_example.header">这样操作将找到以下有声书</string>
-    <plurals name="folder.type.file_count">
-        <item quantity="other">%d个声音文件</item>
-    </plurals>
-    <string name="folder.type.title">您的文件是如何组织的？</string>
+    <string name="folder.add.type.subtitle">添加一个文件夹，它就会成为书架上的一本书，里面的每个音频都是一章；也可以只添加单个音频文件作为一本书。</string>
     <string name="library.category.completed.title">已结束播放</string>
     <string name="library.category.current.title">正在播放中</string>
     <string name="library.category.not_started.title">尚未开始播放</string>
     <string name="library.empty.add_first_book">首先添加有声书文件夹，然后就可以开始听书啦！</string>
     <string name="library.folders.title">有声书文件夹</string>
+    <plurals name="library.import.progress">
+        <item quantity="other">正在导入… 已处理 %1$d / %2$d 集</item>
+    </plurals>
+    <string name="library.import.preparing">正在准备书库…</string>
     <string name="library.search.hint">您在找什么？</string>
     <string name="library.storage_permission_bug.action">给予权限</string>
     <string name="library.storage_permission_bug.message">对于某些设备，系统应用程序缺少访问外部存储的必要权限。此访问对于Timbre阅读您的有声读物至关重要。</string>
@@ -59,7 +54,7 @@
     <string name="media_session.library.recent">最近</string>
     <string name="media_session.library.root">所有有声书</string>
     <string name="onboarding.completion.subtitle">您的第一本有声书已准备好播放。与 Timbre 一起享受您的旅程！</string>
-    <string name="onboarding.explanation.subtitle">使用 Timbre，您可以单独添加书籍文件或将它们组织到文件夹中。您来选择！</string>
+    <string name="onboarding.explanation.subtitle">每添加一个文件夹，它就会成为您专属书架上的一本书，里面的音频即章节。</string>
     <string name="onboarding.explanation.title">您的图书馆，您的风格</string>
     <string name="onboarding.welcome.subtitle">你的个人口袋有声读物播放器。现在来进行配置吧。</string>
     <string name="onboarding.welcome.title">欢迎使用 Timbre！</string>
@@ -87,14 +82,11 @@
     <string name="shortcut.play_current.short_label">播放当前有声书</string>
     <string name="sleep_timer.action.open">睡眠定时器</string>
 
-    <string name="common.dialog.ok">确定</string>
     <string name="cover.search.query.with_author">%1$s %2$s 有声书封面</string>
     <string name="cover.search.query.without_author">%s 有声书封面</string>
     <plurals name="duration.minutes">
         <item quantity="other">%d 分钟</item>
     </plurals>
-    <string name="library.folders.moved.dialog.message">你现在可以在设置中管理有声书文件夹。</string>
-    <string name="library.folders.moved.dialog.title">有声书文件夹已迁移</string>
     <string name="onboarding.action.next">下一步</string>
     <string name="onboarding.analytics_consent.action.disable">不使用统计并继续</string>
     <string name="onboarding.analytics_consent.action.enable">允许统计并继续</string>

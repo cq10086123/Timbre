@@ -46,7 +46,13 @@ class ChapterParserTest {
             chapter(any())
           } returns null
           coEvery {
+            chapters(any())
+          } returns emptyList()
+          coEvery {
             insert(any())
+          } just Runs
+          coEvery {
+            insertAll(any())
           } just Runs
         },
       ),
@@ -69,6 +75,8 @@ class ChapterParserTest {
           )
         }
       },
+      analyzeSemaphore = kotlinx.coroutines.sync.Semaphore(4),
+      scanProgressReporter = ScanProgressReporter(),
     )
     assertEquals(
       expected = listOf(

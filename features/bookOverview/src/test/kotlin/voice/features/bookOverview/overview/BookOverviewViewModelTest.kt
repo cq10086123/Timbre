@@ -16,7 +16,6 @@ import kotlinx.coroutines.flow.updateAndGet
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.yield
-import voice.core.common.AppInfoProvider
 import voice.core.common.DispatcherProvider
 import voice.core.data.BookId
 import voice.core.data.GridMode
@@ -38,7 +37,6 @@ import voice.navigation.Destination
 import voice.navigation.Navigator
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.time.Instant
 
 class BookOverviewViewModelTest {
 
@@ -56,6 +54,7 @@ class BookOverviewViewModelTest {
       },
       mediaScanner = mockk<MediaScanTrigger> {
         every { scannerActive } returns MutableStateFlow(false)
+        every { scanProgress } returns MutableStateFlow(null)
         every { scan(any()) } just Runs
       },
       playStateManager = PlayStateManager(),
@@ -63,13 +62,11 @@ class BookOverviewViewModelTest {
         every { livePlaybackStateFlow(currentBook.id) } returns livePlaybackFlow
       },
       currentBookStoreDataStore = MemoryDataStore(currentBook.id),
-      folderPickerMovedDialogShownStore = MemoryDataStore(false),
       gridModeStore = MemoryDataStore(GridMode.LIST),
       gridCount = mockk<GridCount> {
         every { useGridAsDefault() } returns false
       },
       navigator = mockk<Navigator>(),
-      appInfoProvider = appInfoProvider(),
       recentBookSearchDao = mockk<RecentBookSearchDao> {
         every { recentBookSearches() } returns MutableStateFlow(emptyList())
       },
@@ -123,18 +120,17 @@ class BookOverviewViewModelTest {
       },
       mediaScanner = mockk<MediaScanTrigger> {
         every { scannerActive } returns MutableStateFlow(false)
+        every { scanProgress } returns MutableStateFlow(null)
         every { scan(any()) } just Runs
       },
       playStateManager = PlayStateManager(),
       playerController = mockk(),
       currentBookStoreDataStore = MemoryDataStore(null),
-      folderPickerMovedDialogShownStore = MemoryDataStore(false),
       gridModeStore = MemoryDataStore(GridMode.LIST),
       gridCount = mockk<GridCount> {
         every { useGridAsDefault() } returns false
       },
       navigator = mockk<Navigator>(),
-      appInfoProvider = appInfoProvider(),
       recentBookSearchDao = mockk<RecentBookSearchDao> {
         every { recentBookSearches() } returns MutableStateFlow(emptyList())
       },
@@ -169,7 +165,6 @@ class BookOverviewViewModelTest {
   fun `folder picker icon is hidden when folder picker in settings flag is true`() = runTest {
     val viewModel = viewModel(
       folderPickerInSettingsFeatureFlag = MemoryFeatureFlag(true),
-      folderPickerMovedDialogShownStore = MemoryDataStore(false),
     )
 
     backgroundScope.launchMolecule(RecompositionMode.Immediate) {
@@ -184,7 +179,6 @@ class BookOverviewViewModelTest {
   fun `folder picker icon is shown once when flag is false`() = runTest {
     val viewModel = viewModel(
       folderPickerInSettingsFeatureFlag = MemoryFeatureFlag(false),
-      folderPickerMovedDialogShownStore = MemoryDataStore(false),
     )
 
     backgroundScope.launchMolecule(RecompositionMode.Immediate) {
@@ -196,85 +190,23 @@ class BookOverviewViewModelTest {
   }
 
   @Test
-  fun `folder picker icon is hidden when moved dialog was shown`() = runTest {
-    val viewModel = viewModel(
-      folderPickerInSettingsFeatureFlag = MemoryFeatureFlag(false),
-      folderPickerMovedDialogShownStore = MemoryDataStore(true),
-    )
-
-    backgroundScope.launchMolecule(RecompositionMode.Immediate) {
-      viewModel.state()
-    }.test {
-      assertEquals(expected = BookOverviewViewState.Loading, actual = awaitItem())
-      assertEquals(expected = false, actual = awaitItem().showFolderPickerIcon)
-    }
-  }
-
-  @Test
-  fun `folder picker icon is hidden for installs on migration cutoff date`() = runTest {
-    val viewModel = viewModel(
-      folderPickerInSettingsFeatureFlag = MemoryFeatureFlag(false),
-      folderPickerMovedDialogShownStore = MemoryDataStore(false),
-      appInfoProvider = appInfoProvider(installTime = Instant.parse("2026-06-17T00:00:00Z")),
-    )
-
-    backgroundScope.launchMolecule(RecompositionMode.Immediate) {
-      viewModel.state()
-    }.test {
-      assertEquals(expected = BookOverviewViewState.Loading, actual = awaitItem())
-      assertEquals(expected = false, actual = awaitItem().showFolderPickerIcon)
-    }
-  }
-
-  @Test
-  fun `folder picker click shows moved dialog instead of navigating`() = runTest {
+  fun `folder picker click navigates to the folder picker`() = runTest {
     val navigator = mockk<Navigator>(relaxed = true)
     val viewModel = viewModel(
       navigator = navigator,
       folderPickerInSettingsFeatureFlag = MemoryFeatureFlag(false),
-      folderPickerMovedDialogShownStore = MemoryDataStore(false),
     )
 
     backgroundScope.launchMolecule(RecompositionMode.Immediate) {
       viewModel.state()
     }.test {
       assertEquals(expected = BookOverviewViewState.Loading, actual = awaitItem())
-      assertEquals(expected = null, actual = awaitItem().dialog)
+      awaitItem()
 
       viewModel.onBookFolderClick()
 
-      assertEquals(expected = BookOverviewViewState.Dialog.FolderPickerMovedToSettings, actual = awaitItem().dialog)
-      verify(exactly = 0) {
+      verify {
         navigator.goTo(Destination.FolderPicker)
-      }
-    }
-  }
-
-  @Test
-  fun `dismissing moved dialog marks it shown and hides folder picker icon`() = runTest {
-    val folderPickerMovedDialogShownStore = MemoryDataStore(false)
-    val viewModel = viewModel(
-      folderPickerInSettingsFeatureFlag = MemoryFeatureFlag(false),
-      folderPickerMovedDialogShownStore = folderPickerMovedDialogShownStore,
-    )
-
-    backgroundScope.launchMolecule(RecompositionMode.Immediate) {
-      viewModel.state()
-    }.test {
-      assertEquals(expected = BookOverviewViewState.Loading, actual = awaitItem())
-      assertEquals(expected = true, actual = awaitItem().showFolderPickerIcon)
-
-      viewModel.onBookFolderClick()
-      assertEquals(expected = BookOverviewViewState.Dialog.FolderPickerMovedToSettings, actual = awaitItem().dialog)
-
-      viewModel.onFolderPickerMovedDialogDismiss()
-
-      val dismissed = awaitItem()
-      assertEquals(expected = null, actual = dismissed.dialog)
-      if (dismissed.showFolderPickerIcon) {
-        assertEquals(expected = false, actual = awaitItem().showFolderPickerIcon)
-      } else {
-        assertEquals(expected = false, actual = dismissed.showFolderPickerIcon)
       }
     }
   }
@@ -285,9 +217,7 @@ class BookOverviewViewModelTest {
 
   private fun viewModel(
     folderPickerInSettingsFeatureFlag: MemoryFeatureFlag<Boolean>,
-    folderPickerMovedDialogShownStore: DataStore<Boolean>,
     navigator: Navigator = mockk(),
-    appInfoProvider: AppInfoProvider = appInfoProvider(),
   ): BookOverviewViewModel {
     return BookOverviewViewModel(
       repo = mockk<BookRepository> {
@@ -295,18 +225,17 @@ class BookOverviewViewModelTest {
       },
       mediaScanner = mockk<MediaScanTrigger> {
         every { scannerActive } returns MutableStateFlow(false)
+        every { scanProgress } returns MutableStateFlow(null)
         every { scan(any()) } just Runs
       },
       playStateManager = PlayStateManager(),
       playerController = mockk(),
       currentBookStoreDataStore = MemoryDataStore(null),
-      folderPickerMovedDialogShownStore = folderPickerMovedDialogShownStore,
       gridModeStore = MemoryDataStore(GridMode.LIST),
       gridCount = mockk<GridCount> {
         every { useGridAsDefault() } returns false
       },
       navigator = navigator,
-      appInfoProvider = appInfoProvider,
       recentBookSearchDao = mockk<RecentBookSearchDao> {
         every { recentBookSearches() } returns MutableStateFlow(emptyList())
       },
@@ -322,12 +251,6 @@ class BookOverviewViewModelTest {
       kioskModeFeatureFlag = MemoryFeatureFlag(false),
       dispatcherProvider = dispatcherProvider,
     )
-  }
-
-  private fun appInfoProvider(installTime: Instant = Instant.parse("2026-06-16T00:00:00Z")): AppInfoProvider {
-    return mockk {
-      every { this@mockk.installTime } returns installTime
-    }
   }
 }
 

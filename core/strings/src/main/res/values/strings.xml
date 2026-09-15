@@ -48,8 +48,6 @@
     <string name="common.dialog.cancel">Cancel</string>
     <!-- Generic confirmation action in dialogs that apply a value. -->
     <string name="common.dialog.confirm">Set</string>
-    <!-- Generic action for acknowledging a dialog message. -->
-    <string name="common.dialog.ok">OK</string>
     <!-- Generic error message shown when cover search or loading fails. -->
     <string name="common.error.generic.message">Something went wrong 😢</string>
     <!-- Retry action shown after a generic error. -->
@@ -77,7 +75,7 @@
         <item quantity="other">%d seconds</item>
     </plurals>
     <!-- Title for the folder picker during normal app use. -->
-    <string name="folder.add.title.default">Add your Audiobook(s)</string>
+    <string name="folder.add.title.default">Add an audiobook to your shelf</string>
     <!-- Title for the folder picker when adding the first audiobook during onboarding. -->
     <string name="folder.add.title.onboarding">Add Your First Audiobook</string>
     <!-- Button label for adding a single audio file as a book. -->
@@ -85,24 +83,7 @@
     <!-- Button label for adding a folder of audiobooks. -->
     <string name="folder.add.type.folder">Folder</string>
     <!-- Subtitle asking whether the user wants to add a file or folder. -->
-    <string name="folder.add.type.subtitle">Would you like to add a single file as a book or a folder?</string>
-    <!-- Title for folder mode where subfolders are authors and nested folders are books. -->
-    <string name="folder.mode.author.title">Author-Book Mode: Subfolders are authors, sub-subfolders are books.</string>
-    <!-- Title for folder mode where top-level subfolders are books. -->
-    <string name="folder.mode.root.title">Top-Level Book Mode: Subfolders are books</string>
-    <!-- Title for folder mode where the selected folder is one book. -->
-    <string name="folder.mode.single.title">Single Book Mode: One folder equals one book.</string>
-    <!-- Empty-state message when no books are detected from selected files. -->
-    <string name="folder.type.book_example.empty">Timbre could not detect any books. Are there any audio files?</string>
-    <!-- Header above the preview of books detected from a folder structure. -->
-    <string name="folder.type.book_example.header">This would lead to the following books being detected</string>
-    <!-- Pluralized file count shown in folder structure previews. -->
-    <plurals name="folder.type.file_count">
-        <item quantity="one">%d audio file</item>
-        <item quantity="other">%d audio files</item>
-    </plurals>
-    <!-- Title for choosing how audiobook files are structured. -->
-    <string name="folder.type.title">How are your files structured?</string>
+    <string name="folder.add.type.subtitle">Add a folder and it becomes one book on your shelf — every audio file inside is a chapter. Or add a single audio file as its own book.</string>
     <!-- Library category header for completed books. -->
     <string name="library.category.completed.title">Completed</string>
     <!-- Library category header for books currently being listened to. -->
@@ -113,10 +94,13 @@
     <string name="library.empty.add_first_book">Let\'s add your audiobook folder so you can start listening!</string>
     <!-- Title for screens and rows that manage audiobook folders. -->
     <string name="library.folders.title">Audiobook folders</string>
-    <!-- Title for the one-time dialog shown from the old audiobook folders shortcut. -->
-    <string name="library.folders.moved.dialog.title">Audiobook folders moved</string>
-    <!-- Body for the one-time dialog shown from the old audiobook folders shortcut. -->
-    <string name="library.folders.moved.dialog.message">You can now manage audiobook folders in Preferences.</string>
+    <!-- Shown on the bookshelf while chapters are being analyzed. The quantity is the total chapter count. -->
+    <plurals name="library.import.progress">
+        <item quantity="one">Importing… %1$d / %2$d chapter</item>
+        <item quantity="other">Importing… %1$d / %2$d chapters</item>
+    </plurals>
+    <!-- Shown on the bookshelf before/after chapter analysis (enumerating files or covers). -->
+    <string name="library.import.preparing">Preparing your library…</string>
     <!-- Hint text for searching books in the library. -->
     <string name="library.search.hint">What are you looking for?</string>
     <!-- Button label for granting the storage permission workaround. -->
@@ -148,7 +132,7 @@
     <!-- Title on the onboarding completion screen. -->
     <string name="onboarding.completion.title">You\'re All Set!</string>
     <!-- Subtitle explaining file and folder choices in onboarding. -->
-    <string name="onboarding.explanation.subtitle">With Timbre, you can add books as individual files or organize them in folders. You choose!</string>
+    <string name="onboarding.explanation.subtitle">Every folder you add becomes one book on your personal bookshelf, with its audio files as chapters.</string>
     <!-- Title on the onboarding explanation screen. -->
     <string name="onboarding.explanation.title">Your Library, Your Way</string>
     <!-- Subtitle on the onboarding welcome screen. -->

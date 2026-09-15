@@ -19,7 +19,6 @@ import androidx.datastore.core.DataStore
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
 import kotlinx.coroutines.launch
-import voice.core.common.AppInfoProvider
 import voice.core.common.DispatcherProvider
 import voice.core.common.MainScope
 import voice.core.common.comparator.sortedNaturally
@@ -31,7 +30,6 @@ import voice.core.data.repo.BookContentRepo
 import voice.core.data.repo.BookRepository
 import voice.core.data.repo.internals.dao.RecentBookSearchDao
 import voice.core.data.store.CurrentBookStore
-import voice.core.data.store.FolderPickerMovedDialogShownStore
 import voice.core.data.store.GridModeStore
 import voice.core.featureflag.ExperimentalPlaybackPersistenceQualifier
 import voice.core.featureflag.FeatureFlag
@@ -49,7 +47,7 @@ import voice.features.bookOverview.di.BookOverviewScope
 import voice.features.bookOverview.search.BookSearchViewState
 import voice.navigation.Destination
 import voice.navigation.Navigator
-import kotlin.time.Instant
+import voice.navigation.Origin
 
 @SingleIn(BookOverviewScope::class)
 @Inject
@@ -60,13 +58,10 @@ class BookOverviewViewModel(
   private val playerController: PlayerController,
   @CurrentBookStore
   private val currentBookStoreDataStore: DataStore<BookId?>,
-  @FolderPickerMovedDialogShownStore
-  private val folderPickerMovedDialogShownStore: DataStore<Boolean>,
   @GridModeStore
   private val gridModeStore: DataStore<GridMode>,
   private val gridCount: GridCount,
   private val navigator: Navigator,
-  private val appInfoProvider: AppInfoProvider,
   private val recentBookSearchDao: RecentBookSearchDao,
   private val search: BookSearch,
   private val contentRepo: BookContentRepo,
@@ -83,7 +78,6 @@ class BookOverviewViewModel(
   private val scope = MainScope(dispatcherProvider)
   private var searchActive by mutableStateOf(false)
   private var query by mutableStateOf("")
-  private var dialog by mutableStateOf<BookOverviewViewState.Dialog?>(null)
 
   fun attach() {
     mediaScanner.scan()
@@ -104,8 +98,8 @@ class BookOverviewViewModel(
       .collectAsState(initial = null).value
     val scannerActive = remember { mediaScanner.scannerActive }
       .collectAsState(initial = false).value
-    val folderPickerMovedDialogShown = remember { folderPickerMovedDialogShownStore.data }
-      .collectAsState(initial = false).value
+    val importProgress = remember { mediaScanner.scanProgress }
+      .collectAsState(initial = null).value
     val gridMode = remember { gridModeStore.data }
       .collectAsState(initial = null).value
       ?: return BookOverviewViewState.Loading
@@ -161,13 +155,11 @@ class BookOverviewViewModel(
       },
       showSearchIcon = books.isNotEmpty(),
       isLoading = scannerActive,
+      importProgress = importProgress,
       searchActive = searchActive,
       searchViewState = bookSearchViewState,
       showStoragePermissionBugCard = hasStoragePermissionBug,
-      showFolderPickerIcon = !folderPickerInSettingsFeatureFlag.get() &&
-        !folderPickerMovedDialogShown &&
-        appInfoProvider.installTime < FolderPickerMigrationInstallTimeCutoff,
-      dialog = dialog,
+      showFolderPickerIcon = !folderPickerInSettingsFeatureFlag.get(),
     )
   }
 
@@ -235,6 +227,7 @@ class BookOverviewViewModel(
       showAddBookHint = false,
       showSearchIcon = true,
       isLoading = false,
+      importProgress = null,
       searchActive = false,
       searchViewState = BookSearchViewState.EmptySearch(
         recentQueries = emptyList(),
@@ -243,7 +236,6 @@ class BookOverviewViewModel(
       ),
       showStoragePermissionBugCard = false,
       showFolderPickerIcon = false,
-      dialog = null,
     )
   }
 
@@ -256,14 +248,11 @@ class BookOverviewViewModel(
   }
 
   fun onBookFolderClick() {
-    dialog = BookOverviewViewState.Dialog.FolderPickerMovedToSettings
+    navigator.goTo(Destination.FolderPicker)
   }
 
-  fun onFolderPickerMovedDialogDismiss() {
-    dialog = null
-    scope.launch {
-      folderPickerMovedDialogShownStore.updateData { true }
-    }
+  fun onAddBookClick() {
+    navigator.goTo(Destination.AddContent(Origin.Default))
   }
 
   fun onSearchActiveChange(active: Boolean) {
@@ -303,8 +292,6 @@ class BookOverviewViewModel(
     }
   }
 }
-
-private val FolderPickerMigrationInstallTimeCutoff = Instant.parse("2026-06-17T00:00:00Z")
 
 @Composable
 private fun Book.itemViewState(

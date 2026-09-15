@@ -2,23 +2,18 @@ package voice.core.data.repo
 
 import voice.core.data.Chapter
 import voice.core.data.ChapterId
-import java.time.Instant
 
 public interface ChapterRepo {
+
   public suspend fun get(id: ChapterId): Chapter?
 
   public suspend fun put(chapter: Chapter)
-}
 
-public suspend inline fun ChapterRepo.getOrPut(
-  id: ChapterId,
-  lastModified: Instant,
-  fileSize: Long,
-  defaultValue: () -> Chapter?,
-): Chapter? {
-  val chapter = get(id)
-  if (chapter != null && chapter.fileLastModified == lastModified && chapter.fileSize == fileSize) {
-    return chapter
-  }
-  return defaultValue()?.also { put(it) }
+  public suspend fun putAll(chapters: Collection<Chapter>)
+
+  /**
+   * Loads the given chapters into the in-memory cache in bulk so that
+   * subsequent [get] calls don't trigger one database query per chapter.
+   */
+  public suspend fun prefetch(ids: Collection<ChapterId>)
 }

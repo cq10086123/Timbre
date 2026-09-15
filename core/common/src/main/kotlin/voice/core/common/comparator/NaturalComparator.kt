@@ -21,15 +21,44 @@ internal object NaturalComparator : Comparator<String> {
   }
 
   override fun compare(
-    s1: String,
-    s2: String,
+    raw1: String,
+    raw2: String,
   ): Int {
-    if (s1 == s2) {
+    if (raw1 == raw2) {
       return 0
     }
+    val s1 = raw1.normalizeForNaturalCompare()
+    val s2 = raw2.normalizeForNaturalCompare()
     return with(collatorThreadLocal.get()!!) {
-      naturalCompare(s1 = s1, s2 = s2, length1 = s1.length, length2 = s2.length, ignoreCase = true, likeFileNames = true)
+      naturalCompare(
+        s1 = s1,
+        s2 = s2,
+        length1 = s1.length,
+        length2 = s2.length,
+        ignoreCase = true,
+        likeFileNames = true,
+      )
     }
+  }
+
+  // Full-width digits (０-９) and ideographic spaces must be treated like their
+  // ASCII counterparts so e.g. "第２集" sorts between "第1集" and "第10集".
+  // Chinese numerals after a counter prefix (第一章, 第二十回, 卷一百零一) are
+  // turned into ASCII numbers as well.
+  private fun String.normalizeForNaturalCompare(): String {
+    var changed = false
+    val builder = StringBuilder(length)
+    for (char in this) {
+      val replacement = when {
+        char in '０'..'９' -> '0' + (char.code - '０'.code)
+        char == '　' -> ' '
+        else -> char
+      }
+      if (replacement != char) changed = true
+      builder.append(replacement)
+    }
+    val fullWidthNormalized = if (changed) builder.toString() else this
+    return ChineseNumeralNormalizer.normalize(fullWidthNormalized)
   }
 
   private fun isDecimalDigit(c: Char) = c in '0'..'9'

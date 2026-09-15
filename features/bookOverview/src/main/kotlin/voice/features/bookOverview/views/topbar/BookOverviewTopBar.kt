@@ -77,6 +77,7 @@ private fun BookOverviewTopBarPreview() {
         showAddBookHint = true,
         showSearchIcon = true,
         isLoading = true,
+        importProgress = null,
         searchActive = true,
         searchViewState = BookSearchViewState.EmptySearch(
           suggestedAuthors = listOf(),
@@ -85,7 +86,6 @@ private fun BookOverviewTopBarPreview() {
         ),
         showStoragePermissionBugCard = false,
         showFolderPickerIcon = true,
-        dialog = null,
       ),
       onBookFolderClick = {},
       onSettingsClick = {},

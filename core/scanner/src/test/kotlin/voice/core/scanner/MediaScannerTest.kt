@@ -7,6 +7,7 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import io.mockk.coEvery
 import io.mockk.mockk
+import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.test.runTest
 import org.junit.runner.RunWith
 import voice.core.data.BookId
@@ -40,6 +41,7 @@ class MediaScannerTest {
       audioFile(book1, "10.mp3"),
     )
 
+    // every imported folder is one book regardless of the legacy folder type
     scan(FolderType.Root, audiobookFolder)
 
     book1Chapters.first().delete()
@@ -48,7 +50,7 @@ class MediaScannerTest {
 
     assertBookContents(
       BookContentView(
-        id = book1,
+        id = audiobookFolder,
         chapters = book1Chapters.drop(1),
       ),
     )
@@ -59,7 +61,7 @@ class MediaScannerTest {
     val audiobookFolder = folder("audiobooks")
 
     val book1 = File(audiobookFolder, "book1")
-    val book1Id = BookId(book1.toUri())
+    val bookId = BookId(audiobookFolder.toUri())
     val book1Chapters = listOf(
       audioFile(book1, "1.mp3"),
       audioFile(book1, "2.mp3"),
@@ -69,7 +71,7 @@ class MediaScannerTest {
     scan(FolderType.Root, audiobookFolder)
 
     val contentWithPositionAtLastChapter =
-      bookContentRepo.get(BookId(book1.toUri()))!!.copy(currentChapter = ChapterId(book1Chapters.last().toUri()))
+      bookContentRepo.get(BookId(audiobookFolder.toUri()))!!.copy(currentChapter = ChapterId(book1Chapters.last().toUri()))
     bookContentRepo.put(contentWithPositionAtLastChapter)
 
     book1Chapters.forEach { it.toUri().toFile().delete() }
@@ -80,15 +82,14 @@ class MediaScannerTest {
     audioFile(book1, "2.mp3")
     audioFile(book1, "10.mp3")
 
-    assertEquals(expected = contentWithPositionAtLastChapter, actual = bookContentRepo.get(book1Id))
+    assertEquals(expected = contentWithPositionAtLastChapter, actual = bookContentRepo.get(bookId))
   }
 
   @Test
   fun multipleRoots() = test {
-    val audiobookFolder1 = folder("audiobooks1")
+    val audiobookFolder1 = folder("shelf1")
 
     val topFileBook = audioFile(parent = audiobookFolder1, "test.mp3")
-
     val book1 = File(audiobookFolder1, "book1")
     val book1Chapters = listOf(
       audioFile(book1, "1.mp3"),
@@ -96,22 +97,20 @@ class MediaScannerTest {
       audioFile(book1, "10.mp3"),
     )
 
-    val audiobookFolder2 = folder("audiobooks1")
-
+    val audiobookFolder2 = folder("shelf2")
     val book2 = File(audiobookFolder2, "book2")
     val book2Chapters = listOf(audioFile(book2, "1.mp3"))
 
     scan(FolderType.Root, audiobookFolder1, audiobookFolder2)
 
     assertBookContents(
-      BookContentView(topFileBook, chapters = listOf(topFileBook)),
-      BookContentView(book1, chapters = book1Chapters),
-      BookContentView(book2, chapters = book2Chapters),
+      BookContentView(audiobookFolder1, chapters = book1Chapters + listOf(topFileBook)),
+      BookContentView(audiobookFolder2, chapters = book2Chapters),
     )
   }
 
   @Test
-  fun scanRoot() = test {
+  fun importedFolderIsOneBookWithNestedFolders() = test {
     val audiobookFolder = folder("audiobooks1")
 
     val topFileBook = audioFile(parent = audiobookFolder, "test.mp3")
@@ -133,9 +132,10 @@ class MediaScannerTest {
     scan(FolderType.Root, audiobookFolder)
 
     assertBookContents(
-      BookContentView(topFileBook, chapters = listOf(topFileBook)),
-      BookContentView(book1, chapters = book1Chapters),
-      BookContentView(book2, chapters = book2Chapters),
+      BookContentView(
+        audiobookFolder,
+        chapters = book1Chapters + book2Chapters + listOf(topFileBook),
+      ),
     )
   }
 
@@ -159,6 +159,24 @@ class MediaScannerTest {
   }
 
   @Test
+  fun progressCountsBooksAndChapters() = test {
+    val shelf1 = folder("shelf1")
+    val shelf2 = folder("shelf2")
+    audioFile(parent = shelf1, "1.mp3")
+    audioFile(parent = shelf1, "2.mp3")
+    audioFile(parent = shelf1, "10.mp3")
+    audioFile(parent = shelf2, "1.mp3")
+
+    scan(FolderType.SingleFolder, shelf1, shelf2)
+
+    val progress = scanProgress
+    assertEquals(expected = 2, actual = progress?.booksTotal)
+    assertEquals(expected = 2, actual = progress?.booksScanned)
+    assertEquals(expected = 4, actual = progress?.chaptersTotal)
+    assertEquals(expected = 4, actual = progress?.chaptersScanned)
+  }
+
+  @Test
   fun newBookReusesFirstChapterMetadata() = test {
     val folder = folder("book")
     audioFile(parent = folder, "1.mp3")
@@ -170,31 +188,38 @@ class MediaScannerTest {
   }
 
   @Test
-  fun scanAuthor() = test {
+  fun authorFolderIsOneBook() = test {
     val audioBooks = folder("audiobooks")
 
     val book1 = audioFile(parent = audioBooks, "test.mp3")
-
     val book2 = audioFile(parent = audioBooks, "author1/test.mp3")
 
     val book3 = File(audioBooks, "author1/book1")
-    val book3Chapter1 = audioFile(parent = book3, "c1.mp3")
-    val book3Chapter2 = audioFile(parent = book3, "c2.mp3")
+    val book3Chapter1 = audioFile(book3, "c1.mp3")
+    val book3Chapter2 = audioFile(book3, "c2.mp3")
 
     val book4 = File(audioBooks, "author1/book2")
     val book4Chapter1 = audioFile(book4, "a.mp3")
 
     scan(FolderType.Author, audioBooks)
+    // ordered segment-by-segment: book1/*, book2/*, then files directly in
+    // the author folder and the root folder
     assertBookContents(
-      BookContentView(book1, chapters = listOf(book1)),
-      BookContentView(book2, chapters = listOf(book2)),
-      BookContentView(book3, chapters = listOf(book3Chapter1, book3Chapter2)),
-      BookContentView(book4, chapters = listOf(book4Chapter1)),
+      BookContentView(
+        audioBooks,
+        chapters = listOf(
+          book3Chapter1,
+          book3Chapter2,
+          book4Chapter1,
+          book2,
+          book1,
+        ),
+      ),
     )
   }
 
   @Test
-  fun scanAuthorParsesEachBookOnce() = test {
+  fun folderScannedOnce() = test {
     val audioBooks = folder("audiobooks")
 
     audioFile(parent = audioBooks, "test.mp3")
@@ -205,7 +230,7 @@ class MediaScannerTest {
 
     scan(FolderType.Author, audioBooks)
 
-    assertEquals(expected = 4, actual = scannedBooks.size)
+    assertEquals(expected = 1, actual = scannedBooks.size)
   }
 
   private fun test(test: suspend TestEnvironment.() -> Unit) {
@@ -222,14 +247,19 @@ class MediaScannerTest {
     val bookContentRepo = BookContentRepoImpl(db.bookContentDao())
     private val chapterRepo = ChapterRepoImpl(db.chapterDao())
     private val mediaAnalyzer = mockk<MediaAnalyzer>()
-    var analyzeCalls = 0
+    private val analyzeCounter = java.util.concurrent.atomic.AtomicInteger(0)
+    val analyzeCalls: Int get() = analyzeCounter.get()
     private val scannedRepo = ScannedBooksRecordingRepo(bookContentRepo)
     val scannedBooks: List<BookId> get() = scannedRepo.scannedBooks
+    private val scanProgressReporter = ScanProgressReporter()
+    val scanProgress: ScanProgress? get() = scanProgressReporter.progress.value
     private val scanner = MediaScanner(
       contentRepo = scannedRepo,
       chapterParser = ChapterParser(
         chapterRepo = chapterRepo,
         mediaAnalyzer = mediaAnalyzer,
+        scanProgressReporter = scanProgressReporter,
+        analyzeSemaphore = Semaphore(4),
       ),
       bookParser = BookParser(
         contentRepo = bookContentRepo,
@@ -237,6 +267,8 @@ class MediaScannerTest {
         fileFactory = FileBasedDocumentFactory,
       ),
       deviceHasPermissionBug = mockk(),
+      scanProgressReporter = scanProgressReporter,
+      semaphore = Semaphore(4),
     )
 
     val bookRepo = BookRepositoryImpl(chapterRepo, bookContentRepo)
@@ -263,7 +295,7 @@ class MediaScannerTest {
         }
         .also {
           coEvery { mediaAnalyzer.analyze(any()) } coAnswers {
-            analyzeCalls++
+            analyzeCounter.incrementAndGet()
             Metadata(
               duration = 1000L,
               artist = "Author",

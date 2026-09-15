@@ -155,11 +155,6 @@ fun FolderOverviewPreview() {
     viewState = FolderPickerViewState(
       items = listOf(
         FolderPickerViewState.Item(
-          name = "My Audiobooks",
-          id = Uri.EMPTY,
-          folderType = FolderType.Root,
-        ),
-        FolderPickerViewState.Item(
           name = "Bobiverse 1-4",
           id = Uri.EMPTY,
           folderType = FolderType.SingleFolder,

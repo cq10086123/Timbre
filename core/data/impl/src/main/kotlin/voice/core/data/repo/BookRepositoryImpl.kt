@@ -15,7 +15,7 @@ import voice.core.logging.api.Logger
 @SingleIn(AppScope::class)
 @ContributesBinding(AppScope::class)
 public class BookRepositoryImpl(
-  private val chapterRepo: ChapterRepoImpl,
+  private val chapterRepo: ChapterRepo,
   private val contentRepo: BookContentRepo,
 ) : BookRepository {
 
@@ -29,7 +29,7 @@ public class BookRepositoryImpl(
       val chapters = contentRepo.all()
         .filter { it.isActive }
         .flatMap { it.chapters }
-      chapterRepo.warmup(chapters)
+      chapterRepo.prefetch(chapters)
       warmedUp = true
     }
   }

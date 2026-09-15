@@ -37,10 +37,12 @@ No account, no ads, no forced cloud sync — your library stays on your device.
 ## ✨ 功能特性 | Features
 
 **📚 书库管理 Library**
-- 添加本地文件夹，自动扫描整理 **M4B / MP3 / M4A / OGG / OGA / OPUS** 有声书
-  Add your folders — M4B / MP3 / M4A / OGG / OGA / OPUS files get organized automatically
-- 多集音频按文件名**自然排序**（第 2 集正确排在第 10 集之前）
-  Episodes are sorted naturally ("Episode 2" correctly precedes "Episode 10")
+- **书架模式**：导入一个文件夹，它就是书架上的一本书，里面所有音频（含子文件夹）自动成为这本书的章节；也支持把单个音频文件作为一本书
+  **Bookshelf model**: every folder you add becomes one book on your shelf, with every audio file inside (including subfolders) as its chapters — or add a single audio file as its own book
+- 自动扫描整理 **M4B / MP3 / M4A / OGG / OGA / OPUS / FLAC / WAV** 有声书
+  Scans and organizes **M4B / MP3 / M4A / OGG / OGA / OPUS / FLAC / WAV** audiobooks automatically
+- 多集音频按文件名**自然排序**（第 2 集正确排在第 10 集之前；支持全角数字与「第一章 / 第二十章」中文数字）
+  Episodes are sorted naturally ("Episode 2" precedes "Episode 10"; full-width and Chinese numerals supported)
 - 按「正在听 / 未开始 / 已完成」自动分组，网格 / 列表视图切换，支持搜索
   Auto-grouped into Current / Not Started / Finished, grid or list view, with search
 

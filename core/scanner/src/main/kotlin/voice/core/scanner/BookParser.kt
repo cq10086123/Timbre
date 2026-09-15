@@ -45,9 +45,17 @@ internal class BookParser(
       addedAt = Instant.now(),
       author = analyzed?.artist,
       lastPlayedAt = Instant.EPOCH,
-      name = analyzed?.album
-        ?: analyzed?.title?.takeIf { file.isFile }
-        ?: file.bookName(),
+      name = if (file.isFile) {
+        analyzed?.album
+          ?: analyzed?.title
+          ?: file.bookName()
+      } else {
+        // bookshelf model: the imported folder itself is the book, so its
+        // name wins over embedded album tags
+        file.name?.takeUnless { it.isBlank() }
+          ?: analyzed?.album
+          ?: file.bookName()
+      },
       playbackSpeed = 1F,
       skipSilence = false,
       chapters = chapters.map { it.id },

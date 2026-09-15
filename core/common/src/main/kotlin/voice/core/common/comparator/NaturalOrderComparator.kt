@@ -14,28 +14,17 @@ object NaturalOrderComparator {
       val lhsSegments = lhs.pathSegments.flatMap { it.split("/") }
       val rhsSegments = rhs.pathSegments.flatMap { it.split("/") }
 
-      val leftSize = lhsSegments.size
-      val rightSize = rhsSegments.size
-
-      // compare parents only and return if one differs
-      var i = 0
-      val toLeft = leftSize - 1
-      val toRight = rightSize - 1
-      while (i < toLeft && i < toRight) {
-        val pl = lhsSegments[i]
-        val pr = rhsSegments[i]
-        if (pl != pr) {
-          return stringComparator.compare(pl, pr)
+      // compare every segment naturally, so a file in a sub folder is ordered
+      // by name relative to files in the parent folder instead of always
+      // sorting before/after them purely based on path depth.
+      val minSize = minOf(lhsSegments.size, rhsSegments.size)
+      for (index in 0 until minSize) {
+        val diff = stringComparator.compare(lhsSegments[index], rhsSegments[index])
+        if (diff != 0) {
+          return diff
         }
-        i++
       }
-
-      // if sizes are the same
-      return if (leftSize == rightSize) {
-        stringComparator.compare(lhsSegments.lastOrNull() ?: "", rhsSegments.lastOrNull() ?: "")
-      } else {
-        rightSize - leftSize
-      }
+      return lhsSegments.size - rhsSegments.size
     }
   }
 }

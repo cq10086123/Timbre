@@ -71,16 +71,6 @@ sealed interface Destination {
   }
 
   @Serializable
-  data class SelectFolderType(
-    val uri:
-    @Serializable(with = UriSerializer::class)
-    Uri,
-    val origin: Origin,
-  ) : Compose {
-    override val trackingName: String = "SelectFolderType"
-  }
-
-  @Serializable
   data object OnboardingWelcome : Compose {
     override val trackingName: String get() = "OnboardingWelcome"
   }
