@@ -1,101 +1,68 @@
-**Privacy Policy**
+# 隐私政策 / Privacy Policy
 
-This privacy policy applies to the Voice app (hereby referred to as "Application") for mobile devices that was created by Paul Woitaschek (
-hereby referred to as "Service Provider") as an Open Source service. This service is intended for use "AS IS".
+**最后更新：2026-09-15**
 
-**Information Collection and Use**
+Timbre（以下简称"本应用"）是一款**自由开源**的本地有声书播放器（GPLv3），基于开源项目 [Voice](https://github.com/PaulWoitaschek/Voice) 二次开发。完整源代码公开于：
+https://github.com/cq10086123/Timbre
 
-The Application collects information when you download and use it. This information may include information such as
+## 我们的承诺
 
-* Your device's Internet Protocol address (e.g. IP address)
-* The pages of the Application that you visit, the time and date of your visit, the time spent on those pages
-* The time spent on the Application
-* The operating system you use on your mobile device
+**本应用不收集、不存储、不传输任何个人信息。**
 
-The Application does not gather precise information about the location of your mobile device.
+- ❌ 没有账号系统，无需注册
+- ❌ 没有广告
+- ❌ 没有内置任何统计、分析或行为追踪 SDK（如 Firebase / 友盟 / 广点通等）
+- ❌ 不获取精确位置，不读取通讯录、短信、通话记录
+- ✅ 你的所有书籍、播放进度、书签和设置都只保存在你自己的设备上
 
-The Application collects your device's location, which helps the Service Provider determine your approximate geographical location and make
-use of in below ways:
+## 本应用使用的权限及用途
 
-* Geolocation Services: The Service Provider utilizes location data to provide features such as personalized content, relevant
-  recommendations, and location-based services.
-* Analytics and Improvements: Aggregated and anonymized location data helps the Service Provider to analyze user behavior, identify trends,
-  and improve the overall performance and functionality of the Application.
-* Third-Party Services: Periodically, the Service Provider may transmit anonymized location data to external services. These services assist
-  them in enhancing the Application and optimizing their offerings.
+| 权限 | 用途 |
+|---|---|
+| 读取音频文件 / 存储 | 扫描并播放你设备上的有声书文件，这是本应用的核心功能 |
+| 通知 | 播放时显示媒体控制通知（暂停 / 快进等） |
+| 前台服务（媒体播放） | 保证音频在后台持续播放 |
+| 唤醒锁（Wake Lock） | 播放时防止设备休眠导致播放中断 |
+| 蓝牙 | 支持蓝牙耳机 / Android Auto 的媒体控制 |
 
-The Service Provider may use the information you provided to contact you from time to time to provide you with important information,
-required notices and marketing promotions.
+以上权限仅用于实现对应功能，相关数据不会离开你的设备。
 
-For a better experience, while using the Application, the Service Provider may require you to provide us with certain personally
-identifiable information. The information that the Service Provider request will be retained by them and used as described in this privacy
-policy.
+## 唯一的联网行为
 
-**Third Party Access**
+本应用默认不联网。只有当你**主动**使用「从互联网寻找封面图片」功能时，应用会把书名（可能包含作者名）作为关键词发送到 DuckDuckGo 图片搜索（https://duckduckgo.com）以检索封面。除此之外没有任何网络请求。
 
-Only aggregated, anonymized data is periodically transmitted to external services to aid the Service Provider in improving the Application
-and their service. The Service Provider may share your information with third parties in the ways that are described in this privacy
-statement.
+## 数据存储与备份
 
-Please note that the Application utilizes third-party services that have their own Privacy Policy about handling data. Below are the links
-to the Privacy Policy of the third-party service providers used by the Application:
+所有数据（书库信息、播放位置、书签、设置）均存储于本应用的私有目录中。如果你开启了 Android 系统自带的自动备份功能，系统可能会按你自己的 Google/厂商账号设置备份应用数据，该过程由操作系统控制，与本应用无关。
 
-* [Google Play Services](https://www.google.com/policies/privacy/)
-* [Google Analytics for Firebase](https://firebase.google.com/support/privacy)
-* [Firebase Crashlytics](https://firebase.google.com/support/privacy/)
+卸载本应用即可删除全部应用数据。
 
-The Service Provider may disclose User Provided and Automatically Collected Information:
+## 儿童隐私
 
-* as required by law, such as to comply with a subpoena, or similar legal process;
-* when they believe in good faith that disclosure is necessary to protect their rights, protect your safety or the safety of others,
-  investigate fraud, or respond to a government request;
-* with their trusted services providers who work on their behalf, do not have an independent use of the information we disclose to them, and
-  have agreed to adhere to the rules set forth in this privacy statement.
+本应用不面向 13 岁以下儿童收集任何信息（我们实际上不收集任何人的信息）。
 
-**Opt-Out Rights**
+## 隐私政策变更
 
-You can stop all collection of information by the Application easily by uninstalling it. You may use the standard uninstall processes as may
-be available as part of your mobile device or via the mobile application marketplace or network.
+如本政策更新，会在源代码仓库中公布。请通过以下地址查看历史版本：
+https://github.com/cq10086123/Timbre/blob/main/PRIVACY.md
 
-**Data Retention Policy**
+## 联系我们
 
-The Service Provider will retain User Provided data for as long as you use the Application and for a reasonable time thereafter. If you'd
-like them to delete User Provided Data that you have provided via the Application, please contact them at woitaschek@gmail.com and they will
-respond in a reasonable time.
+如对本政策或应用有任何疑问，请在 GitHub 提交 Issue：
+https://github.com/cq10086123/Timbre/issues
 
-**Children**
+---
 
-The Service Provider does not use the Application to knowingly solicit data from or market to children under the age of 13.
+## English Summary
 
-The Application does not address anyone under the age of 13. The Service Provider does not knowingly collect personally identifiable
-information from children under 13 years of age. In the case the Service Provider discover that a child under 13 has provided personal
-information, the Service Provider will immediately delete this from their servers. If you are a parent or guardian and you are aware that
-your child has provided us with personal information, please contact the Service Provider (woitaschek@gmail.com) so that they will be able
-to take the necessary actions.
+Timbre is a free and open-source (GPLv3) local audiobook player, forked from the
+[Voice](https://github.com/PaulWoitaschek/Voice) project.
 
-**Security**
+- **No data collection.** The app contains no accounts, no ads, and no analytics or tracking SDKs.
+- **Everything stays on your device:** your library, playback positions, bookmarks, and settings.
+- **Only network call:** when you *manually* search the internet for a book cover, the book title is sent as a query to DuckDuckGo image search. Nothing else ever leaves your device.
+- Permissions (media files, notifications, foreground service, wake lock, Bluetooth) are used solely to provide audiobook playback.
+- Uninstalling the app removes all of its data.
 
-The Service Provider is concerned about safeguarding the confidentiality of your information. The Service Provider provides physical,
-electronic, and procedural safeguards to protect information the Service Provider processes and maintains.
-
-**Changes**
-
-This Privacy Policy may be updated from time to time for any reason. The Service Provider will notify you of any changes to the Privacy
-Policy by updating this page with the new Privacy Policy. You are advised to consult this Privacy Policy regularly for any changes, as
-continued use is deemed approval of all changes.
-
-This privacy policy is effective as of 2025-04-15
-
-**Your Consent**
-
-By using the Application, you are consenting to the processing of your information as set forth in this Privacy Policy now and as amended by
-us.
-
-**Contact Us**
-
-If you have any questions regarding privacy while using the Application, or have questions about the practices, please contact the Service
-Provider via email at woitaschek@gmail.com.
-
-* * *
-
-This privacy policy page was generated by [App Privacy Policy Generator](https://app-privacy-policy-generator.nisrulz.com/)
+Source code: https://github.com/cq10086123/Timbre
+Questions: open an issue at https://github.com/cq10086123/Timbre/issues
