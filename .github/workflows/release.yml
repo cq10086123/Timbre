@@ -1,7 +1,14 @@
 name: Release
 
 on:
-  workflow_dispatch: { }
+  workflow_dispatch:
+    inputs:
+      versionName:
+        description: '版本名 versionName，如 1.0.0'
+        required: true
+      versionCode:
+        description: '版本号 versionCode（整数，每次发布必须递增），如 1'
+        required: true
 
 concurrency:
   group: release
@@ -13,83 +20,47 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-          fetch-tags: true
-          persist-credentials: true
-
-      - name: Ensure release runs from default branch
-        if: github.ref_name != github.event.repository.default_branch
-        run: |
-          echo "Release must be dispatched from the default branch (${{ github.event.repository.default_branch }}); got ${GITHUB_REF_NAME}." >&2
-          exit 1
-
-      - name: Determine release tag
-        id: tag
-        run: ./scripts/determine_release_tag.main.kts
 
       - uses: ./.github/actions/build_setup
 
-      - name: Setup Signing
+      - name: 写入签名配置
         env:
-          PLAY_SIGNING_KEYSTORE: ${{ secrets.PLAY_SIGNING_KEYSTORE }}
-          GITHUB_SIGNING_KEYSTORE: ${{ secrets.GH_SIGNING_KEYSTORE }}
-          GOOGLE_SERVICES: ${{ secrets.GOOGLE_SERVICES }}
-        run: ./scripts/ci_signing_setup.sh
-
-      - name: Setup Play Access
-        env:
-          PLAY_SERVICE_ACCOUNT: ${{ secrets.PLAY_SERVICE_ACCOUNT }}
-        run: ./scripts/ci_setup_play_access.sh
-
-      - name: Build Play AAB
-        env:
-          PLAY_SIGNING_STORE_PASSWORD: ${{ secrets.PLAY_SIGNING_STORE_PASSWORD }}
-          PLAY_SIGNING_KEY_ALIAS: ${{ secrets.PLAY_SIGNING_KEY_ALIAS }}
-          PLAY_SIGNING_KEY_PASSWORD: ${{ secrets.PLAY_SIGNING_KEY_PASSWORD }}
+          TIMBRE_KEYSTORE_BASE64: ${{ secrets.TIMBRE_KEYSTORE_BASE64 }}
+          TIMBRE_STORE_PASSWORD: ${{ secrets.TIMBRE_STORE_PASSWORD }}
+          TIMBRE_KEY_ALIAS: ${{ secrets.TIMBRE_KEY_ALIAS }}
+          TIMBRE_KEY_PASSWORD: ${{ secrets.TIMBRE_KEY_PASSWORD }}
         run: |
-          ./gradlew :app:bundlePlayRelease \
-            -Pvoice.versionName="${{ steps.tag.outputs.version_name }}" \
-            -Pvoice.versionCode="${{ steps.tag.outputs.version_code }}" \
-            -Pandroid.injected.signing.store.file="$PWD/signing/play/signing.keystore" \
-            -Pandroid.injected.signing.store.password="$PLAY_SIGNING_STORE_PASSWORD" \
-            -Pandroid.injected.signing.key.alias="$PLAY_SIGNING_KEY_ALIAS" \
-            -Pandroid.injected.signing.key.password="$PLAY_SIGNING_KEY_PASSWORD"
-          mkdir -p artifacts
-          cp app/build/outputs/bundle/playRelease/app-play-release.aab artifacts/app-play-release.aab
+          mkdir -p signing
+          echo "$TIMBRE_KEYSTORE_BASE64" | base64 --decode > signing/signing.keystore
+          {
+            echo "STORE_PASSWORD=$TIMBRE_STORE_PASSWORD"
+            echo "KEY_ALIAS=$TIMBRE_KEY_ALIAS"
+            echo "KEY_PASSWORD=$TIMBRE_KEY_PASSWORD"
+          } > signing/signing.properties
 
-      - name: Upload to INTERNAL
-        run: fastlane android upload_internal aab_path:artifacts/app-play-release.aab
-
-      - name: Promote INTERNAL -> PRODUCTION (0.1%)
-        run: fastlane android promote version_code:${{ steps.tag.outputs.version_code }}
-
-      - name: Build GitHub APKs
-        env:
-          GITHUB_SIGNING_STORE_PASSWORD: ${{ secrets.GH_SIGNING_STORE_PASSWORD }}
-          GITHUB_SIGNING_KEY_ALIAS: ${{ secrets.GH_SIGNING_KEY_ALIAS }}
-          GITHUB_SIGNING_KEY_PASSWORD: ${{ secrets.GH_SIGNING_KEY_PASSWORD }}
+      - name: 构建 Release APK
         run: |
-          ./gradlew :app:assembleFreeRelease \
-            -Pvoice.versionName="${{ steps.tag.outputs.version_name }}" \
-            -Pvoice.versionCode="${{ steps.tag.outputs.version_code }}" \
-            -Pandroid.injected.signing.store.file="$PWD/signing/free/signing.keystore" \
-            -Pandroid.injected.signing.store.password="$GITHUB_SIGNING_STORE_PASSWORD" \
-            -Pandroid.injected.signing.key.alias="$GITHUB_SIGNING_KEY_ALIAS" \
-            -Pandroid.injected.signing.key.password="$GITHUB_SIGNING_KEY_PASSWORD"
-          mkdir -p artifacts
-          cp app/build/outputs/apk/free/release/app-free-release.apk artifacts/app-free-release.apk
+          ./gradlew assembleFreeRelease \
+            -Pvoice.versionName="${{ inputs.versionName }}" \
+            -Pvoice.versionCode="${{ inputs.versionCode }}"
+          test -f app/build/outputs/apk/free/release/app-free-release.apk
 
-      - name: Create GitHub Release
+      - name: 上传 APK 到构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: timbre-v${{ inputs.versionName }}
+          path: app/build/outputs/apk/free/release/app-free-release.apk
+
+      - name: 创建 GitHub Release
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "${{ steps.tag.outputs.tag }}" \
-            artifacts/*.apk \
-            --draft \
+          cp app/build/outputs/apk/free/release/app-free-release.apk \
+            "timbre-v${{ inputs.versionName }}.apk"
+          gh release create "v${{ inputs.versionName }}" \
+            "timbre-v${{ inputs.versionName }}.apk" \
+            --title "Timbre v${{ inputs.versionName }}" \
             --generate-notes \
             --target "$GITHUB_SHA"
