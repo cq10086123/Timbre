@@ -13,7 +13,6 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
-    environment: release
     permissions:
       contents: write
     steps:
