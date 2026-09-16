@@ -5,6 +5,7 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
+import org.junit.runner.RunWith
 import voice.core.data.BookContent
 import voice.core.data.BookId
 import voice.core.data.Chapter
