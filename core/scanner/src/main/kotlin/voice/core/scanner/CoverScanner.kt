@@ -42,7 +42,7 @@ internal class CoverScanner(
               try {
                 // cover lookup reads the audio files as well, so it pauses
                 // while playback is loading
-                playbackIoGate.whilePlaybackLoads {
+                playbackIoGate.whilePlaybackLoads<Unit> {
                   findCoverForBook(book)
                 }
               } catch (e: kotlinx.coroutines.CancellationException) {
