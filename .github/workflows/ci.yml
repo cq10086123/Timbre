@@ -10,6 +10,13 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# the junit report action publishes its results as a check run, which needs
+# checks: write. Without it the report step fails with "Resource not
+# accessible by integration" and hides the real test failures
+permissions:
+  contents: read
+  checks: write
+
 jobs:
   lint:
     runs-on: ubuntu-latest
