@@ -1,6 +1,7 @@
 package voice.core.scanner
 
 import android.content.Context
+import android.graphics.BitmapFactory
 import androidx.documentfile.provider.DocumentFile
 import dev.zacsweers.metro.Inject
 import kotlinx.coroutines.Dispatchers
@@ -16,6 +17,7 @@ import voice.core.logging.api.Logger
 import java.io.File
 import java.io.IOException
 import java.security.MessageDigest
+import java.util.Locale
 
 @Inject
 internal class CoverScanner(
@@ -61,17 +63,20 @@ internal class CoverScanner(
       return
     }
 
+    // a picture next to the audio files is the cheapest source, and the one
+    // worth re-checking on every scan: dropping an image into the folder later
+    // still replaces the drawn placeholder, marker or not
+    val foundOnDisc = findAndSaveCoverFromDisc(book)
+    if (foundOnDisc) {
+      return
+    }
+
     val marker = markerFile(book)
     if (marker.exists()) {
       // the audio files were searched for artwork before and contain none.
       // The book still shouldn't sit on the shelf without a cover, so one is
       // drawn from its name.
       generateCover(book)
-      return
-    }
-
-    val foundOnDisc = findAndSaveCoverFromDisc(book)
-    if (foundOnDisc) {
       return
     }
 
@@ -129,22 +134,29 @@ internal class CoverScanner(
       return@withContext false
     }
 
-    documentFile.listFiles().forEach { child ->
-      if (child.isFile && child.canRead() && child.type?.startsWith("image/") == true) {
+    // several pictures in the folder are equally good, so one is drawn at
+    // random. Candidates the platform cannot decode are skipped, so a file in
+    // an exotic format doesn't end up as a cover just because it was drawn.
+    documentFile
+      .listFiles()
+      .filter { it.isFile && it.canRead() && it.isSupportedImage() }
+      .shuffled()
+      .forEach { candidate ->
+        if (!candidate.isDecodable()) return@forEach
         val coverFile = coverSaver.newBookCoverFile()
         val worked = try {
-          context.contentResolver.openInputStream(child.uri)?.use { input ->
+          context.contentResolver.openInputStream(candidate.uri)?.use { input ->
             coverFile.outputStream().use { output ->
               input.copyTo(output)
             }
           }
           true
         } catch (e: IOException) {
-          Logger.w(e, "Error while copying the cover from ${child.uri}")
+          Logger.w(e, "Error while copying the cover from ${candidate.uri}")
           false
         } catch (e: IllegalStateException) {
           // On some Samsung Devices, openInputStream throws this exception, though it should not.
-          Logger.w(e, "Error while copying the cover from ${child.uri}")
+          Logger.w(e, "Error while copying the cover from ${candidate.uri}")
           false
         }
         if (worked) {
@@ -152,9 +164,46 @@ internal class CoverScanner(
           return@withContext true
         }
       }
-    }
 
     false
+  }
+
+  // formats BitmapFactory can decode. Anything else would only end up as a
+  // broken cover file, so it is treated as if no picture was there.
+  private val imageExtensions = setOf(
+    "avif",
+    "bmp",
+    "gif",
+    "heic",
+    "heif",
+    "ico",
+    "jfif",
+    "jpe",
+    "jpeg",
+    "jpg",
+    "png",
+    "wbmp",
+    "webp",
+  )
+
+  private fun DocumentFile.isSupportedImage(): Boolean {
+    val type = type
+    if (type != null) {
+      // vector graphics cannot be decoded to a bitmap
+      if (type.equals("image/svg+xml", ignoreCase = true)) return false
+      if (type.startsWith("image/")) return true
+    }
+    // some providers report no mime type at all, the extension is all there is
+    val extension = name?.substringAfterLast('.', missingDelimiterValue = "")?.lowercase(Locale.US)
+    return extension in imageExtensions
+  }
+
+  private fun DocumentFile.isDecodable(): Boolean {
+    val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    val decoded = runCatching {
+      context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, options) }
+    }
+    return decoded.isSuccess && options.outWidth > 0 && options.outHeight > 0
   }
 
   private suspend fun scanForEmbeddedCover(book: Book): Boolean {
