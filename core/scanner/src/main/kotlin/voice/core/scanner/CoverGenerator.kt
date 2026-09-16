@@ -7,6 +7,7 @@ import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.Shader
 import android.graphics.Typeface
+import androidx.core.graphics.createBitmap
 import dev.zacsweers.metro.Inject
 
 /**
@@ -31,7 +32,7 @@ internal class CoverGenerator {
     val startColor = Color.HSVToColor(floatArrayOf(hue, 0.45f, 0.58f))
     val endColor = Color.HSVToColor(floatArrayOf((hue + 36f) % 360f, 0.58f, 0.30f))
 
-    val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+    val bitmap = createBitmap(size, size)
     val canvas = Canvas(bitmap)
     val background = Paint(Paint.ANTI_ALIAS_FLAG).apply {
       shader = LinearGradient(
