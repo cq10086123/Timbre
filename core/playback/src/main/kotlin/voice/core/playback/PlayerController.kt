@@ -201,6 +201,14 @@ class PlayerController(
     controller.sendCustomCommand(CustomCommand.SetGain(gain))
   }
 
+  fun setSkipIntro(skipIntroMs: Long) = executeAfterPrepare { controller ->
+    controller.sendCustomCommand(CustomCommand.SetSkipIntro(skipIntroMs))
+  }
+
+  fun setSkipOutro(skipOutroMs: Long) = executeAfterPrepare { controller ->
+    controller.sendCustomCommand(CustomCommand.SetSkipOutro(skipOutroMs))
+  }
+
   fun setVolume(volume: Float) = executeAfterPrepare {
     require(volume in 0F..1F)
     it.volume = volume

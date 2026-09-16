@@ -25,6 +25,7 @@ import voice.core.playback.notification.MainActivityIntentProvider
 import voice.core.playback.player.DurationInconsistenciesUpdater
 import voice.core.playback.player.OnlyAudioRenderersFactory
 import voice.core.playback.player.PlaybackIoPriorityUpdater
+import voice.core.playback.player.SkipIntroOutro
 import voice.core.playback.player.VoicePlayer
 import voice.core.playback.player.onAudioSessionIdChanged
 import voice.core.playback.playstate.PlayStateDelegatingListener
@@ -55,6 +56,7 @@ interface PlaybackModule {
     playStateDelegatingListener: PlayStateDelegatingListener,
     positionUpdater: PositionUpdater,
     bookPlaylistSynchronizer: BookPlaylistSynchronizer,
+    skipIntroOutro: SkipIntroOutro,
     volumeGain: VolumeGain,
     durationInconsistenciesUpdater: DurationInconsistenciesUpdater,
     playbackIoPriorityUpdater: PlaybackIoPriorityUpdater,
@@ -92,6 +94,8 @@ interface PlaybackModule {
         // keeps a book that is still being imported playable by appending the
         // chapters as soon as they are known
         bookPlaylistSynchronizer.attachTo(player)
+        // skips the intro and outro the current book was configured with
+        skipIntroOutro.attachTo(player)
         player.onAudioSessionIdChanged {
           volumeGain.audioSessionId = it
         }
