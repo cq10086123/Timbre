@@ -8,7 +8,6 @@
     <string name="book.delete.dialog.message">将从书架移除这本有声书，音频文件会保留在设备上。</string>
     <string name="book.delete.dialog.title">删除有声书</string>
     <string name="book.edit.cover.file">从本机寻找封面图片</string>
-    <string name="book.edit.cover.internet">从互联网寻找封面图片</string>
     <string name="book.edit.name.label">名称</string>
     <string name="book.edit.title">编辑书名</string>
     <string name="bookmark.added.snackbar">已添加书签</string>
