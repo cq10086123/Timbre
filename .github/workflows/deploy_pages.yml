@@ -36,6 +36,8 @@ jobs:
           python-version: '3.x'
       - run: pip install pipenv
       - run: pipenv install
+      # the site serves the root privacy policy, kept in sync at build time
+      - run: cp PRIVACY.md docs/privacy.md
       - run: pipenv run mkdocs build --strict
       - uses: actions/upload-pages-artifact@v5
         with:

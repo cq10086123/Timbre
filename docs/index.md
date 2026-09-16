@@ -3,61 +3,61 @@ hide:
   - toc
 ---
 
-# Voice
+# Timbre
 
-A minimal, user-focused audiobook player for Android.
+一款自由开源、本地优先的 Android 有声书播放器。
 
-Voice turns your own audiobook files into a calm listening library with resume positions, bookmarks, sleep timer, playback speed, silence
-skipping, and Android Auto support.
+Timbre 把你自己的有声书文件变成一个安静、顺手的听书库：记住每个位置的播放进度、书签、睡眠定时器、倍速播放、跳过片头片尾、自动封面，全部离线可用。
 
-[:simple-googleplay: &nbsp;Google Play](https://play.google.com/store/apps/details?id=de.ph1b.audiobook){ .md-button }
-[:simple-fdroid: &nbsp;F-Droid](https://f-droid.org/packages/de.ph1b.audiobook){ .md-button }
-[:material-download: &nbsp;IzzyDroid](https://apt.izzysoft.de/fdroid/index/apk/de.ph1b.audiobook){ .md-button }
+[:material-download: &nbsp;下载最新版本](https://github.com/cq10086123/Timbre/releases/latest){ .md-button .md-button--primary }
+[:material-github: &nbsp;GitHub 仓库](https://github.com/cq10086123/Timbre){ .md-button }
 
-Not sure which one to choose? See the [download source comparison](download-sources.md).
-
-[:simple-kofi:{ .heart-pulse } &nbsp;Support on Ko-fi](https://ko-fi.com/paul_voice){ .md-button .md-button--sponsor }
-
-<small>Voice is free and built in spare time. Ko-fi supports one-time or monthly contributions with no sign-up. You can
-also [sponsor on GitHub](https://github.com/sponsors/PaulWoitaschek).</small>
-
-<div class="voice-screenshots">
-  <img src="screenshots/1_en-US.png" alt="Voice library view" />
-  <img src="screenshots/2_en-US.png" alt="Voice player view" />
-  <img src="screenshots/3_en-US.png" alt="Voice sleep timer" />
+<div class="timbre-screenshots">
+  <img src="screenshots/shelf.png" alt="Timbre 书架" />
 </div>
 
-## Why Voice?
+## 为什么选择 Timbre？
 
 <div class="grid cards" markdown>
 
-- :material-feather:{ .lg .middle } **Minimal by design**
+- :material-shield-check:{ .lg .middle } **本地优先，无广告**
 
   ---
 
-  Only the controls you need while listening, with no clutter and no upsells.
+  不需要账号，没有广告，没有统计与追踪。你的书库只属于你的设备。
 
-- :material-shield-check:{ .lg .middle } **Open source & private**
-
-  ---
-
-  Fully open source under the GPL. No account, no ads, no forced cloud sync.
-
-- :material-bookmark-music:{ .lg .middle } **Built for audiobooks**
+- :material-book-open-blank-variant:{ .lg .middle } **为有声书而生**
 
   ---
 
-  Chapter navigation, sleep timer fade-out, bookmarks, speed control, and resume-where-you-left-off.
+  章节导航、断点续播、书签、睡眠定时器、倍速播放，一个不少。
 
-- :material-update:{ .lg .middle } **Actively maintained**
+- :material-skip-forward:{ .lg .middle } **跳过片头片尾**
 
   ---
 
-  Regular updates, community-driven, and responsive to feedback.
+  每本书独立设置：进集自动跳过开头，播到片尾自动进入下一集。
+
+- :material-image-multiple:{ .lg .middle } **自动封面**
+
+  ---
+
+  文件夹里有图片就自动做封面，多张随机选一张；没有图片也能按书名生成一张。
+
+- :material-cellphone-arrow-down:{ .lg .middle } **应用内更新**
+
+  ---
+
+  启动后后台静默检查新版本，发现更新时弹窗提示，一键前往下载。
+
+- :material-cellphone-link:{ .lg .middle } **Android Auto**
+
+  ---
+
+  支持蓝牙耳机与 Android Auto 的媒体控制，开车也能继续听。
 
 </div>
 
-## Learn more
+## 它和上游项目的关系
 
-Read [About Voice](about.md) for the philosophy behind the app, [Organizing Audiobooks](organizing.md) for setting up your library, or
-the [FAQ](faq.md) for common questions. Want to contribute? See [Development](development.md) and [Architecture](architecture.md).
+Timbre 基于开源项目 [Voice](https://github.com/PaulWoitaschek/Voice)（GPLv3）二次开发，在全量中文化之外增加了跳过片头片尾、自动封面、应用内更新等功能。详见[关于页](about.md)。

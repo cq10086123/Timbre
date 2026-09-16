@@ -1,27 +1,24 @@
-site_name: Voice
-site_description: "Voice is an open source audiobook player built for simplicity and accessibility. Listen to, organize, and enjoy your audiobooks effortlessly."
-site_author: Paul Woitaschek
-site_url: https://voice.woitaschek.de
+site_name: Timbre
+site_description: "Timbre 是一款自由开源的 Android 有声书播放器，本地优先、无广告、无追踪，支持跳过片头片尾、自动封面与应用内更新。"
+site_author: cq10086123
+site_url: https://cq10086123.github.io/Timbre/
 
-repo_url: https://github.com/PaulWoitaschek/Voice
-repo_name: "Voice on GitHub"
+repo_url: https://github.com/cq10086123/Timbre
+repo_name: "Timbre on GitHub"
 
 nav:
-  - Home: index.md
-  - Download Sources: download-sources.md
-  - Organizing Audiobooks: organizing.md
-  - Privacy Policy: privacy-policy.md
-  - License: license.md
-  - Contributing: contributing.md
-  - About: about.md
-  - Development: development.md
-  - Architecture: architecture.md
-  - FAQ: faq.md
+  - 首页: index.md
+  - 下载安装: download.md
+  - 功能特性: features.md
+  - 整理有声书: organizing.md
+  - 常见问题: faq.md
+  - 隐私政策: privacy.md
+  - 许可证: license.md
+  - 关于: about.md
 
 theme:
   name: material
-  logo: logo.png
-  favicon: logo.png
+  language: zh
   icon:
     repo: fontawesome/brands/github
   features:
@@ -39,14 +36,14 @@ theme:
       accent: indigo
       toggle:
         icon: material/weather-night
-        name: Switch to dark mode
+        name: 切换到深色模式
     - media: "(prefers-color-scheme: dark)"
       scheme: slate
       primary: black
       accent: indigo
       toggle:
         icon: material/weather-sunny
-        name: Switch to light mode
+        name: 切换到浅色模式
 
 extra_css:
   - stylesheets/extra.css
@@ -75,7 +72,7 @@ markdown_extensions:
 plugins:
   - redirects:
       redirect_maps:
-        'privacy_policy.md': 'privacy-policy.md'
-        'privacy.md': 'privacy-policy.md'
+        'privacy_policy.md': 'privacy.md'
+        'privacy.md': 'privacy.md'
 
-copyright: <a href="https://woitaschek.de/impressum/">Impressum</a>
+copyright: Timbre · GPLv3 · 基于 <a href="https://github.com/PaulWoitaschek/Voice">Voice</a> 二次开发

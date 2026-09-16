@@ -1,62 +1,60 @@
-# Organizing Audiobooks
+# 整理有声书
 
-Voice offers three simple ways to organize your audiobooks based on how you store them on your device. Pick the option that matches your
-setup best:
+Timbre 用**文件夹**来组织书库：你注册的每一个文件夹（或单个文件）就是一本书。选对导入方式，书架就一目了然。
 
-## 1. **Audiobooks in Separate Folders** (recommended)
+## 1. 每本书一个文件夹（推荐）
 
-Each folder within your selected directory is treated as a separate audiobook. Any audio files directly inside that directory (not in a
-subfolder) will also be recognized as individual audiobooks.
+在所选目录下，每个子文件夹都是一本书，里面的音频文件按顺序成为章节：
 
-**Example:**
-
-```
+```text
 /Audiobooks
-├─ TheHobbit/
-│   ├─ chapter1.mp3
-│   └─ chapter2.mp3
-├─ MobyDick/
-│   ├─ chapter1.mp3
-│   └─ chapter2.mp3
-└─ LittlePrince.mp3
+├─ 太子妃她命中带煞/
+│   ├─ 第001集.mp3
+│   ├─ 第002集.mp3
+│   └─ ...
+└─ 覆汉/
+    ├─ 01.mp3
+    └─ 02.mp3
 ```
 
-Voice recognizes three audiobooks: `TheHobbit`, `MobyDick`, and the single-file book `LittlePrince`.
+## 2. 整个文件夹就是一本书
 
-## 2. **Single Audiobook Folder**
+如果直接选择一个装满音频的文件夹，那么它本身是一本书，里面的文件按自然顺序排列为章节：
 
-The selected folder itself is one audiobook, with files inside treated as chapters.
-
-**Example:**
-
-```
-/PrideAndPrejudice
-├─ Chapter1.mp3
-├─ Chapter2.mp3
-└─ Chapter3.mp3
+```text
+/三体
+├─ 第01集.mp3
+├─ 第02集.mp3
+└─ 第03集.mp3
 ```
 
-Voice recognizes one audiobook: `PrideAndPrejudice`.
+## 3. 单文件也是一本书
 
-## 3. **Audiobooks Organized by Author**
+目录里散落的单个音频文件也会被识别为独立的一本书。
 
-First-level folders represent authors, and subfolders represent audiobooks.
+## 章节顺序
 
-**Example:**
+章节按**自然排序**排列：`第2集` 会正确排在 `第10集` 之前，不需要给文件名补零（当然补了更保险）。
 
-```
-/Authors
-├─ Woolf/
-│   ├─ MrsDalloway/
-│   │   ├─ chapter1.mp3
-│   │   └─ chapter2.mp3
-│   └─ ToTheLighthouse/
-│       ├─ chapter1.mp3
-│       └─ chapter2.mp3
-└─ Tolkien/
-    └─ TheHobbit/
-        ├─ chapter1.mp3
-        └─ chapter2.mp3
-```
+## 支持的音频格式
 
-Voice recognizes authors (`Woolf`, `Tolkien`) and their audiobooks (`MrsDalloway`, `ToTheLighthouse`, `TheHobbit`).
+MP3、M4A/M4B、AAC、FLAC、OGG/OGA、OPUS、WAV、MKA/MKV、MP4、WebM、3GP 等 Android 平台原生支持的格式。
+
+完整列表见源码中的 [SupportedAudioFormats.kt](https://github.com/cq10086123/Timbre/blob/main/core/data/api/src/main/kotlin/voice/core/data/SupportedAudioFormats.kt)。
+
+## 封面
+
+按以下优先级自动确定，无需手动操作：
+
+1. **文件夹里的图片**：jpg、png、webp、heic 等常见格式都行；有多张则随机选一张。
+2. **音频内嵌封面**：读取前几集的内嵌图。
+3. **自动生成**：按书名生成一张渐变封面。
+
+往文件夹里补充或更换图片后，重新打开应用（触发一次扫描）即可生效。
+
+## 文件更新
+
+- **新增音频文件**：下次扫描自动追加为新章节。
+- **删除音频文件**：对应章节自动移除；如果删除的正好是当前播放的章节，会回到第一章。
+- **替换音频内容**：重新分析该文件的时长。
+- 已经听完的进度会尽量保留，不需要删书重导。
