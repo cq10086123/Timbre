@@ -347,4 +347,3 @@ class VoicePlayer(
     repo.updateBook(bookId, update)
   }
 }
-
