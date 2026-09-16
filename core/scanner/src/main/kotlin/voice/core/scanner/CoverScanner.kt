@@ -60,6 +60,18 @@ internal class CoverScanner(
   private suspend fun findCoverForBook(book: Book) {
     val coverFile = book.content.cover
     if (coverFile != null && coverFile.exists()) {
+      // a drawn placeholder remembers itself through the marker, so a picture
+      // dropped into the folder later can still replace it. A real cover -
+      // chosen by the user or extracted from the audio - has no marker and is
+      // never touched again.
+      val marker = markerFile(book)
+      if (!marker.exists()) {
+        return
+      }
+      if (findAndSaveCoverFromDisc(book)) {
+        runCatching { marker.delete() }
+          .onFailure { Logger.w(it, "Could not delete the no-cover marker for ${book.id}") }
+      }
       return
     }
 
@@ -68,6 +80,8 @@ internal class CoverScanner(
     // still replaces the drawn placeholder, marker or not
     val foundOnDisc = findAndSaveCoverFromDisc(book)
     if (foundOnDisc) {
+      runCatching { markerFile(book).delete() }
+        .onFailure { Logger.w(it, "Could not delete the no-cover marker for ${book.id}") }
       return
     }
 
