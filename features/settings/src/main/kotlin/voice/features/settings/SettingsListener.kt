@@ -16,11 +16,7 @@ interface SettingsListener {
   fun autoRewindAmountChang(seconds: Int)
   fun onAutoRewindRowClick()
   fun dismissDialog()
-  fun getSupport()
-  fun suggestIdea()
-  fun openBugReport()
-  fun openTranslations()
-  fun openFaq()
+  fun openProjectRepository()
   fun openSupportVoice()
   fun setAutoSleepTimer(checked: Boolean)
   fun setAutoSleepTimerStart(time: LocalTime)
@@ -44,11 +40,7 @@ interface SettingsListener {
       override fun autoRewindAmountChang(seconds: Int) {}
       override fun onAutoRewindRowClick() {}
       override fun dismissDialog() {}
-      override fun getSupport() {}
-      override fun suggestIdea() {}
-      override fun openBugReport() {}
-      override fun openTranslations() {}
-      override fun openFaq() {}
+      override fun openProjectRepository() {}
       override fun openSupportVoice() {}
       override fun setAutoSleepTimer(checked: Boolean) {}
       override fun setAutoSleepTimerStart(time: LocalTime) {}

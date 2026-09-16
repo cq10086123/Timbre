@@ -185,69 +185,15 @@ private fun Settings(
 
       item {
         ListItem(
-          modifier = Modifier.clickable { listener.suggestIdea() },
+          modifier = Modifier.clickable { listener.openProjectRepository() },
           leadingContent = {
             Icon(
-              imageVector = VoiceIcons.Lightbulb,
-              contentDescription = stringResource(StringsR.string.settings_support_suggest_idea_title),
+              imageVector = VoiceIcons.Github,
+              contentDescription = stringResource(StringsR.string.settings_github_title),
             )
           },
         ) {
-          Text(stringResource(StringsR.string.settings_support_suggest_idea_title))
-        }
-      }
-
-      item {
-        ListItem(
-          modifier = Modifier.clickable { listener.getSupport() },
-          leadingContent = {
-            Icon(
-              imageVector = VoiceIcons.Help,
-              contentDescription = stringResource(StringsR.string.settings_support_get_support_title),
-            )
-          },
-        ) {
-          Text(stringResource(StringsR.string.settings_support_get_support_title))
-        }
-      }
-
-      item {
-        ListItem(
-          modifier = Modifier.clickable { listener.openBugReport() },
-          leadingContent = {
-            Icon(
-              imageVector = VoiceIcons.BugReport,
-              contentDescription = stringResource(StringsR.string.settings_support_report_issue_title),
-            )
-          },
-        ) {
-          Text(stringResource(StringsR.string.settings_support_report_issue_title))
-        }
-      }
-      item {
-        ListItem(
-          modifier = Modifier.clickable { listener.openTranslations() },
-          leadingContent = {
-            Icon(
-              imageVector = VoiceIcons.Language,
-              contentDescription = stringResource(StringsR.string.settings_support_help_translating_title),
-            )
-          },
-        ) {
-          Text(stringResource(StringsR.string.settings_support_help_translating_title))
-        }
-      }
-      item {
-        ListItem(
-          modifier = Modifier.clickable { listener.openFaq() },
-          leadingContent = {
-            Icon(
-              imageVector = VoiceIcons.Help,
-              contentDescription = stringResource(StringsR.string.settings_support_faq_title),
-            )
-          },
-        ) {
-          Text(stringResource(StringsR.string.settings_support_faq_title))
+          Text(stringResource(StringsR.string.settings_github_title))
         }
       }
       item {

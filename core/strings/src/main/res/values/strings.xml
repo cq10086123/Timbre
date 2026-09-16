@@ -224,6 +224,8 @@
     <string name="settings.auto_sleep_timer.summary">Start a sleep timer automatically when playback begins between %1$s and %2$s</string>
     <!-- Settings title for automatically starting a sleep timer. -->
     <string name="settings.auto_sleep_timer.title">Automatic Sleep Timer</string>
+    <!-- Settings row for opening the project's source code on GitHub. -->
+    <string name="settings.github.title">Open source project</string>
     <!-- Summary text for the audiobook folders settings row. -->
     <string name="settings.library.folders.summary">Manage folders scanned for audiobooks</string>
     <!-- Settings row for toggling grid layout in the library. -->
@@ -232,20 +234,10 @@
     <string name="settings.playback.auto_rewind.title">Auto rewind</string>
     <!-- Title for the setting that controls skip-forward and rewind duration. -->
     <string name="settings.playback.seek_time.title">Skip amount</string>
-    <!-- Settings support row for opening the FAQ. -->
-    <string name="settings.support.faq.title">FAQ</string>
-    <!-- Settings support row for getting help. -->
-    <string name="settings.support.get_support.title">Get help</string>
-    <!-- Settings support row for helping translate the app. -->
-    <string name="settings.support.help_translating.title">Help translating Timbre</string>
-    <!-- Settings support row for reporting a problem. -->
-    <string name="settings.support.report_issue.title">Report a problem</string>
     <!-- Settings row description for opening the donation/support screen. -->
     <string name="settings.support.support_voice.summary">Donations help keep Timbre maintained</string>
     <!-- Settings row for opening the donation/support screen. -->
     <string name="settings.support.support_voice.title">Support development</string>
-    <!-- Settings support row for suggesting a product idea. -->
-    <string name="settings.support.suggest_idea.title">Suggest an idea</string>
     <!-- Support screen action for donating through Ko-fi. -->
     <string name="support.action.donate_kofi">Donate on Ko-fi</string>
     <!-- Support screen text explaining why support is useful. -->

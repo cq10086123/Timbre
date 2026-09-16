@@ -97,4 +97,7 @@ generate_icon title Title
 generate_icon undo Undo
 generate_icon view_list ViewList
 
+# VoiceIcons.kt additionally holds a hand written Github icon: the GitHub mark is not part of
+# Material Symbols, so it cannot be fetched here. This script rewrites that file from scratch and
+# therefore drops it - add it back afterwards, or every screen using it stops compiling.
 printf '}\n' >> "${OUT_DIR}/VoiceIcons.kt"

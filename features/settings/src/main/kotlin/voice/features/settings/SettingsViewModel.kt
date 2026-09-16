@@ -1,12 +1,10 @@
 package voice.features.settings
 
-import android.os.Build
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.core.net.toUri
 import androidx.datastore.core.DataStore
 import dev.zacsweers.metro.Inject
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -179,32 +177,8 @@ class SettingsViewModel(
     dialog.value = null
   }
 
-  override fun getSupport() {
-    navigator.goTo(Destination.Website("https://github.com/cq10086123/Timbre/issues"))
-  }
-
-  override fun suggestIdea() {
-    navigator.goTo(Destination.Website("https://github.com/cq10086123/Timbre/issues"))
-  }
-
-  override fun openBugReport() {
-    val url = "https://github.com/cq10086123/Timbre/issues/new".toUri()
-      .buildUpon()
-      .appendQueryParameter("template", "bug.yml")
-      .appendQueryParameter("version", appInfoProvider.versionName)
-      .appendQueryParameter("androidversion", Build.VERSION.SDK_INT.toString())
-      .appendQueryParameter("device", Build.MODEL)
-      .toString()
-    navigator.goTo(Destination.Website(url))
-  }
-
-  override fun openTranslations() {
-    dismissDialog()
-    navigator.goTo(Destination.Website("https://hosted.weblate.org/engage/voice/"))
-  }
-
-  override fun openFaq() {
-    navigator.goTo(Destination.Website("https://github.com/cq10086123/Timbre/blob/main/docs/faq.md"))
+  override fun openProjectRepository() {
+    navigator.goTo(Destination.Website("https://github.com/cq10086123/Timbre"))
   }
 
   override fun openSupportVoice() {
