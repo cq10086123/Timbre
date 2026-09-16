@@ -148,9 +148,11 @@ class BookOverviewViewModel(
       }
       .toSortedMap()
 
+    val booksWithImporting = groupedBooks.withImportingBooks(importingBooks)
+
     return BookOverviewViewState(
       layoutMode = layoutMode,
-      books = groupedBooks.withImportingBooks(importingBooks),
+      books = booksWithImporting,
       playButtonState = if (playState == PlayStateManager.PlayState.Playing) {
         BookOverviewViewState.PlayButtonState.Playing
       } else {
@@ -335,7 +337,13 @@ private fun Map<BookOverviewCategory, Map<BookId, State<BookOverviewItemViewStat
     values.none { it.containsKey(bookId) }
   }
   if (pendingBooks.isEmpty()) {
-    return this
+    // Ensure BookOverviewCategory.CURRENT always exists in the map
+    val current = getOrDefault(BookOverviewCategory.CURRENT, emptyMap())
+    return if (containsKey(BookOverviewCategory.CURRENT)) {
+      this
+    } else {
+      this + (BookOverviewCategory.CURRENT to current)
+    }
   }
   val placeholders = pendingBooks.mapValues { (bookId, progress) ->
     mutableStateOf(bookId.toImportingItemViewState(progress))
@@ -363,5 +371,4 @@ private fun BookId.toImportingItemViewState(progress: BookScanProgress): BookOve
     importProgress = progress,
   )
 }
-
 private const val IMPORT_PROGRESS_UPDATE_INTERVAL_MS = 250L
