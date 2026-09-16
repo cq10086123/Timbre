@@ -120,7 +120,7 @@ class BookOverviewViewModelTest {
 
   @Test
   fun `state shows importing books that are not stored yet as placeholder cards`() = runTest {
-    val importingBookId = BookId("content://com.android.externalstorage.documents/tree/primary:Audiobooks/document/primary:Audiobooks/凡人修仙传")
+    val importingBookId = BookId("content://x/凡人修仙传")
     val importProgress = BookScanProgress(
       bookId = importingBookId,
       chaptersTotal = 3,

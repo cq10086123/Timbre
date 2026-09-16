@@ -1,5 +1,6 @@
 package voice.core.common
 
+import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
 import kotlinx.coroutines.flow.MutableStateFlow
