@@ -68,6 +68,8 @@ fun BookPlayScreen(bookId: BookId) {
     onSkipSilenceClick = viewModel::toggleSkipSilence,
     onSleepTimerClick = viewModel::toggleSleepTimer,
     onVolumeBoostClick = viewModel::onVolumeGainIconClick,
+    onSkipIntroClick = viewModel::onSkipIntroIconClick,
+    onSkipOutroClick = viewModel::onSkipOutroIconClick,
     onSpeedChangeClick = viewModel::onPlaybackSpeedIconClick,
     onCloseClick = viewModel::onCloseClick,
     onSkipToNext = viewModel::next,
@@ -83,6 +85,12 @@ fun BookPlayScreen(bookId: BookId) {
       }
       is BookPlayDialogViewState.VolumeGainDialog -> {
         VolumeGainDialog(dialogState, viewModel)
+      }
+      is BookPlayDialogViewState.SkipIntroDialog -> {
+        SkipIntroDialog(dialogState, viewModel)
+      }
+      is BookPlayDialogViewState.SkipOutroDialog -> {
+        SkipOutroDialog(dialogState, viewModel)
       }
       is BookPlayDialogViewState.SelectChapterDialog -> {
         SelectChapterDialog(dialogState, viewModel)

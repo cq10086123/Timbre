@@ -68,8 +68,12 @@
     <string name="playback.battery_optimization.rationale">由于您的电源限制，可能会发生播放中断。</string>
     <string name="playback.chapter.next">下一节</string>
     <string name="playback.chapter.previous">上一节</string>
+    <string name="playback.option.skip_intro">跳过片头</string>
+    <string name="playback.option.skip_outro">跳过片尾</string>
     <string name="playback.option.skip_silence">跳过空白部分</string>
     <string name="playback.option.volume_boost">音量提升</string>
+    <string name="playback.skip.off">关闭</string>
+    <string name="playback.skip.seconds">%1$d 秒</string>
     <string name="playback.speed.title">播放速度</string>
     <string name="settings.about.app_version.title">软件版本</string>
     <string name="settings.action.open">偏好设置</string>

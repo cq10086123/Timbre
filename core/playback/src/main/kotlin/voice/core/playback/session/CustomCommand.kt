@@ -22,6 +22,12 @@ internal sealed interface CustomCommand {
   @Serializable
   data class SetGain(val gain: Decibel) : CustomCommand
 
+  @Serializable
+  data class SetSkipIntro(val skipIntroMs: Long) : CustomCommand
+
+  @Serializable
+  data class SetSkipOutro(val skipOutroMs: Long) : CustomCommand
+
   companion object {
 
     const val CUSTOM_COMMAND_ACTION = "voiceCommandAction"

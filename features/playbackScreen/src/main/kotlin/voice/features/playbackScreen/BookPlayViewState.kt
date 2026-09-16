@@ -48,6 +48,10 @@ internal sealed interface BookPlayDialogViewState {
     val maxGain: Decibel,
   ) : BookPlayDialogViewState
 
+  data class SkipIntroDialog(val skipIntroSeconds: Long) : BookPlayDialogViewState
+
+  data class SkipOutroDialog(val skipOutroSeconds: Long) : BookPlayDialogViewState
+
   data class SelectChapterDialog(val items: List<ItemViewState>) : BookPlayDialogViewState {
 
     data class ItemViewState(

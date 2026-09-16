@@ -161,10 +161,18 @@
     <string name="playback.chapter.next">Next track</string>
     <!-- Content description for moving to the previous chapter or track. -->
     <string name="playback.chapter.previous">Previous track</string>
+    <!-- Menu and dialog title for skipping the intro of every chapter of the current book. -->
+    <string name="playback.option.skip_intro">Skip intro</string>
+    <!-- Menu and dialog title for cutting off the outro of every chapter of the current book. -->
+    <string name="playback.option.skip_outro">Skip outro</string>
     <!-- Menu label for toggling silence skipping during playback. -->
     <string name="playback.option.skip_silence">Skip Silence</string>
     <!-- Menu and dialog title for changing volume gain. -->
     <string name="playback.option.volume_boost">Volume boost</string>
+    <!-- Value shown when the intro/outro skip is turned off. -->
+    <string name="playback.skip.off">Off</string>
+    <!-- Intro/outro skip duration, e.g. "30 s". -->
+    <string name="playback.skip.seconds">%1$d s</string>
     <!-- Title and content description for playback-speed controls. -->
     <string name="playback.speed.title">Playback speed</string>
     <!-- Negative button for cancelling feedback. -->

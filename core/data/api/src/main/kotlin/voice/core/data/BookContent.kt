@@ -28,6 +28,12 @@ public data class BookContent(
   val narrator: String?,
   val series: String?,
   val part: String?,
+  /** Milliseconds to skip at the start of every chapter of this book. 0 = off. */
+  @ColumnInfo(defaultValue = "0")
+  val skipIntro: Long = 0L,
+  /** Milliseconds to cut off the end of every chapter of this book. 0 = off. */
+  @ColumnInfo(defaultValue = "0")
+  val skipOutro: Long = 0L,
 ) {
 
   @Ignore

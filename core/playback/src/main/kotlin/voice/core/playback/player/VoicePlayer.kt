@@ -359,6 +359,18 @@ class VoicePlayer(
     }
   }
 
+  fun setSkipIntro(skipIntroMs: Long) {
+    scope.launch {
+      updateBook { it.copy(skipIntro = skipIntroMs.coerceAtLeast(0)) }
+    }
+  }
+
+  fun setSkipOutro(skipOutroMs: Long) {
+    scope.launch {
+      updateBook { it.copy(skipOutro = skipOutroMs.coerceAtLeast(0)) }
+    }
+  }
+
   private suspend fun updateBook(update: (BookContent) -> BookContent) {
     val bookId = currentBookStoreId.data.first() ?: return
     repo.updateBook(bookId, update)

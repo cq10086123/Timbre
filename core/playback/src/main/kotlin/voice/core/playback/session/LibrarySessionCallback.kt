@@ -209,6 +209,12 @@ class LibrarySessionCallback(
       is CustomCommand.SetGain -> {
         player.setGain(command.gain)
       }
+      is CustomCommand.SetSkipIntro -> {
+        player.setSkipIntro(command.skipIntroMs)
+      }
+      is CustomCommand.SetSkipOutro -> {
+        player.setSkipOutro(command.skipOutroMs)
+      }
     }
 
     return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))

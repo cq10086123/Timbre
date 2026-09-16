@@ -225,6 +225,32 @@ class BookPlayViewModel(
     player.setGain(gain)
   }
 
+  fun onSkipIntroIconClick() {
+    scope.launch {
+      val content = currentBook()?.content ?: return@launch
+      dialogState.value = BookPlayDialogViewState.SkipIntroDialog(content.skipIntro / MILLIS_PER_SECOND)
+    }
+  }
+
+  fun onSkipOutroIconClick() {
+    scope.launch {
+      val content = currentBook()?.content ?: return@launch
+      dialogState.value = BookPlayDialogViewState.SkipOutroDialog(content.skipOutro / MILLIS_PER_SECOND)
+    }
+  }
+
+  fun onSkipIntroChanged(seconds: Long) {
+    val seconds = seconds.coerceAtLeast(0L)
+    dialogState.value = BookPlayDialogViewState.SkipIntroDialog(seconds)
+    player.setSkipIntro(seconds * MILLIS_PER_SECOND)
+  }
+
+  fun onSkipOutroChanged(seconds: Long) {
+    val seconds = seconds.coerceAtLeast(0L)
+    dialogState.value = BookPlayDialogViewState.SkipOutroDialog(seconds)
+    player.setSkipOutro(seconds * MILLIS_PER_SECOND)
+  }
+
   fun next() {
     player.next()
   }
