@@ -199,6 +199,7 @@ private fun Settings(
       item {
         AppVersion(
           appVersion = viewState.appVersion,
+          updateAvailable = viewState.updateAvailable,
           onClick = listener::onAppVersionClick,
         )
       }

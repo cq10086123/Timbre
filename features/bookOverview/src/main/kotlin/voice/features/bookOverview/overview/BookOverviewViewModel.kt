@@ -47,6 +47,7 @@ import voice.core.scanner.DeviceHasStoragePermissionBug
 import voice.core.scanner.MediaScanTrigger
 import voice.core.search.BookSearch
 import voice.core.ui.GridCount
+import voice.core.update.UpdateNotifier
 import voice.features.bookOverview.di.BookOverviewScope
 import voice.features.bookOverview.search.BookSearchViewState
 import voice.navigation.Destination
@@ -76,6 +77,7 @@ class BookOverviewViewModel(
   private val experimentalPlaybackPersistenceFeatureFlag: FeatureFlag<Boolean>,
   @KioskModeFeatureFlagQualifier
   private val kioskModeFeatureFlag: FeatureFlag<Boolean>,
+  val updateNotifier: UpdateNotifier,
   dispatcherProvider: DispatcherProvider,
 ) {
 
@@ -257,6 +259,10 @@ class BookOverviewViewModel(
 
   fun onSettingsClick() {
     navigator.goTo(Destination.Settings)
+  }
+
+  fun openLatestRelease() {
+    navigator.goTo(Destination.Website(UpdateNotifier.RELEASE_PAGE_URL))
   }
 
   fun onBookClick(id: BookId) {

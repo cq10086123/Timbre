@@ -204,6 +204,24 @@ public interface StoreModule {
       fileName = "featureFlagOverrides",
     )
   }
+
+  @Provides
+  @SingleIn(AppScope::class)
+  @UpdateLastCheckStore
+  private fun updateLastCheck(factory: VoiceDataStoreFactory): DataStore<Int> {
+    return factory.int("updateLastCheck", defaultValue = 0)
+  }
+
+  @Provides
+  @SingleIn(AppScope::class)
+  @UpdateDismissedStore
+  private fun updateDismissed(factory: VoiceDataStoreFactory): DataStore<String> {
+    return factory.create(
+      serializer = String.serializer(),
+      fileName = "updateDismissed",
+      defaultValue = "",
+    )
+  }
 }
 
 private class LegacyDarkThemeMigration(

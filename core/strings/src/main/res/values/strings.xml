@@ -266,4 +266,12 @@
     <string name="sleep_timer.dialog.title">Sweet dreams! 🌙</string>
     <!-- Sleep timer option and playback status for stopping at the end of a chapter. -->
     <string name="sleep_timer.end_of_chapter">End of Chapter</string>
+    <!-- Dialog title when a newer version was published. -->
+    <string name="update.dialog.title">Update available</string>
+    <!-- Dialog body when a newer version was published. -->
+    <string name="update.dialog.message">Version %1$s is available. Do you want to update now?</string>
+    <!-- Dialog button for opening the page of the latest release. -->
+    <string name="update.dialog.confirm">Update now</string>
+    <!-- Shown in the version row of the settings when a newer version was published. -->
+    <string name="settings.about.app_version.update_available">Update to %1$s available</string>
 </resources>

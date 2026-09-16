@@ -45,4 +45,10 @@ public annotation class AnalyticsConsentStore
 public annotation class DeveloperMenuUnlockedStore
 
 @Qualifier
+public annotation class UpdateLastCheckStore
+
+@Qualifier
+public annotation class UpdateDismissedStore
+
+@Qualifier
 public annotation class FeatureFlagOverridesStore
