@@ -225,29 +225,27 @@ class BookPlayViewModel(
     player.setGain(gain)
   }
 
-  fun onSkipIntroIconClick() {
+  fun onSkipIntroOutroIconClick() {
     scope.launch {
       val content = currentBook()?.content ?: return@launch
-      dialogState.value = BookPlayDialogViewState.SkipIntroDialog(content.skipIntro / MILLIS_PER_SECOND)
-    }
-  }
-
-  fun onSkipOutroIconClick() {
-    scope.launch {
-      val content = currentBook()?.content ?: return@launch
-      dialogState.value = BookPlayDialogViewState.SkipOutroDialog(content.skipOutro / MILLIS_PER_SECOND)
+      dialogState.value = BookPlayDialogViewState.SkipDialog(
+        skipIntroSeconds = content.skipIntro / MILLIS_PER_SECOND,
+        skipOutroSeconds = content.skipOutro / MILLIS_PER_SECOND,
+      )
     }
   }
 
   fun onSkipIntroChanged(seconds: Long) {
     val seconds = seconds.coerceAtLeast(0L)
-    dialogState.value = BookPlayDialogViewState.SkipIntroDialog(seconds)
+    val state = dialogState.value as? BookPlayDialogViewState.SkipDialog ?: return
+    dialogState.value = state.copy(skipIntroSeconds = seconds)
     player.setSkipIntro(seconds * MILLIS_PER_SECOND)
   }
 
   fun onSkipOutroChanged(seconds: Long) {
     val seconds = seconds.coerceAtLeast(0L)
-    dialogState.value = BookPlayDialogViewState.SkipOutroDialog(seconds)
+    val state = dialogState.value as? BookPlayDialogViewState.SkipDialog ?: return
+    dialogState.value = state.copy(skipOutroSeconds = seconds)
     player.setSkipOutro(seconds * MILLIS_PER_SECOND)
   }
 

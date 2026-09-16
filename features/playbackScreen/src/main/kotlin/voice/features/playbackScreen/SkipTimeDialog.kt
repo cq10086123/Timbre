@@ -2,75 +2,75 @@ package voice.features.playbackScreen
 
 import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
+import kotlin.math.roundToInt
 import voice.core.strings.R as StringsR
 
-/** Granularity of the intro/outro skip, in whole seconds. */
-internal const val SKIP_TIME_STEP_SECONDS = 5
-
-/** Upper bound of the intro/outro skip. 0 means off. */
+/** Upper bound of the intro/outro skip, in whole seconds. 0 means off. */
 internal const val SKIP_TIME_MAX_SECONDS = 120
 
 internal const val MILLIS_PER_SECOND = 1000L
 
 @Composable
-internal fun SkipIntroDialog(
-  dialogState: BookPlayDialogViewState.SkipIntroDialog,
+internal fun SkipDialog(
+  dialogState: BookPlayDialogViewState.SkipDialog,
   viewModel: BookPlayViewModel,
 ) {
-  SkipTimeDialog(
-    titleRes = StringsR.string.playback_option_skip_intro,
-    seconds = dialogState.skipIntroSeconds,
-    onValueChange = viewModel::onSkipIntroChanged,
-    onDismiss = viewModel::dismissDialog,
-  )
-}
-
-@Composable
-internal fun SkipOutroDialog(
-  dialogState: BookPlayDialogViewState.SkipOutroDialog,
-  viewModel: BookPlayViewModel,
-) {
-  SkipTimeDialog(
-    titleRes = StringsR.string.playback_option_skip_outro,
-    seconds = dialogState.skipOutroSeconds,
-    onValueChange = viewModel::onSkipOutroChanged,
-    onDismiss = viewModel::dismissDialog,
-  )
-}
-
-@Composable
-private fun SkipTimeDialog(
-  @StringRes titleRes: Int,
-  seconds: Long,
-  onValueChange: (Long) -> Unit,
-  onDismiss: () -> Unit,
-) {
-  val label = stringResource(id = titleRes)
   AlertDialog(
-    onDismissRequest = onDismiss,
+    onDismissRequest = viewModel::dismissDialog,
     confirmButton = {},
     title = {
-      Text(label)
+      Text(stringResource(id = StringsR.string.playback_option_skip_intro_outro))
     },
     text = {
       Column {
-        Text(label + ": " + skipTimeFormatted(seconds))
-        Slider(
-          valueRange = 0F..SKIP_TIME_MAX_SECONDS.toFloat(),
-          steps = SKIP_TIME_MAX_SECONDS / SKIP_TIME_STEP_SECONDS - 1,
-          value = seconds.toFloat().coerceIn(0F, SKIP_TIME_MAX_SECONDS.toFloat()),
-          onValueChange = {
-            onValueChange(it.toLong())
-          },
+        SkipTimeRow(
+          labelRes = StringsR.string.playback_option_skip_intro,
+          seconds = dialogState.skipIntroSeconds,
+          onValueChange = viewModel::onSkipIntroChanged,
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+        SkipTimeRow(
+          labelRes = StringsR.string.playback_option_skip_outro,
+          seconds = dialogState.skipOutroSeconds,
+          onValueChange = viewModel::onSkipOutroChanged,
         )
       }
     },
   )
+}
+
+@Composable
+private fun SkipTimeRow(
+  @StringRes labelRes: Int,
+  seconds: Long,
+  onValueChange: (Long) -> Unit,
+) {
+  Column {
+    Text(text = stringResource(id = labelRes) + ": " + skipTimeFormatted(seconds))
+    // No `steps`: with a one second granularity over two minutes the tick marks would blur into a
+    // solid line, so the thumb moves freely and the value snaps to whole seconds instead.
+    Slider(
+      value = seconds.toFloat().coerceIn(0F, SKIP_TIME_MAX_SECONDS.toFloat()),
+      valueRange = 0F..SKIP_TIME_MAX_SECONDS.toFloat(),
+      onValueChange = { value ->
+        onValueChange(
+          value
+            .coerceIn(0F, SKIP_TIME_MAX_SECONDS.toFloat())
+            .roundToInt()
+            .toLong(),
+        )
+      },
+    )
+  }
 }
 
 @Composable
