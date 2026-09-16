@@ -7,7 +7,9 @@ import androidx.media3.common.C
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
+import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.Inject
+import dev.zacsweers.metro.SingleIn
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
@@ -23,10 +25,10 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.guava.asDeferred
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import voice.core.data.Book
 import voice.core.data.BookId
 import voice.core.data.ChapterId
 import voice.core.data.repo.BookContentRepo
-import voice.core.data.repo.BookRepository
 import voice.core.data.store.CurrentBookStore
 import voice.core.logging.api.Logger
 import voice.core.playback.misc.Decibel
@@ -40,12 +42,17 @@ import voice.core.playback.session.toMediaIdOrNull
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 
+/**
+ * The app shares a single media controller: every additional connection is
+ * pushed the whole playlist on every change, which for a book with hundreds of
+ * chapters is a lot of duplicated work.
+ */
+@SingleIn(AppScope::class)
 @Inject
 class PlayerController(
   private val context: Context,
   @CurrentBookStore
   private val currentBookStoreId: DataStore<BookId?>,
-  private val bookRepository: BookRepository,
   private val contentRepo: BookContentRepo,
   private val mediaItemProvider: MediaItemProvider,
 ) {
@@ -70,15 +77,19 @@ class PlayerController(
     }
   private val scope = CoroutineScope(Dispatchers.Main.immediate)
 
+  /**
+   * Seeks to [positionInChapterMs] of [chapterId]. The caller passes the book
+   * it already holds; loading and assembling it again here would delay the
+   * seek of a big book by the time a whole assembly takes.
+   */
   fun setPosition(
-    time: Long,
-    id: ChapterId,
+    book: Book,
+    chapterId: ChapterId,
+    positionInChapterMs: Long,
   ) = executeAfterPrepare { controller ->
-    val bookId = currentBookStoreId.data.first() ?: return@executeAfterPrepare
-    val book = bookRepository.get(bookId) ?: return@executeAfterPrepare
     val position = book.playbackPositionFor(
-      chapterId = id,
-      positionInChapterMs = time,
+      chapterId = chapterId,
+      positionInChapterMs = positionInChapterMs,
     ) ?: return@executeAfterPrepare
     controller.seekTo(position.index, position.positionInMediaItemMs)
   }

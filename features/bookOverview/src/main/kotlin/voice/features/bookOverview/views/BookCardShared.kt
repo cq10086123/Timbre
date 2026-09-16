@@ -4,6 +4,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -12,7 +13,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
 import voice.core.data.BookId
+import voice.core.scanner.BookScanProgress
+import voice.core.strings.R as StringsR
 
 @Composable
 internal fun BookCard(
@@ -87,4 +93,42 @@ internal fun BookProgressIndicator(
       )
     }
   }
+}
+
+/**
+ * The slim import progress line that is pinned to the top edge of a book card
+ * while the book is still being imported.
+ */
+@Composable
+internal fun BookImportProgressLine(
+  progress: BookScanProgress,
+  modifier: Modifier = Modifier,
+) {
+  LinearProgressIndicator(
+    progress = { progress.fraction },
+    modifier = modifier
+      .fillMaxWidth()
+      .height(3.dp),
+  )
+}
+
+/** The "importing x of y chapters" caption of a book card. */
+@Composable
+internal fun BookImportProgressText(
+  progress: BookScanProgress,
+  modifier: Modifier = Modifier,
+) {
+  Text(
+    text = pluralStringResource(
+      StringsR.plurals.library_import_progress,
+      progress.chaptersTotal,
+      progress.chaptersScanned,
+      progress.chaptersTotal,
+    ),
+    style = MaterialTheme.typography.labelMedium,
+    color = MaterialTheme.colorScheme.onSurfaceVariant,
+    maxLines = 1,
+    overflow = TextOverflow.Ellipsis,
+    modifier = modifier,
+  )
 }

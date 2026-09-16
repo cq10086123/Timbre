@@ -137,11 +137,15 @@ class BookmarkViewModel(
 
     scope.launch {
       currentBookStore.updateData { bookId }
-    }
-    playerController.setPosition(bookmark.time, bookmark.chapterId)
-
-    if (wasPlaying) {
-      playerController.play()
+      val book = repo.get(bookId) ?: return@launch
+      playerController.setPosition(
+        book = book,
+        chapterId = bookmark.chapterId,
+        positionInChapterMs = bookmark.time,
+      )
+      if (wasPlaying) {
+        playerController.play()
+      }
     }
 
     navigator.goBack()

@@ -9,51 +9,58 @@ import voice.core.data.Chapter
 import voice.core.data.ChapterId
 import voice.core.data.repo.internals.dao.ChapterDao
 import voice.core.data.runForMaxSqlVariableNumber
+import java.util.Optional
+import java.util.concurrent.ConcurrentHashMap
 
 @SingleIn(AppScope::class)
 @ContributesBinding(AppScope::class)
 public class ChapterRepoImpl(private val dao: ChapterDao) : ChapterRepo {
 
-  private val mutex = Mutex()
-  private val cache = mutableMapOf<ChapterId, Chapter?>()
+  private val dbMutex = Mutex()
+
+  // Reading a cached chapter must not lock: assembling a book resolves every
+  // chapter, and the scanner holds the lock for whole database transactions.
+  // With a lock on every read, playing a big book while it is scanned turns
+  // into thousands of waits behind database writes.
+  private val cache = ConcurrentHashMap<ChapterId, Optional<Chapter>>()
 
   override suspend fun get(id: ChapterId): Chapter? {
     // this does not use getOrPut because a `null` value should also be cached
-    mutex.withLock {
-      if (!cache.containsKey(id)) {
-        cache[id] = dao.chapter(id)
-      }
-      return cache[id]
+    cache[id]?.let { return it.orElse(null) }
+    return dbMutex.withLock {
+      cache[id]?.let { return it.orElse(null) }
+      val chapter = dao.chapter(id)
+      cache[id] = Optional.ofNullable(chapter)
+      chapter
     }
   }
 
   override suspend fun prefetch(ids: Collection<ChapterId>) {
     if (ids.isEmpty()) return
-    mutex.withLock {
-      val missing = ids.filter { it !in cache }
+    // containsKey, not `in`: `in` on a ConcurrentHashMap calls the legacy
+    // contains method, which checks the values instead of the keys
+    if (ids.all { cache.containsKey(it) }) return
+    dbMutex.withLock {
+      val missing = ids.filter { !cache.containsKey(it) }
         .distinct()
       missing
         .runForMaxSqlVariableNumber {
           dao.chapters(it)
         }
-        .forEach { cache[it.id] = it }
+        .forEach { cache[it.id] = Optional.of(it) }
       // remember ids that don't exist as null so we don't query them again
-      missing.forEach { cache.putIfAbsent(it, null) }
+      missing.forEach { cache.putIfAbsent(it, Optional.empty()) }
     }
   }
 
   override suspend fun put(chapter: Chapter) {
     dao.insert(chapter)
-    mutex.withLock {
-      cache[chapter.id] = chapter
-    }
+    cache[chapter.id] = Optional.of(chapter)
   }
 
   override suspend fun putAll(chapters: Collection<Chapter>) {
     if (chapters.isEmpty()) return
     dao.insertAll(chapters.toList())
-    mutex.withLock {
-      chapters.forEach { cache[it.id] = it }
-    }
+    chapters.forEach { cache[it.id] = Optional.of(it) }
   }
 }

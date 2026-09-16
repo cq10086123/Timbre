@@ -84,8 +84,17 @@ class MediaItemProvider(
   }
 
   fun mediaItemsWithStartPosition(book: Book): MediaItemsWithStartPosition {
+    return mediaItemsWithStartPosition(book.content)
+  }
+
+  /**
+   * Builds the start point of a whole book. It only needs the content: the
+   * player resolves the chapters when it sets the items. Assembling the whole
+   * book here would delay the start of a big book.
+   */
+  fun mediaItemsWithStartPosition(content: BookContent): MediaItemsWithStartPosition {
     return MediaItemsWithStartPosition(
-      listOf(mediaItem(book)),
+      listOf(mediaItem(content)),
       C.INDEX_UNSET,
       C.TIME_UNSET,
     )
@@ -94,8 +103,8 @@ class MediaItemProvider(
   suspend fun mediaItemsWithStartPosition(id: String): MediaItemsWithStartPosition? {
     return when (val mediaId = id.toMediaIdOrNull()) {
       is MediaId.Book -> {
-        val book = bookRepository.get(mediaId.id) ?: return null
-        mediaItemsWithStartPosition(book)
+        val content = contentRepo.get(mediaId.id) ?: return null
+        mediaItemsWithStartPosition(content)
       }
       is MediaId.Chapter, is MediaId.ChapterMark, MediaId.Root, MediaId.Recent, null -> null
     }

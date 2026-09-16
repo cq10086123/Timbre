@@ -54,7 +54,7 @@ class BookOverviewViewModelTest {
       },
       mediaScanner = mockk<MediaScanTrigger> {
         every { scannerActive } returns MutableStateFlow(false)
-        every { scanProgress } returns MutableStateFlow(null)
+        every { bookScanProgress } returns MutableStateFlow(emptyMap())
         every { scan(any()) } just Runs
       },
       playStateManager = PlayStateManager(),
@@ -120,7 +120,7 @@ class BookOverviewViewModelTest {
       },
       mediaScanner = mockk<MediaScanTrigger> {
         every { scannerActive } returns MutableStateFlow(false)
-        every { scanProgress } returns MutableStateFlow(null)
+        every { bookScanProgress } returns MutableStateFlow(emptyMap())
         every { scan(any()) } just Runs
       },
       playStateManager = PlayStateManager(),
@@ -225,7 +225,7 @@ class BookOverviewViewModelTest {
       },
       mediaScanner = mockk<MediaScanTrigger> {
         every { scannerActive } returns MutableStateFlow(false)
-        every { scanProgress } returns MutableStateFlow(null)
+        every { bookScanProgress } returns MutableStateFlow(emptyMap())
         every { scan(any()) } just Runs
       },
       playStateManager = PlayStateManager(),

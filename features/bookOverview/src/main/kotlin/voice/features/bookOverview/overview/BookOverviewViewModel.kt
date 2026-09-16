@@ -39,6 +39,7 @@ import voice.core.playback.LivePlaybackState
 import voice.core.playback.PlayerController
 import voice.core.playback.overlay
 import voice.core.playback.playstate.PlayStateManager
+import voice.core.scanner.BookScanProgress
 import voice.core.scanner.DeviceHasStoragePermissionBug
 import voice.core.scanner.MediaScanTrigger
 import voice.core.search.BookSearch
@@ -98,8 +99,8 @@ class BookOverviewViewModel(
       .collectAsState(initial = null).value
     val scannerActive = remember { mediaScanner.scannerActive }
       .collectAsState(initial = false).value
-    val importProgress = remember { mediaScanner.scanProgress }
-      .collectAsState(initial = null).value
+    val importingBooks = remember { mediaScanner.bookScanProgress }
+      .collectAsState(initial = emptyMap()).value
     val gridMode = remember { gridModeStore.data }
       .collectAsState(initial = null).value
       ?: return BookOverviewViewState.Loading
@@ -139,6 +140,7 @@ class BookOverviewViewModel(
               book.id to book.itemViewState(
                 currentBookId = currentBookId,
                 livePlaybackState = { livePlaybackState.value },
+                importProgress = importingBooks[book.id],
               )
             }
         }
@@ -155,7 +157,6 @@ class BookOverviewViewModel(
       },
       showSearchIcon = books.isNotEmpty(),
       isLoading = scannerActive,
-      importProgress = importProgress,
       searchActive = searchActive,
       searchViewState = bookSearchViewState,
       showStoragePermissionBugCard = hasStoragePermissionBug,
@@ -227,7 +228,6 @@ class BookOverviewViewModel(
       showAddBookHint = false,
       showSearchIcon = true,
       isLoading = false,
-      importProgress = null,
       searchActive = false,
       searchViewState = BookSearchViewState.EmptySearch(
         recentQueries = emptyList(),
@@ -297,11 +297,13 @@ class BookOverviewViewModel(
 private fun Book.itemViewState(
   currentBookId: BookId?,
   livePlaybackState: () -> LivePlaybackState?,
+  importProgress: BookScanProgress?,
 ): State<BookOverviewItemViewState> {
   if (id != currentBookId) {
-    return rememberUpdatedState(toItemViewState())
+    return rememberUpdatedState(toItemViewState(importProgress))
   }
   val currentPlaybackState by rememberUpdatedState(livePlaybackState)
+  val currentImportProgress by rememberUpdatedState(importProgress)
   return remember(this, currentBookId) {
     derivedStateOf {
       val livePlayback = currentPlaybackState()
@@ -309,7 +311,7 @@ private fun Book.itemViewState(
         overlay(livePlayback)
       } else {
         this
-      }.toItemViewState()
+      }.toItemViewState(currentImportProgress)
     }
   }
 }

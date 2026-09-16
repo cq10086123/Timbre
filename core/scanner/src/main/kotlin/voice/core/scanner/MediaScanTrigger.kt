@@ -1,5 +1,6 @@
 package voice.core.scanner
 
+import android.os.SystemClock
 import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
@@ -10,8 +11,10 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import voice.core.data.BookId
 import voice.core.data.folders.AudiobookFolders
 import voice.core.data.folders.FolderType
 import voice.core.data.repo.BookRepository
@@ -34,7 +37,8 @@ internal constructor(
   public val scannerActive: Flow<Boolean>
     field = MutableStateFlow(false)
 
-  public val scanProgress: Flow<ScanProgress?> = scanProgressReporter.progress
+  public val bookScanProgress: StateFlow<Map<BookId, BookScanProgress>>
+    get() = scanProgressReporter.bookProgress
 
   private val scope = CoroutineScope(Dispatchers.IO)
   private var scanningJob: Job? = null
@@ -46,9 +50,20 @@ internal constructor(
    */
   private val scanGeneration = AtomicInteger()
 
+  private var lastScanCompletedAt: Long? = null
+
   public fun scan(restartIfScanning: Boolean = false) {
     Logger.i("scanForFiles with restartIfScanning=$restartIfScanning")
     if (scanningJob?.isActive == true && !restartIfScanning) {
+      return
+    }
+    // a scan queries every audio file through the documents provider, which is
+    // also the path the player takes to open the next chapter. Re-scanning on
+    // every shelf appearance therefore stalls the playback of big books, so an
+    // unchanged library is only re-scanned after some time has passed. Adding
+    // or removing a folder always restarts the scan.
+    if (!restartIfScanning && skippedRecently()) {
+      Logger.i("Skipping the scan because the previous one completed recently")
       return
     }
     val previousJob = scanningJob
@@ -90,8 +105,8 @@ internal constructor(
         }.also {
           Logger.i("scan took $it")
         }
-        // determinate chapter progress is done; cover lookup has no progress
-        // so the UI falls back to an indeterminate bar while this runs
+        // determinate chapter progress is done; the cover lookup has no
+        // progress so the cards show their normal look while it runs
         scanProgressReporter.finish()
         val books = bookRepo.all()
         coverScanner.scan(books)
@@ -99,8 +114,16 @@ internal constructor(
         if (scanGeneration.get() == generation) {
           scanProgressReporter.finish()
           scannerActive.value = false
+          lastScanCompletedAt = SystemClock.elapsedRealtime()
         }
       }
     }
   }
+
+  private fun skippedRecently(): Boolean {
+    val lastScanCompletedAt = lastScanCompletedAt ?: return false
+    return SystemClock.elapsedRealtime() - lastScanCompletedAt < MIN_SCAN_INTERVAL_MS
+  }
 }
+
+private const val MIN_SCAN_INTERVAL_MS = 10 * 60 * 1000L

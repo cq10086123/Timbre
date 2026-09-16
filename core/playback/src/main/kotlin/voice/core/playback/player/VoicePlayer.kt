@@ -90,16 +90,14 @@ class VoicePlayer(
 
   fun forceSeekToPrevious() {
     scope.launch {
-      val currentPosition = player.currentPosition
-      if (currentPosition > THRESHOLD_FOR_BACK_SEEK_MS) {
-        player.seekTo(0)
+      // this is the explicit "previous chapter" action of the app, so it always
+      // changes the chapter. Restarting the current one when it just started
+      // made the button appear broken while listening to an episode.
+      val previousMediaItemIndex = player.previousMediaItemIndex.takeUnless { it == C.INDEX_UNSET }
+      if (previousMediaItemIndex != null) {
+        player.seekTo(previousMediaItemIndex, 0)
       } else {
-        val previousMediaItemIndex = player.previousMediaItemIndex.takeUnless { it == C.INDEX_UNSET }
-        if (previousMediaItemIndex != null) {
-          player.seekTo(previousMediaItemIndex, 0)
-        } else {
-          player.seekTo(0)
-        }
+        player.seekTo(0)
       }
     }
   }
@@ -349,5 +347,3 @@ class VoicePlayer(
     repo.updateBook(bookId, update)
   }
 }
-
-private const val THRESHOLD_FOR_BACK_SEEK_MS = 2000

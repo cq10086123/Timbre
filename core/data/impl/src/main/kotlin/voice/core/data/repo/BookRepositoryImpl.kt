@@ -4,6 +4,7 @@ import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.ContributesBinding
 import dev.zacsweers.metro.SingleIn
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -46,6 +47,12 @@ public class BookRepositoryImpl(
     }
   }
 
+  /**
+   * The books of the whole library. Positions are updated several times per
+   * second while playing, which re-assembles the playing book on every
+   * update; resolving the chapters only reads the lock-free cache of the
+   * chapter repo, so this stays cheap.
+   */
   override fun flow(): Flow<List<Book>> {
     return contentRepo.flow()
       .map { contents ->
@@ -54,12 +61,15 @@ public class BookRepositoryImpl(
             content.book()
           }
       }
+      .distinctUntilChanged()
   }
 
   override suspend fun all(): List<Book> {
     return contentRepo.all()
       .filter { it.isActive }
-      .mapNotNull { it.book() }
+      .mapNotNull { content ->
+        content.book()
+      }
   }
 
   override fun flow(id: BookId): Flow<Book?> {
@@ -109,6 +119,8 @@ public class BookRepositoryImpl(
 
   private suspend fun BookContent.book(): Book? {
     warmUp()
+    // a single bulk query per unknown chapter instead of one select per chapter
+    chapterRepo.prefetch(chapters)
     val chapters = this.chapters.map { chapterId ->
       val chapter = chapterRepo.get(chapterId)
       if (chapter == null) {
@@ -137,7 +149,7 @@ public class BookRepositoryImpl(
       if (this.content !== content) return false
       if (this.chapters.size != chapters.size) return false
       for (index in this.chapters.indices) {
-        if (this.chapters[index] !== chapters[index]) return false
+        if (chapters[index] !== this.chapters[index]) return false
       }
       return true
     }

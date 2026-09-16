@@ -221,7 +221,7 @@ class BookPlayViewModelTest {
 
   @Test
   fun onChapterClickSetsPositionAndDismissesDialog() = scope.runTest {
-    every { player.setPosition(any(), any()) } just Runs
+    every { player.setPosition(any(), any(), any()) } just Runs
 
     viewModel.onCurrentChapterClick()
     yield()
@@ -234,7 +234,11 @@ class BookPlayViewModelTest {
     // Verify player.setPosition was called with correct parameters
     // The second mark starts at 2 minutes position in the first chapter
     verify(exactly = 1) {
-      player.setPosition(time = 2.minutes.inWholeMilliseconds, id = book.chapters.first().id)
+      player.setPosition(
+        book = book,
+        chapterId = book.chapters.first().id,
+        positionInChapterMs = 2.minutes.inWholeMilliseconds,
+      )
     }
 
     assertEquals(expected = null, actual = viewModel.dialogState.value)

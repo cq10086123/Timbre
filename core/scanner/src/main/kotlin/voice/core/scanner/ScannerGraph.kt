@@ -18,10 +18,11 @@ public interface ScannerGraph {
   @SingleIn(AppScope::class)
   @MediaAnalysisSemaphore
   private fun mediaAnalysisSemaphore(): Semaphore {
-    // analyzing a chapter is dominated by io (opening the file through the
-    // documents provider and reading its headers), so more workers than cores
-    // speed up importing a big book
-    val permits = (Runtime.getRuntime().availableProcessors() * 2)
+    // analyzing a chapter is io bound: opening the file through the documents
+    // provider is also the path the player takes to open the next chapter.
+    // Too many parallel analyses starve the provider and delay playback, so
+    // the parallelism stays low even though imports take a bit longer.
+    val permits = Runtime.getRuntime().availableProcessors()
       .coerceIn(MIN_ANALYSIS_PARALLELISM, MAX_ANALYSIS_PARALLELISM)
     // the retriever caps the number of parallel retrievals on its own, so it
     // has to be raised together with our permits
@@ -30,5 +31,5 @@ public interface ScannerGraph {
   }
 }
 
-private const val MIN_ANALYSIS_PARALLELISM = 6
-private const val MAX_ANALYSIS_PARALLELISM = 12
+private const val MIN_ANALYSIS_PARALLELISM = 3
+private const val MAX_ANALYSIS_PARALLELISM = 6
