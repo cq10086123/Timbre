@@ -18,6 +18,7 @@ import androidx.core.net.toUri
 import androidx.datastore.core.DataStore
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.sample
 import kotlinx.coroutines.launch
 import voice.core.common.DispatcherProvider
@@ -27,12 +28,12 @@ import voice.core.data.Book
 import voice.core.data.BookId
 import voice.core.data.GridMode
 import voice.core.data.KioskModeDemoData
-import voice.core.data.withoutAudioFileExtension
 import voice.core.data.repo.BookContentRepo
 import voice.core.data.repo.BookRepository
 import voice.core.data.repo.internals.dao.RecentBookSearchDao
 import voice.core.data.store.CurrentBookStore
 import voice.core.data.store.GridModeStore
+import voice.core.data.withoutAudioFileExtension
 import voice.core.featureflag.ExperimentalPlaybackPersistenceQualifier
 import voice.core.featureflag.FeatureFlag
 import voice.core.featureflag.FolderPickerInSettingsFeatureFlagQualifier
@@ -102,9 +103,16 @@ class BookOverviewViewModel(
     val scannerActive = remember { mediaScanner.scannerActive }
       .collectAsState(initial = false).value
     // the scanner reports every analyzed chapter; sampling keeps the shelf
-    // from recomposing continuously while still animating the progress line
-    val importingBooks = remember { mediaScanner.bookScanProgress.sample(IMPORT_PROGRESS_UPDATE_INTERVAL_MS) }
-      .collectAsState(initial = emptyMap()).value
+    // from recomposing continuously while still animating the progress line.
+    // The value that is already known is emitted before the first sampling
+    // interval elapses, otherwise a shelf opened during an import stays
+    // without its cards for one interval
+    val importingBooks = remember {
+      val progress = mediaScanner.bookScanProgress
+      progress
+        .sample(IMPORT_PROGRESS_UPDATE_INTERVAL_MS)
+        .onStart { emit(progress.value) }
+    }.collectAsState(initial = emptyMap()).value
     val gridMode = remember { gridModeStore.data }
       .collectAsState(initial = null).value
       ?: return BookOverviewViewState.Loading
