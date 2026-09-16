@@ -1,56 +1,40 @@
-### Does Voice support Android Auto?
+# 常见问题
 
-Yes, Voice fully supports Android Auto!
+### 为什么更新提示没有出现？
 
-!!! warning
+应用内更新检查**每天最多一次**，在启动后约 10 秒进行，且要求能访问 jsDelivr CDN 或 GitHub。以下情况都不会提示，属于正常：
 
-    For officially supported Android Auto functionality, install Voice from the
-    [Google Play Store](https://play.google.com/store/apps/details?id=de.ph1b.audiobook).
-    Other sources may work on some setups, but are not guaranteed.
-    See the [download source comparison](download-sources.md) for details.
+- 已经是最新版本；
+- 今天已经检查过；
+- 设备当前无法访问 CDN 与 GitHub（检查会静默失败，不影响使用）。
 
-### Why doesn't Voice support the xyz Media Format?
+### 会不会自动下载或安装更新？
 
-Voice relies on the media formats that are natively supported by the Android platform.
+不会。检测到新版本只弹窗提示，点「立即更新」会打开浏览器前往 Release 页面，**下载和安装由你自己完成**。
 
-You can review the currently supported file extensions [here](https://developer.android.com/media/media3/exoplayer/supported-formats).
-If a file that should be supported is not displayed, it is most likely either corrupted or incompatible with your Android version.
+### 删除书籍会删掉我的音频文件吗？
 
-### Why isn’t feature xyz available in the app?
+不会。长按书籍 →「删除有声书」，默认只把书从书架移除；只有勾选「**同时删除我的文件**」才会真正删除音频文件。
 
-I adhere to a core design principle of minimalism. As such, the app will only include settings and UI components that are absolutely
-essential.
+### 怎么换封面？
 
-### How can I join the beta?
+- **自动**：把图片放进书所在文件夹（jpg / png / webp / heic 等常见格式都行），多张会随机选一张。如果之前显示的是生成的占位封面，重新打开应用后就会换上真图。
+- **手动**：长按书籍 →「从本机寻找封面图片」，手动指定的封面永远不会被自动覆盖。
 
-To participate in the public beta, you can either:
+### 支持哪些音频格式？
 
-- [Join via the Web](https://play.google.com/store/apps/details?id=de.ph1b.audiobook)
-- [Join through Google Play](https://play.google.com/apps/testing/de.ph1b.audiobook)
+Android 平台原生支持的格式基本都支持：MP3、M4A/M4B、AAC、FLAC、OGG、OPUS、WAV、MKA/MKV、MP4、WebM、3GP 等。完整列表见 [SupportedAudioFormats.kt](https://github.com/cq10086123/Timbre/blob/main/core/data/api/src/main/kotlin/voice/core/data/SupportedAudioFormats.kt)。
 
-### Which Voice version should I use on older Android?
+如果某个文件没被识别，多半是文件本身损坏，或编码不被你的 Android 版本支持。
 
-!!! tip
+### 跳过片头会不会和暂停回退打架？
 
-    To check your API level, go to **Settings » About » Android version** on your device.
+不会。片头**每集只跳一次**：进入一集时跳到片头之后，之后你暂停、回退都由你自己控制，不会被强行拉回。
 
-If you’re running an Android release that’s not supported by the latest Voice build, pick the version below that matches your OS/API level:
+### 最后一集会不会被"跳没了"？
 
-| Android Version | API Level (SDK) | Voice Version                                                           |
-|-----------------|-----------------|-------------------------------------------------------------------------|
-| Android 9+      | 28+             | Supported in the latest version 🎉                                      |
-| Android 8.1     | 27              | [8.2.4‑2](https://github.com/PaulWoitaschek/Voice/releases/tag/8.2.4-2) |
-| Android 8       | 26              | [8.2.4‑2](https://github.com/PaulWoitaschek/Voice/releases/tag/8.2.4-2) |
-| Android 7.1     | 25              | [8.2.4‑2](https://github.com/PaulWoitaschek/Voice/releases/tag/8.2.4-2) |
-| Android 7.0     | 24              | [6.0.10](https://github.com/PaulWoitaschek/Voice/releases/tag/6.0.10)   |
+不会。跳过片尾只作用于非最后一集，最后一集会正常播完。
 
-### How do I resume playback after the sleep timer stops?
+### 为什么有的功能和上游 Voice 不一样？
 
-Once the sleep timer elapses, Voice pauses playback (after a brief fade-out). To keep listening, you have two options:
-
-- **Shake to resume**: Shake your device within 30 seconds of pause to restart playback.
-- **Open to resume**: Open the App and simply press on play again
-
-!!! warning
-
-    On some devices (e.g. Samsung S20fe) shake-to-resume may not work reliably.
+Timbre 是 Voice 的二次开发版本，在全量中文化的基础上做了自己的取舍与新增（跳过片头片尾、文件夹封面、应用内更新等）。详见[关于页](about.md)。
