@@ -128,7 +128,7 @@ class BookOverviewViewModelTest {
     )
     val viewModel = viewModel(
       books = emptyList(),
-      bookScanProgress = MutableStateFlow(mapOf(importingBookId to importProgress)),
+      bookScanProgress = mapOf(importingBookId to importProgress),
     )
 
     backgroundScope.launchMolecule(RecompositionMode.Immediate) {
@@ -152,7 +152,7 @@ class BookOverviewViewModelTest {
     val importProgress = BookScanProgress(bookId = storedBook.id, chaptersTotal = 2, chaptersScanned = 1)
     val viewModel = viewModel(
       books = listOf(storedBook),
-      bookScanProgress = MutableStateFlow(mapOf(storedBook.id to importProgress)),
+      bookScanProgress = mapOf(storedBook.id to importProgress),
     )
 
     backgroundScope.launchMolecule(RecompositionMode.Immediate) {

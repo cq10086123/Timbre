@@ -341,7 +341,8 @@ private fun Map<BookOverviewCategory, Map<BookId, State<BookOverviewItemViewStat
     mutableStateOf(bookId.toImportingItemViewState(progress))
   }
   val current = getOrDefault(BookOverviewCategory.CURRENT, emptyMap())
-  val merged = current.plus(placeholders).toSortedMap()
+  // BookId is not Comparable, so sorting needs an explicit comparator
+  val merged = current.plus(placeholders).toSortedMap(compareBy { it.value })
   return this + (BookOverviewCategory.CURRENT to merged)
 }
 
@@ -375,7 +376,7 @@ private fun StateFlow<Map<BookId, BookScanProgress>>.throttledBookScanProgress()
       value = this@throttledBookScanProgress.value
       delay(IMPORT_PROGRESS_UPDATE_INTERVAL)
     }
-  }
+  }.value
 }
 
 private val IMPORT_PROGRESS_UPDATE_INTERVAL = 250.milliseconds
