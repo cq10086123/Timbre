@@ -25,6 +25,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import voice.core.data.BookId
 import voice.core.data.ChapterId
+import voice.core.data.repo.BookContentRepo
 import voice.core.data.repo.BookRepository
 import voice.core.data.store.CurrentBookStore
 import voice.core.logging.api.Logger
@@ -33,8 +34,7 @@ import voice.core.playback.session.CustomCommand
 import voice.core.playback.session.MediaItemProvider
 import voice.core.playback.session.PlaybackService
 import voice.core.playback.session.bookId
-import voice.core.playback.session.playbackItemForPosition
-import voice.core.playback.session.positionInMediaItem
+import voice.core.playback.session.playbackPositionFor
 import voice.core.playback.session.sendCustomCommand
 import voice.core.playback.session.toMediaIdOrNull
 import kotlin.time.Duration
@@ -46,6 +46,7 @@ class PlayerController(
   @CurrentBookStore
   private val currentBookStoreId: DataStore<BookId?>,
   private val bookRepository: BookRepository,
+  private val contentRepo: BookContentRepo,
   private val mediaItemProvider: MediaItemProvider,
 ) {
 
@@ -75,13 +76,11 @@ class PlayerController(
   ) = executeAfterPrepare { controller ->
     val bookId = currentBookStoreId.data.first() ?: return@executeAfterPrepare
     val book = bookRepository.get(bookId) ?: return@executeAfterPrepare
-    val playbackItem = book.playbackItemForPosition(
+    val position = book.playbackPositionFor(
       chapterId = id,
       positionInChapterMs = time,
-    )
-    if (playbackItem != null) {
-      controller.seekTo(playbackItem.index, playbackItem.positionInMediaItem(time))
-    }
+    ) ?: return@executeAfterPrepare
+    controller.seekTo(position.index, position.positionInMediaItemMs)
   }
 
   fun pauseIfCurrentBookDifferentFrom(id: BookId) {
@@ -133,8 +132,10 @@ class PlayerController(
     ) {
       return true
     }
-    val book = bookRepository.get(bookId) ?: return false
-    controller.setMediaItem(mediaItemProvider.mediaItem(book))
+    // only the content is needed to start the book, resolving all of its
+    // chapters here would delay the first playback of a big book
+    val content = contentRepo.get(bookId) ?: return false
+    controller.setMediaItem(mediaItemProvider.mediaItem(content))
     controller.prepare()
     return true
   }

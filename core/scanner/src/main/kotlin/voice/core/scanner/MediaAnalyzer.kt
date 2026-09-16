@@ -9,9 +9,12 @@ import androidx.media3.container.MdtaMetadataEntry
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.TrackGroupArray
 import androidx.media3.extractor.DefaultExtractorsFactory
+import androidx.media3.extractor.amr.AmrExtractor
 import androidx.media3.extractor.metadata.id3.ChapterFrame
 import androidx.media3.extractor.metadata.id3.TextInformationFrame
 import androidx.media3.extractor.metadata.vorbis.VorbisComment
+import androidx.media3.extractor.mp4.Mp4Extractor
+import androidx.media3.extractor.ts.AdtsExtractor
 import androidx.media3.inspector.MetadataRetriever
 import dev.zacsweers.metro.Inject
 import kotlinx.coroutines.CancellationException
@@ -38,10 +41,15 @@ internal class MediaAnalyzer(
 ) {
 
   // we use a custom MediaSourceFactory because the default one for the
-  // retriever also extracts the covers
+  // retriever also extracts the covers. The extractor flags are the ones the
+  // retriever would use on its own: reading the mp4 sample table is expensive
+  // and not needed to get the duration, the tags and the chapter marks.
   private val mediaSourceFactory = DefaultMediaSourceFactory(
     context,
-    DefaultExtractorsFactory(),
+    DefaultExtractorsFactory()
+      .setMp4ExtractorFlags(Mp4Extractor.FLAG_READ_SEF_DATA or Mp4Extractor.FLAG_OMIT_TRACK_SAMPLE_TABLE)
+      .setAdtsExtractorFlags(AdtsExtractor.FLAG_ENABLE_CONSTANT_BITRATE_SEEKING)
+      .setAmrExtractorFlags(AmrExtractor.FLAG_ENABLE_CONSTANT_BITRATE_SEEKING),
   )
 
   suspend fun analyze(file: CachedDocumentFile): Metadata? {

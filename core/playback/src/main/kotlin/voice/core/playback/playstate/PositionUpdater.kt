@@ -1,5 +1,6 @@
 package voice.core.playback.playstate
 
+import android.os.SystemClock
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import dev.zacsweers.metro.Inject
@@ -20,7 +21,6 @@ import voice.core.playback.session.bookId
 import voice.core.playback.session.positionInChapter
 import voice.core.playback.session.realChapterId
 import voice.core.playback.session.toMediaIdOrNull
-import java.time.Instant
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.minutes
 
@@ -36,6 +36,7 @@ class PositionUpdater(
 
   private var player: Player? = null
   private var updateJob: Job? = null
+  private var lastPersistedAt: Long = 0L
 
   fun attachTo(player: Player) {
     this.player?.removeListener(this)
@@ -56,7 +57,10 @@ class PositionUpdater(
                   400.milliseconds
                 },
               )
-              flushPositionNow()
+              // the frequent updates only need to reach the ui. Writing them to
+              // the database would rewrite the chapter list of the book twice a
+              // second, which is very expensive for books with many chapters.
+              flushPositionNow(force = false)
             }
           }
         }
@@ -97,7 +101,14 @@ class PositionUpdater(
     }
   }
 
-  suspend fun flushPositionNow() {
+  /**
+   * Publishes the current position.
+   *
+   * @param force writes the position to the database. Without it the position is
+   * written at most every [PERSIST_INTERVAL_MS] because the position in memory
+   * is already enough to resume and to update the ui.
+   */
+  suspend fun flushPositionNow(force: Boolean = true) {
     val player = player ?: return
     val mediaItem = player.currentMediaItem ?: return
     val currentPosition = player.currentPosition
@@ -106,19 +117,18 @@ class PositionUpdater(
     val bookId = mediaId.bookId ?: return
     val chapterId = mediaId.realChapterId ?: return
     val positionInChapter = mediaId.positionInChapter(currentPosition) ?: return
-    bookRepo.updateBook(bookId) { content ->
-      if (chapterId in content.chapters) {
-        Logger.d("$positionInChapter is the new position!")
-        content.copy(
-          currentChapter = chapterId,
-          positionInChapter = positionInChapter,
-          lastPlayedAt = Instant.now(),
-        )
-      } else {
-        Logger.w("$mediaId not in $content")
-        content
-      }
+    val now = SystemClock.elapsedRealtime()
+    val persist = force || now - lastPersistedAt >= PERSIST_INTERVAL_MS
+    if (persist) {
+      lastPersistedAt = now
     }
+    Logger.d("$positionInChapter is the new position! (persist=$persist)")
+    bookRepo.updatePlaybackPosition(
+      id = bookId,
+      currentChapter = chapterId,
+      positionInChapter = positionInChapter,
+      persist = persist,
+    )
   }
 
   fun release() {
@@ -126,3 +136,5 @@ class PositionUpdater(
     updateJob?.cancel()
   }
 }
+
+private const val PERSIST_INTERVAL_MS = 3_000L

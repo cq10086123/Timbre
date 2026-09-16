@@ -71,9 +71,14 @@ public class BookContentRepoImpl(private val dao: BookContentDao) : BookContentR
     }
   }
 
-  override suspend fun put(content: BookContent) {
+  override suspend fun put(
+    content: BookContent,
+    persist: Boolean,
+  ) {
     fillCache()
-    dao.insert(content)
+    if (persist) {
+      dao.insert(content)
+    }
     cache.update { contents ->
       val newContents = contents!!.toMutableList()
       newContents.removeAll { it.id == content.id }

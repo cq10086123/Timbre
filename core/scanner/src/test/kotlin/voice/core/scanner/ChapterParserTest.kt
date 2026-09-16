@@ -5,6 +5,7 @@ import io.mockk.Runs
 import io.mockk.coEvery
 import io.mockk.just
 import io.mockk.mockk
+import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.test.runTest
 import org.junit.Before
 import org.junit.Rule
@@ -16,6 +17,7 @@ import voice.core.documentfile.FileBasedDocumentFile
 import voice.core.documentfile.nameWithoutExtension
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 @RunWith(AndroidJUnit4::class)
 class ChapterParserTest {
@@ -89,6 +91,72 @@ class ChapterParserTest {
       actual = chapterParser.parse(FileBasedDocumentFile(audiobook))
         .chapters
         .map { it.name },
+    )
+  }
+
+  @Test
+  fun reportsChaptersInOrderWhileParsing() = runTest {
+    val audiobook = testFolder.newFolder("audiobook")
+    repeat(45) { index ->
+      testFolder.newFile("audiobook/Chapter ${index + 1}.mp3")
+    }
+
+    val reports = mutableListOf<ChapterParseResult>()
+    val result = chapterParser().parse(FileBasedDocumentFile(audiobook)) { reports += it }
+
+    assertEquals(expected = 45, actual = result.chapters.size)
+    assertTrue(reports.size >= 2)
+    assertEquals(expected = result.chapters, actual = reports.last().chapters)
+    reports.forEach { report ->
+      // every report is a sorted prefix of the final result, so a book that is
+      // still importing can already be played starting at its first chapter
+      assertEquals(expected = report.chapters.sorted(), actual = report.chapters)
+      assertEquals(
+        expected = report.chapters,
+        actual = result.chapters.take(report.chapters.size),
+      )
+    }
+  }
+
+  private fun chapterParser(): ChapterParser {
+    return ChapterParser(
+      chapterRepo = ChapterRepoImpl(
+        mockk {
+          coEvery {
+            chapter(any())
+          } returns null
+          coEvery {
+            chapters(any())
+          } returns emptyList()
+          coEvery {
+            insert(any())
+          } just Runs
+          coEvery {
+            insertAll(any())
+          } just Runs
+        },
+      ),
+      mediaAnalyzer = mockk {
+        coEvery {
+          analyze(any())
+        } answers {
+          val file = firstArg<CachedDocumentFile>()
+          Metadata(
+            duration = 1000,
+            fileName = file.nameWithoutExtension(),
+            artist = null,
+            album = null,
+            chapters = emptyList(),
+            title = null,
+            genre = null,
+            narrator = null,
+            series = null,
+            part = null,
+          )
+        }
+      },
+      analyzeSemaphore = Semaphore(4),
+      scanProgressReporter = ScanProgressReporter(),
     )
   }
 }

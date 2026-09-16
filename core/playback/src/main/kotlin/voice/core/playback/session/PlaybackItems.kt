@@ -51,6 +51,36 @@ internal fun Book.playbackItemForPosition(
   }
 }
 
+/**
+ * The position of a chapter in the playlist of [Book.playbackItems].
+ *
+ * Seeking happens often and shouldn't build an item for every chapter of the
+ * book just to find the index of one of them.
+ */
+internal data class PlaybackPosition(
+  val index: Int,
+  val positionInMediaItemMs: Long,
+)
+
+internal fun Book.playbackPositionFor(
+  chapterId: ChapterId,
+  positionInChapterMs: Long,
+): PlaybackPosition? {
+  val chapter = chapters.firstOrNull { it.id == chapterId } ?: return null
+  val mark = chapter.markForPosition(positionInChapterMs)
+  val markIndex = chapter.chapterMarks.indexOf(mark)
+  if (markIndex == -1) return null
+  var index = markIndex
+  for (previousChapter in chapters) {
+    if (previousChapter.id == chapterId) break
+    index += previousChapter.chapterMarks.size
+  }
+  return PlaybackPosition(
+    index = index,
+    positionInMediaItemMs = (positionInChapterMs - mark.startMs).coerceIn(0L, mark.durationMs),
+  )
+}
+
 internal val MediaId.bookId: BookId?
   get() = when (this) {
     is MediaId.Book -> id

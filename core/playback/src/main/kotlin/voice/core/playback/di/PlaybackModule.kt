@@ -28,6 +28,7 @@ import voice.core.playback.player.VoicePlayer
 import voice.core.playback.player.onAudioSessionIdChanged
 import voice.core.playback.playstate.PlayStateDelegatingListener
 import voice.core.playback.playstate.PositionUpdater
+import voice.core.playback.session.BookPlaylistSynchronizer
 import voice.core.playback.session.LibrarySessionCallback
 import voice.core.playback.session.PlaybackService
 import voice.core.strings.R as StringsR
@@ -52,6 +53,7 @@ interface PlaybackModule {
     mediaSourceFactory: MediaSource.Factory,
     playStateDelegatingListener: PlayStateDelegatingListener,
     positionUpdater: PositionUpdater,
+    bookPlaylistSynchronizer: BookPlaylistSynchronizer,
     volumeGain: VolumeGain,
     durationInconsistenciesUpdater: DurationInconsistenciesUpdater,
     @Media3AudioOffloadFeatureFlagQualifier media3AudioOffloadFeatureFlag: FeatureFlag<Boolean>,
@@ -82,6 +84,9 @@ interface PlaybackModule {
         playStateDelegatingListener.attachTo(player)
         positionUpdater.attachTo(player)
         durationInconsistenciesUpdater.attachTo(player)
+        // keeps a book that is still being imported playable by appending the
+        // chapters as soon as they are known
+        bookPlaylistSynchronizer.attachTo(player)
         player.onAudioSessionIdChanged {
           volumeGain.audioSessionId = it
         }
