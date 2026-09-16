@@ -24,6 +24,7 @@ import voice.core.playback.misc.VolumeGain
 import voice.core.playback.notification.MainActivityIntentProvider
 import voice.core.playback.player.DurationInconsistenciesUpdater
 import voice.core.playback.player.OnlyAudioRenderersFactory
+import voice.core.playback.player.PlaybackIoPriorityUpdater
 import voice.core.playback.player.VoicePlayer
 import voice.core.playback.player.onAudioSessionIdChanged
 import voice.core.playback.playstate.PlayStateDelegatingListener
@@ -56,6 +57,7 @@ interface PlaybackModule {
     bookPlaylistSynchronizer: BookPlaylistSynchronizer,
     volumeGain: VolumeGain,
     durationInconsistenciesUpdater: DurationInconsistenciesUpdater,
+    playbackIoPriorityUpdater: PlaybackIoPriorityUpdater,
     @Media3AudioOffloadFeatureFlagQualifier media3AudioOffloadFeatureFlag: FeatureFlag<Boolean>,
   ): Player {
     val audioAttributes = AudioAttributes.Builder()
@@ -84,6 +86,9 @@ interface PlaybackModule {
         playStateDelegatingListener.attachTo(player)
         positionUpdater.attachTo(player)
         durationInconsistenciesUpdater.attachTo(player)
+        // the import pauses its analysis while the player buffers, so starting
+        // a chapter isn't queued behind the import's storage traffic
+        playbackIoPriorityUpdater.attachTo(player)
         // keeps a book that is still being imported playable by appending the
         // chapters as soon as they are known
         bookPlaylistSynchronizer.attachTo(player)

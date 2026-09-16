@@ -7,6 +7,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
+import voice.core.common.PlaybackIoGate
 import voice.core.data.BookId
 import voice.core.data.Chapter
 import voice.core.data.ChapterId
@@ -16,6 +17,8 @@ import voice.core.documentfile.CachedDocumentFile
 import voice.core.documentfile.walk
 import voice.core.logging.api.Logger
 import java.time.Instant
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
 import kotlin.time.measureTime
 
 internal data class ChapterParseResult(
@@ -28,6 +31,7 @@ internal class ChapterParser(
   private val chapterRepo: ChapterRepo,
   private val mediaAnalyzer: MediaAnalyzer,
   private val scanProgressReporter: ScanProgressReporter,
+  private val playbackIoGate: PlaybackIoGate,
   @MediaAnalysisSemaphore private val analyzeSemaphore: Semaphore,
 ) {
 
@@ -150,7 +154,16 @@ internal class ChapterParser(
     }
 
     val metadata = try {
-      mediaAnalyzer.analyze(file)
+      var analyzed: Metadata? = null
+      val analysisDuration = measureTime {
+        // while playback is buffering it gets the storage to itself, so
+        // starting a chapter isn't queued behind the import analysis
+        analyzed = playbackIoGate.whilePlaybackLoads { mediaAnalyzer.analyze(file) }
+      }
+      if (analysisDuration >= SLOW_ANALYSIS_LOG_THRESHOLD) {
+        Logger.w("Analyzing $id took $analysisDuration")
+      }
+      analyzed
     } catch (e: CancellationException) {
       throw e
     } catch (e: Exception) {
@@ -171,3 +184,4 @@ internal class ChapterParser(
 
 private const val PARSE_BATCH_SIZE = 20
 private const val MAX_CHAPTER_REPORTS = 250
+private val SLOW_ANALYSIS_LOG_THRESHOLD: Duration = 2.seconds

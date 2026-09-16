@@ -14,6 +14,7 @@ import org.junit.Before
 import org.junit.Rule
 import org.junit.rules.TemporaryFolder
 import org.junit.runner.RunWith
+import voice.core.common.PlaybackIoGate
 import voice.core.data.repo.ChapterRepoImpl
 import voice.core.documentfile.CachedDocumentFile
 import voice.core.documentfile.FileBasedDocumentFile
@@ -80,6 +81,7 @@ class ChapterParserTest {
           )
         }
       },
+      playbackIoGate = PlaybackIoGate(),
       analyzeSemaphore = kotlinx.coroutines.sync.Semaphore(4),
       scanProgressReporter = ScanProgressReporter(),
     )
@@ -159,6 +161,7 @@ class ChapterParserTest {
           )
         }
       },
+      playbackIoGate = PlaybackIoGate(),
       analyzeSemaphore = Semaphore(4),
       scanProgressReporter = ScanProgressReporter(),
     )
@@ -220,6 +223,7 @@ class ChapterParserTest {
           )
         }
       },
+      playbackIoGate = PlaybackIoGate(),
       analyzeSemaphore = Semaphore(4),
       scanProgressReporter = ScanProgressReporter(),
     )

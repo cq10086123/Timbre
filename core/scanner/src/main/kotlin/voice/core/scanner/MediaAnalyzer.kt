@@ -48,6 +48,7 @@ internal class MediaAnalyzer(
   private val mediaSourceFactory = DefaultMediaSourceFactory(
     context,
     DefaultExtractorsFactory()
+      .setConstantBitrateSeekingEnabled(true)
       .setMp4ExtractorFlags(Mp4Extractor.FLAG_READ_SEF_DATA or Mp4Extractor.FLAG_OMIT_TRACK_SAMPLE_TABLE)
       .setAdtsExtractorFlags(AdtsExtractor.FLAG_ENABLE_CONSTANT_BITRATE_SEEKING)
       .setAmrExtractorFlags(AmrExtractor.FLAG_ENABLE_CONSTANT_BITRATE_SEEKING),

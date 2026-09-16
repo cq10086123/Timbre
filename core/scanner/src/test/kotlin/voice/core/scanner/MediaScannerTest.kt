@@ -10,6 +10,7 @@ import io.mockk.mockk
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.test.runTest
 import org.junit.runner.RunWith
+import voice.core.common.PlaybackIoGate
 import voice.core.data.BookContent
 import voice.core.data.BookId
 import voice.core.data.ChapterId
@@ -303,6 +304,7 @@ class MediaScannerTest {
         chapterRepo = chapterRepo,
         mediaAnalyzer = mediaAnalyzer,
         scanProgressReporter = scanProgressReporter,
+        playbackIoGate = PlaybackIoGate(),
         analyzeSemaphore = Semaphore(4),
       ),
       bookParser = BookParser(

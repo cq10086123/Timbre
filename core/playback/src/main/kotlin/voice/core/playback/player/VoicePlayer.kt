@@ -33,6 +33,7 @@ import kotlin.time.Duration
 import kotlin.time.Duration.Companion.ZERO
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
+import kotlin.time.measureTime
 
 @Inject
 class VoicePlayer(
@@ -307,8 +308,8 @@ class VoicePlayer(
   private fun setBook(mediaItem: MediaItem) {
     Logger.v("setBook(${mediaItem.mediaId})")
     val mediaId = mediaItem.mediaId.toMediaIdOrNull()
-    if (mediaId != null) {
-      if (mediaId is MediaId.Book) {
+    if (mediaId is MediaId.Book) {
+      val assemblyDuration = measureTime {
         val book = runBlocking {
           repo.get(mediaId.id)
         }
@@ -319,7 +320,7 @@ class VoicePlayer(
           val currentPlaybackItem = book.playbackItemForPosition(
             chapterId = book.content.currentChapter,
             positionInChapterMs = book.content.positionInChapter,
-          ) ?: return
+          ) ?: return@measureTime
           val mediaItems = mediaItemProvider.playbackItems(book)
           player.setMediaItems(
             mediaItems,
@@ -327,9 +328,13 @@ class VoicePlayer(
             currentPlaybackItem.positionInMediaItem(book.content.positionInChapter),
           )
         }
-      } else {
-        Logger.w("Unexpected mediaId=$mediaId")
       }
+      // assembling the playlist of a book with thousands of chapters is the
+      // one step of a playback start that grows with the chapter count. The
+      // log marks how long it took so a slow start can be attributed.
+      Logger.i("setBook(${mediaItem.mediaId}) took $assemblyDuration")
+    } else if (mediaId != null) {
+      Logger.w("Unexpected mediaId=$mediaId")
     }
   }
 

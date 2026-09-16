@@ -18,6 +18,9 @@ import androidx.core.net.toUri
 import androidx.datastore.core.DataStore
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
+import kotlin.time.Duration.Companion.milliseconds
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import voice.core.common.DispatcherProvider
 import voice.core.common.MainScope
@@ -101,7 +104,7 @@ class BookOverviewViewModel(
     val scannerActive = remember { mediaScanner.scannerActive }
       .collectAsState(initial = false).value
     val importingBooks = remember { mediaScanner.bookScanProgress }
-      .collectAsState(initial = emptyMap()).value
+      .throttledBookScanProgress()
     val gridMode = remember { gridModeStore.data }
       .collectAsState(initial = null).value
       ?: return BookOverviewViewState.Loading
@@ -359,3 +362,20 @@ private fun BookId.toImportingItemViewState(progress: BookScanProgress): BookOve
     importProgress = progress,
   )
 }
+
+/**
+ * The scanner reports every chapter it analyzed, which recomposes the whole
+ * shelf several times per second during a big import. A few updates per
+ * second are smooth enough for a progress line, so the updates are sampled.
+ */
+@Composable
+private fun StateFlow<Map<BookId, BookScanProgress>>.throttledBookScanProgress(): Map<BookId, BookScanProgress> {
+  return produceState(initialValue = value, this) {
+    while (true) {
+      value = this@throttledBookScanProgress.value
+      delay(IMPORT_PROGRESS_UPDATE_INTERVAL)
+    }
+  }
+}
+
+private val IMPORT_PROGRESS_UPDATE_INTERVAL = 250.milliseconds
