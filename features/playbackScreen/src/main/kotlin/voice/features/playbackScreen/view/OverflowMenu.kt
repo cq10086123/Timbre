@@ -21,8 +21,7 @@ internal fun OverflowMenu(
   skipSilence: Boolean,
   onSkipSilenceClick: () -> Unit,
   onVolumeBoostClick: () -> Unit,
-  onSkipIntroClick: () -> Unit,
-  onSkipOutroClick: () -> Unit,
+  onSkipIntroOutroClick: () -> Unit,
 ) {
   Box {
     var expanded by remember { mutableStateOf(false) }
@@ -70,19 +69,10 @@ internal fun OverflowMenu(
       DropdownMenuItem(
         onClick = {
           expanded = false
-          onSkipIntroClick()
+          onSkipIntroOutroClick()
         },
         text = {
-          Text(text = stringResource(id = R.string.playback_option_skip_intro))
-        },
-      )
-      DropdownMenuItem(
-        onClick = {
-          expanded = false
-          onSkipOutroClick()
-        },
-        text = {
-          Text(text = stringResource(id = R.string.playback_option_skip_outro))
+          Text(text = stringResource(id = R.string.playback_option_skip_intro_outro))
         },
       )
     }

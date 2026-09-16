@@ -69,6 +69,7 @@
     <string name="playback.chapter.next">下一节</string>
     <string name="playback.chapter.previous">上一节</string>
     <string name="playback.option.skip_intro">跳过片头</string>
+    <string name="playback.option.skip_intro_outro">跳过片头片尾</string>
     <string name="playback.option.skip_outro">跳过片尾</string>
     <string name="playback.option.skip_silence">跳过空白部分</string>
     <string name="playback.option.volume_boost">音量提升</string>
