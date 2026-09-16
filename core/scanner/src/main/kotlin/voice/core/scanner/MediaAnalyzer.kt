@@ -9,9 +9,12 @@ import androidx.media3.container.MdtaMetadataEntry
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.TrackGroupArray
 import androidx.media3.extractor.DefaultExtractorsFactory
+import androidx.media3.extractor.amr.AmrExtractor
 import androidx.media3.extractor.metadata.id3.ChapterFrame
 import androidx.media3.extractor.metadata.id3.TextInformationFrame
 import androidx.media3.extractor.metadata.vorbis.VorbisComment
+import androidx.media3.extractor.mp4.Mp4Extractor
+import androidx.media3.extractor.ts.AdtsExtractor
 import androidx.media3.inspector.MetadataRetriever
 import dev.zacsweers.metro.Inject
 import kotlinx.coroutines.CancellationException
@@ -29,6 +32,7 @@ import voice.core.scanner.matroska.MatroskaParseException
 import voice.core.scanner.mp4.Mp4ChapterExtractor
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.microseconds
+import kotlin.time.Duration.Companion.milliseconds
 
 @Inject
 internal class MediaAnalyzer(
@@ -38,14 +42,39 @@ internal class MediaAnalyzer(
 ) {
 
   // we use a custom MediaSourceFactory because the default one for the
-  // retriever also extracts the covers
+  // retriever also extracts the covers. The extractor flags are the ones the
+  // retriever would use on its own: reading the mp4 sample table is expensive
+  // and not needed to get the duration, the tags and the chapter marks.
   private val mediaSourceFactory = DefaultMediaSourceFactory(
     context,
-    DefaultExtractorsFactory(),
+    DefaultExtractorsFactory()
+      .setMp4ExtractorFlags(Mp4Extractor.FLAG_READ_SEF_DATA or Mp4Extractor.FLAG_OMIT_TRACK_SAMPLE_TABLE)
+      .setAdtsExtractorFlags(AdtsExtractor.FLAG_ENABLE_CONSTANT_BITRATE_SEEKING)
+      .setAmrExtractorFlags(AmrExtractor.FLAG_ENABLE_CONSTANT_BITRATE_SEEKING),
   )
 
   suspend fun analyze(file: CachedDocumentFile): Metadata? {
     val builder = Metadata.Builder(file.nameWithoutExtension())
+    val fileType = FileTypes.inferFileTypeFromUri(file.uri)
+    val extension = (file.name ?: "").substringAfterLast(delimiter = ".", missingDelimiterValue = "").lowercase()
+    val isMp4 = fileType == FileTypes.MP4 || extension == "mp4" || extension == "m4a" || extension == "m4b"
+
+    // the boxes of an mp4 hold the duration, the tags and the chapters, so the
+    // file does not have to be prepared by exoplayer as well
+    val mp4 = if (isMp4) mp4ChapterExtractor.extract(file.uri) else null
+    if (mp4 != null) {
+      builder.title = mp4.title
+      builder.artist = mp4.artist
+      builder.album = mp4.album
+      builder.genre = mp4.genre
+      builder.narrator = mp4.narrator
+      val durationMs = mp4.durationMs
+      if (durationMs != null && mp4.tagsAreComplete) {
+        builder.chapters += mp4.chapters
+        return builder.build(durationMs.milliseconds)
+      }
+    }
+
     val (duration, trackGroups) = retrieveDurationAndMetadata(file.uri)
       ?: return null
     if (duration <= Duration.ZERO) {
@@ -73,10 +102,8 @@ internal class MediaAnalyzer(
       }
     }
 
-    val fileType = FileTypes.inferFileTypeFromUri(file.uri)
-    val extension = (file.name ?: "").substringAfterLast(delimiter = ".", missingDelimiterValue = "").lowercase()
-    if (fileType == FileTypes.MP4 || extension == "mp4" || extension == "m4a" || extension == "m4b") {
-      parseMp4Chapters(file, builder)
+    if (mp4 != null) {
+      builder.chapters += mp4.chapters
     }
     if (fileType == FileTypes.MATROSKA || extension == "mka" || extension == "mkv") {
       parseMatroskaMetaData(file, builder)
@@ -100,14 +127,6 @@ internal class MediaAnalyzer(
     } catch (e: MatroskaParseException) {
       Logger.w(e, "Error parsing Matroska metadata")
     }
-  }
-
-  private suspend fun parseMp4Chapters(
-    file: CachedDocumentFile,
-    builder: Metadata.Builder,
-  ) {
-    val chapters = mp4ChapterExtractor.extractChapters(file.uri)
-    builder.chapters += chapters
   }
 
   private fun visitMdta(

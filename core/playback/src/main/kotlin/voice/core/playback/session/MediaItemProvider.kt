@@ -132,12 +132,18 @@ class MediaItemProvider(
     }
   }
 
-  fun mediaItem(book: Book): MediaItem = MediaItem(
-    title = book.content.name,
-    mediaId = MediaId.Book(book.id),
+  fun mediaItem(book: Book): MediaItem = mediaItem(book.content)
+
+  /**
+   * Builds the item of a whole book. It only needs the content, so callers that
+   * just want to start a book don't have to resolve all of its chapters.
+   */
+  fun mediaItem(content: BookContent): MediaItem = MediaItem(
+    title = content.name,
+    mediaId = MediaId.Book(content.id),
     browsable = false,
     isPlayable = true,
-    imageUri = book.content.cover?.toProvidedUri(),
+    imageUri = content.cover?.toProvidedUri(),
     mediaType = MediaType.AudioBook,
   )
 

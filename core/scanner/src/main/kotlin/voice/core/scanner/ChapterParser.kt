@@ -4,6 +4,7 @@ import dev.zacsweers.metro.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
@@ -15,6 +16,7 @@ import voice.core.documentfile.CachedDocumentFile
 import voice.core.documentfile.walk
 import voice.core.logging.api.Logger
 import java.time.Instant
+import kotlin.time.measureTime
 
 internal data class ChapterParseResult(
   val chapters: List<Chapter>,
@@ -29,23 +31,62 @@ internal class ChapterParser(
   @MediaAnalysisSemaphore private val analyzeSemaphore: Semaphore,
 ) {
 
-  suspend fun parse(documentFile: CachedDocumentFile): ChapterParseResult {
+  suspend fun parse(
+    documentFile: CachedDocumentFile,
+    onProgress: suspend (ChapterParseResult) -> Unit = { },
+  ): ChapterParseResult {
     val audioFiles = documentFile.walk()
       .filter { it.isAudioFile() }
       .toList()
-    return parse(documentFile, audioFiles)
+    return parse(documentFile, audioFiles, onProgress)
   }
 
+  /**
+   * Analyzes [audioFiles] in their natural order and reports the chapters that
+   * are known after every batch through [onProgress].
+   *
+   * Reporting in order guarantees that a partially imported book always
+   * contains the first chapters of the book, so it can already be played while
+   * the remaining chapters are still being analyzed.
+   */
   suspend fun parse(
     documentFile: CachedDocumentFile,
     audioFiles: List<CachedDocumentFile>,
+    onProgress: suspend (ChapterParseResult) -> Unit = { },
   ): ChapterParseResult {
     // bulk load existing chapters so the per-file checks hit the cache instead
     // of issuing one SELECT per audio file
     chapterRepo.prefetch(audioFiles.map { ChapterId(it.uri) })
 
-    val parsed = coroutineScope {
-      audioFiles
+    val sortedFiles = audioFiles.sortedBy { ChapterId(it.uri) }
+    val chapters = mutableListOf<Chapter>()
+    val metadataByChapter = mutableMapOf<ChapterId, Metadata>()
+
+    sortedFiles.chunked(PARSE_BATCH_SIZE).forEach { batch ->
+      val batchDuration = measureTime {
+        val newChapters = mutableListOf<Chapter>()
+        parseBatch(batch).forEach { (chapter, metadata) ->
+          chapters += chapter
+          if (metadata != null) {
+            metadataByChapter[chapter.id] = metadata
+            newChapters += chapter
+          }
+        }
+        // a single transaction per batch instead of one database write per file
+        if (newChapters.isNotEmpty()) {
+          chapterRepo.putAll(newChapters)
+        }
+      }
+      Logger.i("analyzed ${chapters.size}/${sortedFiles.size} chapters of $documentFile in $batchDuration")
+      onProgress(parseResult(chapters, metadataByChapter))
+    }
+
+    return parseResult(chapters, metadataByChapter)
+  }
+
+  private suspend fun parseBatch(batch: List<CachedDocumentFile>): List<Pair<Chapter, Metadata?>> {
+    return coroutineScope {
+      batch
         .map { file ->
           async(Dispatchers.IO) {
             analyzeSemaphore.withPermit {
@@ -57,30 +98,18 @@ internal class ChapterParser(
             }
           }
         }
-        .map { it.await() }
+        .awaitAll()
         .filterNotNull()
     }
+  }
 
-    // a single transaction for all newly analyzed chapters instead of one
-    // database write per file
-    val newlyCreated = parsed.mapNotNull { (chapter, metadata) ->
-      chapter.takeIf { metadata != null }
-    }
-    if (newlyCreated.isNotEmpty()) {
-      chapterRepo.putAll(newlyCreated)
-    }
-
-    val analyzedMetadata = parsed
-      .mapNotNull { (chapter, metadata) ->
-        metadata?.let { chapter.id to it }
-      }
-      .toMap()
-
-    val chapters = parsed.map { it.first }.sorted()
-
+  private fun parseResult(
+    chapters: List<Chapter>,
+    metadataByChapter: Map<ChapterId, Metadata>,
+  ): ChapterParseResult {
     return ChapterParseResult(
-      chapters = chapters,
-      firstChapterMetadata = chapters.firstOrNull()?.let { analyzedMetadata[it.id] },
+      chapters = chapters.toList(),
+      firstChapterMetadata = chapters.firstOrNull()?.let { metadataByChapter[it.id] },
     )
   }
 
@@ -120,3 +149,5 @@ internal class ChapterParser(
     return chapter to metadata
   }
 }
+
+private const val PARSE_BATCH_SIZE = 20

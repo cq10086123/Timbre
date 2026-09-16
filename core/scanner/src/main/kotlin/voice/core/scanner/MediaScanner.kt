@@ -10,6 +10,7 @@ import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import voice.core.data.BookId
+import voice.core.data.Chapter
 import voice.core.data.folders.FolderType
 import voice.core.data.isAudioFile
 import voice.core.data.repo.BookContentRepo
@@ -93,14 +94,33 @@ internal class MediaScanner(
 
   private suspend fun scan(entry: BookEntry) {
     val file = entry.bookFile
-    val parseResult = chapterParser.parse(file, entry.audioFiles)
-    val chapters = parseResult.chapters
+    val parseResult = chapterParser.parse(file, entry.audioFiles) { progress ->
+      // store every batch so the book shows up in the library and can already
+      // be played while its remaining chapters are still being analyzed
+      storeChapters(file, progress.chapters, progress.firstChapterMetadata, isComplete = false)
+    }
+    storeChapters(file, parseResult.chapters, parseResult.firstChapterMetadata, isComplete = true)
+  }
+
+  private suspend fun storeChapters(
+    file: CachedDocumentFile,
+    chapters: List<Chapter>,
+    firstChapterMetadata: Metadata?,
+    isComplete: Boolean,
+  ) {
     if (chapters.isEmpty()) return
 
-    val content = bookParser.parseAndStore(chapters, file, parseResult.firstChapterMetadata)
+    val content = bookParser.parseAndStore(chapters, file, firstChapterMetadata)
 
     val chapterIds = chapters.map { it.id }
     val currentChapterGone = content.currentChapter !in chapterIds
+    if (!isComplete) {
+      // an incomplete chapter list must only ever grow the book. Otherwise a
+      // rescan would temporarily hide chapters and reset the stored position.
+      if (chapterIds.size <= content.chapters.size || currentChapterGone) {
+        return
+      }
+    }
     val currentChapter = if (currentChapterGone) chapterIds.first() else content.currentChapter
     val positionInChapter = if (currentChapterGone) 0 else content.positionInChapter
     val updated = content.copy(

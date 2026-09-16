@@ -209,10 +209,11 @@ internal fun BookOverview(
     ) {
       val shelfEmpty = viewState.books.values.none { it.isNotEmpty() }
       if (shelfEmpty &&
-        !viewState.isLoading &&
         !viewState.showStoragePermissionBugCard &&
         !viewState.searchActive
       ) {
+        // a running import is indicated by the progress overlay, so the shelf
+        // shouldn't stay blank while the first books are imported
         EmptyShelf(onAddClick = onAddBookClick)
       } else {
         when (viewState.layoutMode) {

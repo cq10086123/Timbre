@@ -260,15 +260,22 @@ class BookPlayViewModel(
   fun onCurrentChapterClick() {
     scope.launch {
       val book = currentBook() ?: return@launch
+      // the running totals keep this linear. Summing up all previous chapters
+      // for every entry is too slow for books with hundreds of chapters.
+      var previousMarks = 0
+      var previousDuration = 0L
       dialogState.value = BookPlayDialogViewState.SelectChapterDialog(
-        items = book.chapters.flatMapIndexed { chapterIndex, chapter ->
+        items = book.chapters.flatMap { chapter ->
+          val firstMarkNumber = previousMarks + 1
+          val chapterStart = previousDuration
+          previousMarks += chapter.chapterMarks.count()
+          previousDuration += chapter.duration
           chapter.chapterMarks.mapIndexed { markIndex, chapterMark ->
-            val previousChapters = book.chapters.take(chapterIndex)
             BookPlayDialogViewState.SelectChapterDialog.ItemViewState(
-              number = previousChapters.sumOf { it.chapterMarks.count() } + markIndex + 1,
+              number = firstMarkNumber + markIndex,
               name = chapterMark.name ?: "",
               active = chapterMark == book.currentMark && chapter == book.currentChapter,
-              time = formatTime(previousChapters.sumOf { it.duration } + chapterMark.startMs),
+              time = formatTime(chapterStart + chapterMark.startMs),
             )
           }
         },

@@ -10,7 +10,11 @@ import kotlinx.coroutines.sync.withLock
 import voice.core.data.Book
 import voice.core.data.BookContent
 import voice.core.data.BookId
+import voice.core.data.Chapter
+import voice.core.data.ChapterId
 import voice.core.logging.api.Logger
+import java.time.Instant
+import java.util.concurrent.ConcurrentHashMap
 
 @SingleIn(AppScope::class)
 @ContributesBinding(AppScope::class)
@@ -21,6 +25,14 @@ public class BookRepositoryImpl(
 
   private var warmedUp = false
   private val mutex = Mutex()
+
+  /**
+   * Assembling a book resolves every chapter and validates the result, which
+   * for a book with hundreds of chapters is expensive. Positions are updated
+   * several times per second while playing, so the result is cached and reused
+   * as long as neither the content nor any of its chapters changed.
+   */
+  private val bookCache = ConcurrentHashMap<BookId, CachedBook>()
 
   private suspend fun warmUp() {
     if (warmedUp) return
@@ -72,18 +84,62 @@ public class BookRepositoryImpl(
     }
   }
 
+  override suspend fun updatePlaybackPosition(
+    id: BookId,
+    currentChapter: ChapterId,
+    positionInChapter: Long,
+    persist: Boolean,
+  ) {
+    mutex.withLock {
+      val content = contentRepo.get(id) ?: return
+      if (currentChapter !in content.chapters) {
+        Logger.w("Ignoring the position of $currentChapter because it is not part of $id")
+        return
+      }
+      val updated = content.copy(
+        currentChapter = currentChapter,
+        positionInChapter = positionInChapter,
+        lastPlayedAt = Instant.now(),
+      )
+      if (updated != content) {
+        contentRepo.put(updated, persist = persist)
+      }
+    }
+  }
+
   private suspend fun BookContent.book(): Book? {
     warmUp()
-    return Book(
-      content = this,
-      chapters = chapters.map { chapterId ->
-        val chapter = chapterRepo.get(chapterId)
-        if (chapter == null) {
-          Logger.w("Missing chapter with id=$chapterId for $this")
-          return null
-        }
-        chapter
-      },
-    )
+    val chapters = this.chapters.map { chapterId ->
+      val chapter = chapterRepo.get(chapterId)
+      if (chapter == null) {
+        Logger.w("Missing chapter with id=$chapterId for $this")
+        return null
+      }
+      chapter
+    }
+    bookCache[id]
+      ?.takeIf { it.isUpToDate(this, chapters) }
+      ?.let { return it.book }
+    return Book(content = this, chapters = chapters)
+      .also { bookCache[id] = CachedBook(content = this, chapters = chapters, book = it) }
+  }
+
+  private class CachedBook(
+    private val content: BookContent,
+    private val chapters: List<Chapter>,
+    val book: Book,
+  ) {
+
+    fun isUpToDate(
+      content: BookContent,
+      chapters: List<Chapter>,
+    ): Boolean {
+      if (this.content !== content) return false
+      if (this.chapters.size != chapters.size) return false
+      for (index in this.chapters.indices) {
+        if (this.chapters[index] !== chapters[index]) return false
+      }
+      return true
+    }
   }
 }

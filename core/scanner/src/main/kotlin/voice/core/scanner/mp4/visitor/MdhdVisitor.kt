@@ -26,6 +26,16 @@ internal class MdhdVisitor : AtomVisitor {
       val timescale = buffer.readUnsignedInt()
       Logger.v("Timescale: $timescale")
       parseOutput.timeScales += timescale
+      val duration = if (version == 0) {
+        buffer.readUnsignedInt()
+      } else {
+        buffer.readUnsignedLongToLong()
+      }
+      parseOutput.trackDurationsMs += if (timescale == 0L) {
+        0L
+      } else {
+        duration * 1000 / timescale
+      }
     }
   }
 }

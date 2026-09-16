@@ -10,6 +10,7 @@ import io.mockk.mockk
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.test.runTest
 import org.junit.runner.RunWith
+import voice.core.data.BookContent
 import voice.core.data.BookId
 import voice.core.data.ChapterId
 import voice.core.data.folders.FolderType
@@ -26,6 +27,7 @@ import java.io.File
 import java.nio.file.Files
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 @RunWith(AndroidJUnit4::class)
 class MediaScannerTest {
@@ -177,6 +179,39 @@ class MediaScannerTest {
   }
 
   @Test
+  fun storesChaptersWhileScanning() = test {
+    // more files than one parse batch, so the book is published before the
+    // last chapter was analyzed
+    val folder = folder("bigBook")
+    val files = (1..45).map { audioFile(parent = folder, name = "$it.mp3") }
+
+    scan(FolderType.SingleFolder, folder)
+
+    val stored = storedContents
+    assertTrue(stored.size >= 2)
+    val importedChapters = stored.last().chapters
+    assertEquals(expected = files.size, actual = importedChapters.size)
+    stored.forEach { content ->
+      // the book grows chapter by chapter and always starts with its first
+      // chapter, so it can already be played while it is imported
+      assertEquals(
+        expected = content.chapters,
+        actual = importedChapters.take(content.chapters.size),
+      )
+      assertEquals(expected = importedChapters.first(), actual = content.currentChapter)
+    }
+    stored.zipWithNext().forEach { (before, after) ->
+      assertTrue(after.chapters.size > before.chapters.size)
+    }
+    assertBookContents(
+      BookContentView(
+        folder,
+        chapters = importedChapters.map { it.toUri().toFile() },
+      ),
+    )
+  }
+
+  @Test
   fun newBookReusesFirstChapterMetadata() = test {
     val folder = folder("book")
     audioFile(parent = folder, "1.mp3")
@@ -251,6 +286,7 @@ class MediaScannerTest {
     val analyzeCalls: Int get() = analyzeCounter.get()
     private val scannedRepo = ScannedBooksRecordingRepo(bookContentRepo)
     val scannedBooks: List<BookId> get() = scannedRepo.scannedBooks
+    val storedContents: List<BookContent> get() = scannedRepo.storedContents
     private val scanProgressReporter = ScanProgressReporter()
     val scanProgress: ScanProgress? get() = scanProgressReporter.progress.value
     private val scanner = MediaScanner(
@@ -348,10 +384,19 @@ class MediaScannerTest {
   private class ScannedBooksRecordingRepo(private val delegate: BookContentRepo) : BookContentRepo by delegate {
 
     val scannedBooks = mutableListOf<BookId>()
+    val storedContents = mutableListOf<BookContent>()
 
     override suspend fun setAllInactiveExcept(ids: List<BookId>) {
       scannedBooks += ids
       delegate.setAllInactiveExcept(ids)
+    }
+
+    override suspend fun put(
+      content: BookContent,
+      persist: Boolean,
+    ) {
+      storedContents += content
+      delegate.put(content, persist)
     }
   }
 }
