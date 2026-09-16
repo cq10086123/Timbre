@@ -38,6 +38,19 @@ public fun CachedDocumentFile.isAudioFile(): Boolean {
   return extension in supportedAudioFormats
 }
 
+/**
+ * Strips a supported audio file extension from a file or folder name. Names
+ * without a supported extension (plain book folder names) are returned as is.
+ */
+public fun String.withoutAudioFileExtension(): String {
+  val extension = substringAfterLast('.').lowercase()
+  return if (extension in supportedAudioFormats) {
+    substringBeforeLast('.')
+  } else {
+    this
+  }
+}
+
 public fun CachedDocumentFile.audioFileCount(): Int {
   return if (isAudioFile()) {
     1

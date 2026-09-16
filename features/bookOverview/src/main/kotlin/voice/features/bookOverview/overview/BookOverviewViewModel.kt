@@ -26,6 +26,7 @@ import voice.core.data.Book
 import voice.core.data.BookId
 import voice.core.data.GridMode
 import voice.core.data.KioskModeDemoData
+import voice.core.data.withoutAudioFileExtension
 import voice.core.data.repo.BookContentRepo
 import voice.core.data.repo.BookRepository
 import voice.core.data.repo.internals.dao.RecentBookSearchDao
@@ -127,24 +128,26 @@ class BookOverviewViewModel(
       remember { mutableStateOf(null) }
     }
 
+    val groupedBooks = books
+      .groupBy {
+        it.category
+      }
+      .mapValues { (category, books) ->
+        books
+          .sortedWith(category.comparator)
+          .associate { book ->
+            book.id to book.itemViewState(
+              currentBookId = currentBookId,
+              livePlaybackState = { livePlaybackState.value },
+              importProgress = importingBooks[book.id],
+            )
+          }
+      }
+      .toSortedMap()
+
     return BookOverviewViewState(
       layoutMode = layoutMode,
-      books = books
-        .groupBy {
-          it.category
-        }
-        .mapValues { (category, books) ->
-          books
-            .sortedWith(category.comparator)
-            .associate { book ->
-              book.id to book.itemViewState(
-                currentBookId = currentBookId,
-                livePlaybackState = { livePlaybackState.value },
-                importProgress = importingBooks[book.id],
-              )
-            }
-        }
-        .toSortedMap(),
+      books = groupedBooks.withImportingBooks(importingBooks),
       playButtonState = if (playState == PlayStateManager.PlayState.Playing) {
         BookOverviewViewState.PlayButtonState.Playing
       } else {
@@ -314,4 +317,45 @@ private fun Book.itemViewState(
       }.toItemViewState(currentImportProgress)
     }
   }
+}
+
+/**
+ * Cards for books that are being imported but not stored yet (no chapter was
+ * analyzed so far). They show up the moment the scan discovers the book, so
+ * the shelf reflects an import instantly instead of staying blank until the
+ * first chapters were parsed.
+ */
+private fun Map<BookOverviewCategory, Map<BookId, State<BookOverviewItemViewState>>>.withImportingBooks(
+  importingBooks: Map<BookId, BookScanProgress>,
+): Map<BookOverviewCategory, Map<BookId, State<BookOverviewItemViewState>>> {
+  val pendingBooks = importingBooks.filterKeys { bookId ->
+    values.none { it.containsKey(bookId) }
+  }
+  if (pendingBooks.isEmpty()) {
+    return this
+  }
+  val placeholders = pendingBooks.mapValues { (bookId, progress) ->
+    mutableStateOf(bookId.toImportingItemViewState(progress))
+  }
+  val current = getOrDefault(BookOverviewCategory.CURRENT, emptyMap())
+  val merged = current.plus(placeholders).toSortedMap()
+  return this + (BookOverviewCategory.CURRENT to merged)
+}
+
+private fun BookId.toImportingItemViewState(progress: BookScanProgress): BookOverviewItemViewState {
+  // the book name isn't known before the first chapter was analyzed, so fall
+  // back to the folder or file name of the book uri
+  val lastSegment = value.toUri().lastPathSegment ?: value
+  val name = lastSegment.substringAfterLast('/')
+    .withoutAudioFileExtension()
+    .ifBlank { lastSegment }
+  return BookOverviewItemViewState(
+    name = name,
+    author = null,
+    cover = null,
+    progress = 0F,
+    id = this,
+    remainingTime = "",
+    importProgress = progress,
+  )
 }

@@ -5,7 +5,10 @@ import io.mockk.Runs
 import io.mockk.coEvery
 import io.mockk.just
 import io.mockk.mockk
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import org.junit.Before
 import org.junit.Rule
@@ -116,6 +119,68 @@ class ChapterParserTest {
         actual = result.chapters.take(report.chapters.size),
       )
     }
+  }
+
+  @Test
+  fun firstChapterOfABatchIsReportedBeforeTheBatchFinished() = runTest {
+    val audiobook = testFolder.newFolder("audiobook")
+    testFolder.newFile("audiobook/Chapter 1.mp3")
+    testFolder.newFile("audiobook/Chapter 2.mp3")
+
+    // chapter 2 blocks in the analyzer; chapter 1 must still be published
+    val releaseSecondChapter = CompletableDeferred<Unit>()
+    val firstChapterReported = CompletableDeferred<ChapterParseResult>()
+    val parser = ChapterParser(
+      chapterRepo = ChapterRepoImpl(
+        mockk {
+          coEvery { chapter(any()) } returns null
+          coEvery { chapters(any()) } returns emptyList()
+          coEvery { insert(any()) } just Runs
+          coEvery { insertAll(any()) } just Runs
+        },
+      ),
+      mediaAnalyzer = mockk {
+        coEvery { analyze(any()) } coAnswers {
+          val file = firstArg<CachedDocumentFile>()
+          if (file.name == "Chapter 2.mp3") {
+            releaseSecondChapter.await()
+          }
+          Metadata(
+            duration = 1000,
+            fileName = file.nameWithoutExtension(),
+            artist = null,
+            album = null,
+            chapters = emptyList(),
+            title = null,
+            genre = null,
+            narrator = null,
+            series = null,
+            part = null,
+          )
+        }
+      },
+      analyzeSemaphore = Semaphore(4),
+      scanProgressReporter = ScanProgressReporter(),
+    )
+
+    val result = CompletableDeferred<ChapterParseResult>()
+    val parseJob = launch(UnconfinedTestDispatcher(testScheduler)) {
+      parser.parse(FileBasedDocumentFile(audiobook)) { report ->
+        if (report.chapters.isNotEmpty()) {
+          firstChapterReported.complete(report)
+        }
+      }.let { result.complete(it) }
+    }
+
+    // a listener at the import frontier gets the first chapter of the batch
+    // while the remaining chapters of the batch are still being analyzed
+    val report = firstChapterReported.await()
+    assertTrue(releaseSecondChapter.isActive)
+    assertEquals(expected = "Chapter 1", actual = report.chapters.single().name)
+
+    releaseSecondChapter.complete(Unit)
+    parseJob.join()
+    assertEquals(expected = 2, actual = result.await().chapters.size)
   }
 
   private fun chapterParser(): ChapterParser {

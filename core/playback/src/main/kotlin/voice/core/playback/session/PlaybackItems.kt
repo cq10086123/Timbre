@@ -40,6 +40,38 @@ internal fun Book.playbackItems(): List<PlaybackItem> {
   }
 }
 
+/**
+ * The playback items of a book starting at the global item index
+ * [fromItemIndex].
+ *
+ * While a book is imported, its playlist only grows at the end. Building only
+ * the appended tail keeps synchronizing a book with thousands of chapters
+ * cheap instead of rebuilding every item for every imported batch.
+ */
+internal fun Book.playbackItems(fromItemIndex: Int): List<PlaybackItem> {
+  if (fromItemIndex <= 0) {
+    return playbackItems()
+  }
+  val items = mutableListOf<PlaybackItem>()
+  var index = 0
+  chapters.forEach { chapter ->
+    val marks = chapter.chapterMarks
+    if (index + marks.size > fromItemIndex) {
+      for (markIndex in (fromItemIndex - index).coerceAtLeast(0) until marks.size) {
+        items += PlaybackItem(
+          index = index + markIndex,
+          bookId = id,
+          chapter = chapter,
+          markIndex = markIndex,
+          mark = marks[markIndex],
+        )
+      }
+    }
+    index += marks.size
+  }
+  return items
+}
+
 internal fun Book.playbackItemForPosition(
   chapterId: ChapterId,
   positionInChapterMs: Long,

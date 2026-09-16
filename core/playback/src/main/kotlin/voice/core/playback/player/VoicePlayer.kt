@@ -83,8 +83,22 @@ class VoicePlayer(
   fun forceSeekToNext() {
     scope.launch {
       val nextMediaItemIndex = player.nextMediaItemIndex.takeUnless { it == C.INDEX_UNSET }
-        ?: return@launch
-      player.seekTo(nextMediaItemIndex, 0)
+      if (nextMediaItemIndex != null) {
+        player.seekTo(nextMediaItemIndex, 0)
+      } else {
+        // there is no next chapter yet because the import hasn't stored it.
+        // Skipping to the end of the current chapter ends it right away, so
+        // playback resumes automatically as soon as the synchronizer appends
+        // the next imported chapter, instead of the tap doing nothing while
+        // the rest of the current chapter would play out.
+        val duration = player.duration
+        if (player.playbackState != Player.STATE_ENDED &&
+          player.currentMediaItemIndex != C.INDEX_UNSET &&
+          duration != C.TIME_UNSET
+        ) {
+          player.seekTo(player.currentMediaItemIndex, duration)
+        }
+      }
     }
   }
 

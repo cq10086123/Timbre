@@ -1,6 +1,5 @@
 package voice.core.playback.session
 
-import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
@@ -42,6 +41,15 @@ class BookPlaylistSynchronizer(
   /** The chapters the playlist was last synchronized with. */
   private var syncedChapters: List<ChapterId>? = null
 
+  /**
+   * The media ids the playlist was last built from, in playlist order. Keeping
+   * them lets every append of a partially imported book verify the existing
+   * playlist and build only the new items instead of the whole book again,
+   * which for books with thousands of chapters is a lot of work per import
+   * batch on the main thread.
+   */
+  private var syncedItemIds: List<String>? = null
+
   fun attachTo(player: Player) {
     this.player = player
     job?.cancel()
@@ -68,6 +76,7 @@ class BookPlaylistSynchronizer(
     if (playlistSize == 0) {
       // no book is loaded, the next playback start builds the playlist anyway
       syncedChapters = null
+      syncedItemIds = null
       return
     }
     val book = bookRepository.get(content.id) ?: return
@@ -76,43 +85,43 @@ class BookPlaylistSynchronizer(
       syncedChapters = book.content.chapters
       return
     }
-    val items = mediaItemProvider.playbackItems(book)
-    if (items.size > playlistSize && isPrefix(player, items, playlistSize)) {
-      val playlistRanOut = player.playbackState == Player.STATE_ENDED && player.playWhenReady
-      player.addMediaItems(playlistSize, items.subList(playlistSize, items.size))
-      syncedChapters = book.content.chapters
-      Logger.i("appended ${items.size - playlistSize} chapters of ${book.id} while playing")
-      if (playlistRanOut) {
-        // the import wasn't done when the last known chapter ended
-        player.seekTo(playlistSize, 0)
-        player.play()
+
+    val expectedIds = syncedItemIds
+      ?: mediaItemProvider.playbackItemIds(book, limit = playlistSize)
+    val isPrefix = expectedIds.size == playlistSize &&
+      expectedIds.indices.all { index ->
+        player.getMediaItemAt(index).mediaId == expectedIds[index]
       }
-      return
+
+    if (isPrefix) {
+      val appendedItems = mediaItemProvider.playbackItems(book, fromItemIndex = playlistSize)
+      if (appendedItems.isNotEmpty()) {
+        val playlistRanOut = player.playbackState == Player.STATE_ENDED && player.playWhenReady
+        player.addMediaItems(playlistSize, appendedItems)
+        syncedItemIds = expectedIds + appendedItems.map { it.mediaId }
+        syncedChapters = book.content.chapters
+        Logger.i("appended ${appendedItems.size} chapters of ${book.id} while playing")
+        if (playlistRanOut) {
+          // the import wasn't done when the last known chapter ended
+          player.seekTo(playlistSize, 0)
+          player.play()
+        }
+        return
+      }
     }
 
     // the chapters changed in a way that can't be appended. Keep the current
     // chapter and its position, otherwise the playback would restart.
     val currentMediaId = player.currentMediaItem?.mediaId ?: return
+    val items = mediaItemProvider.playbackItems(book)
     val currentIndex = items.indexOfFirst { it.mediaId == currentMediaId }
     if (currentIndex == -1) {
       Logger.w("Could not synchronize the playlist of ${book.id}")
       return
     }
     player.setMediaItems(items, currentIndex, player.currentPosition)
+    syncedItemIds = items.map { it.mediaId }
     syncedChapters = book.content.chapters
-  }
-
-  private fun isPrefix(
-    player: Player,
-    items: List<MediaItem>,
-    count: Int,
-  ): Boolean {
-    for (index in 0 until count) {
-      if (player.getMediaItemAt(index).mediaId != items[index].mediaId) {
-        return false
-      }
-    }
-    return true
   }
 
   private fun Player.currentBookId(): BookId? {
