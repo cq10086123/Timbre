@@ -42,6 +42,7 @@ import java.util.concurrent.TimeUnit
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 import kotlin.uuid.Uuid
 
 @RunWith(AndroidJUnit4::class)
@@ -221,6 +222,34 @@ class VoicePlayerTest {
 
     player.forceSeekToNext()
     player.shouldHavePosition(3, 0)
+  }
+
+  @Test
+  fun `forceSeekToNext at the last chapter ends it while playing`() = scope.runTest {
+    setMediaItems(
+      listOf(
+        chapter(
+          ChapterMark(startMs = 0, endMs = 11_999, name = null),
+          ChapterMark(startMs = 12_000, endMs = 20_000, name = null),
+        ),
+      ),
+    )
+
+    player.seekTo(1, 3_000)
+    player.prepare()
+    awaitReady()
+    player.shouldHavePosition(1, 3_000)
+
+    player.play()
+    player.forceSeekToNext()
+
+    // there is no next chapter to jump to. The seek lands inside the last
+    // chapter mark so it doesn't pause, the chapter ends and the playlist
+    // synchronizer resumes into the next imported chapter.
+    scope.advanceUntilIdle()
+    assertTrue(player.playWhenReady)
+    assertEquals(expected = 1, actual = player.currentMediaItemIndex)
+    assertTrue(player.currentPosition >= 19_999)
   }
 
   @Test

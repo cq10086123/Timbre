@@ -128,7 +128,7 @@ class BookOverviewViewModelTest {
     )
     val viewModel = viewModel(
       books = emptyList(),
-      bookScanProgress = mapOf(importingBookId to importProgress),
+      scanProgress = mapOf(importingBookId to importProgress),
     )
 
     backgroundScope.launchMolecule(RecompositionMode.Immediate) {
@@ -152,7 +152,7 @@ class BookOverviewViewModelTest {
     val importProgress = BookScanProgress(bookId = storedBook.id, chaptersTotal = 2, chaptersScanned = 1)
     val viewModel = viewModel(
       books = listOf(storedBook),
-      bookScanProgress = mapOf(storedBook.id to importProgress),
+      scanProgress = mapOf(storedBook.id to importProgress),
     )
 
     backgroundScope.launchMolecule(RecompositionMode.Immediate) {
@@ -273,7 +273,9 @@ class BookOverviewViewModelTest {
     folderPickerInSettingsFeatureFlag: MemoryFeatureFlag<Boolean> = MemoryFeatureFlag(false),
     navigator: Navigator = mockk(),
     books: List<Book> = emptyList(),
-    bookScanProgress: Map<BookId, BookScanProgress> = emptyMap(),
+    // not named bookScanProgress: that would shadow the mocked property
+    // inside the every block below
+    scanProgress: Map<BookId, BookScanProgress> = emptyMap(),
   ): BookOverviewViewModel {
     return BookOverviewViewModel(
       repo = mockk<BookRepository> {
@@ -281,7 +283,7 @@ class BookOverviewViewModelTest {
       },
       mediaScanner = mockk<MediaScanTrigger> {
         every { scannerActive } returns MutableStateFlow(false)
-        every { bookScanProgress } returns MutableStateFlow(bookScanProgress)
+        every { bookScanProgress } returns MutableStateFlow(scanProgress)
         every { scan(any()) } just Runs
       },
       playStateManager = PlayStateManager(),
