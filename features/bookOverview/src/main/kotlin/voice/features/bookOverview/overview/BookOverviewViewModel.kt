@@ -127,24 +127,28 @@ class BookOverviewViewModel(
       remember { mutableStateOf(null) }
     }
 
+    val groupedBooks = books
+      .groupBy {
+        it.category
+      }
+      .mapValues { (category, books) ->
+        books
+          .sortedWith(category.comparator)
+          .associate { book ->
+            book.id to book.itemViewState(
+              currentBookId = currentBookId,
+              livePlaybackState = { livePlaybackState.value },
+              importProgress = importingBooks[book.id],
+            )
+          }
+      }
+      .toSortedMap()
+
+    val booksWithImporting = groupedBooks.withImportingBooks(importingBooks)
+
     return BookOverviewViewState(
       layoutMode = layoutMode,
-      books = books
-        .groupBy {
-          it.category
-        }
-        .mapValues { (category, books) ->
-          books
-            .sortedWith(category.comparator)
-            .associate { book ->
-              book.id to book.itemViewState(
-                currentBookId = currentBookId,
-                livePlaybackState = { livePlaybackState.value },
-                importProgress = importingBooks[book.id],
-              )
-            }
-        }
-        .toSortedMap(),
+      books = booksWithImporting,
       playButtonState = if (playState == PlayStateManager.PlayState.Playing) {
         BookOverviewViewState.PlayButtonState.Playing
       } else {
@@ -314,4 +318,51 @@ private fun Book.itemViewState(
       }.toItemViewState(currentImportProgress)
     }
   }
+}
+
+/**
+ * Cards for books that are being imported but not stored yet (no chapter was
+ * analyzed so far). They show up the moment the scan discovers the book, so
+ * the shelf reflects an import instantly instead of staying blank until the
+ * first chapters were parsed.
+ */
+private fun Map<BookOverviewCategory, Map<BookId, State<BookOverviewItemViewState>>>.withImportingBooks(
+  importingBooks: Map<BookId, BookScanProgress>,
+): Map<BookOverviewCategory, Map<BookId, State<BookOverviewItemViewState>>> {
+  val pendingBooks = importingBooks.filterKeys { bookId ->
+    values.none { it.containsKey(bookId) }
+  }
+  if (pendingBooks.isEmpty()) {
+    // Ensure BookOverviewCategory.CURRENT always exists in the map
+    val current = getOrDefault(BookOverviewCategory.CURRENT, emptyMap())
+    return if (containsKey(BookOverviewCategory.CURRENT)) {
+      this
+    } else {
+      this + (BookOverviewCategory.CURRENT to current)
+    }
+  }
+  val placeholders = pendingBooks.mapValues { (bookId, progress) ->
+    mutableStateOf(bookId.toImportingItemViewState(progress))
+  }
+  val current = getOrDefault(BookOverviewCategory.CURRENT, emptyMap())
+  // BookId is not Comparable, so sorting needs an explicit comparator
+  val merged = current.plus(placeholders).toSortedMap(compareBy { it.value })
+  return this + (BookOverviewCategory.CURRENT to merged)
+}
+
+private fun BookId.toImportingItemViewState(progress: BookScanProgress): BookOverviewItemViewState {
+  // the book name isn't known before the first chapter was analyzed, so fall
+  // back to the folder or file name of the book uri
+  val lastSegment = value.toUri().lastPathSegment ?: value
+  val name = lastSegment.substringAfterLast('/')
+    .ifBlank { lastSegment }
+  return BookOverviewItemViewState(
+    name = name,
+    author = null,
+    cover = null,
+    progress = 0F,
+    id = this,
+    remainingTime = "",
+    importProgress = progress,
+  )
 }
