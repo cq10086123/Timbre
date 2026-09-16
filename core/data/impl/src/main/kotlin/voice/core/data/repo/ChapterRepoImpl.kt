@@ -37,9 +37,11 @@ public class ChapterRepoImpl(private val dao: ChapterDao) : ChapterRepo {
 
   override suspend fun prefetch(ids: Collection<ChapterId>) {
     if (ids.isEmpty()) return
-    if (ids.all { it in cache }) return
+    // containsKey, not `in`: `in` on a ConcurrentHashMap calls the legacy
+    // contains method, which checks the values instead of the keys
+    if (ids.all { cache.containsKey(it) }) return
     dbMutex.withLock {
-      val missing = ids.filter { it !in cache }
+      val missing = ids.filter { !cache.containsKey(it) }
         .distinct()
       missing
         .runForMaxSqlVariableNumber {
