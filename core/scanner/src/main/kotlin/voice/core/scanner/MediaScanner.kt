@@ -4,7 +4,6 @@ import dev.zacsweers.metro.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.sync.Semaphore
@@ -43,44 +42,39 @@ internal class MediaScanner(
       }
     }
 
-    // enumerate every book's chapters up front (directory listing only, no
-    // media parsing) so the import progress has an exact total and the bar
-    // never moves backwards
-    val entries: List<BookEntry> = coroutineScope {
-      files
-        .map { bookFile ->
-          async(Dispatchers.IO) {
-            semaphore.withPermit {
-              val audioFiles = bookFile.walk()
-                .filter { it.isAudioFile() }
-                .toList()
-              BookEntry(bookFile, audioFiles)
-            }
-          }
-        }
-        .awaitAll()
-    }
-
-    // report every book before analyzing it so its card can show the progress
-    // right away, also while the book itself is not stored yet
-    entries.forEach { entry ->
-      scanProgressReporter.beginBook(
-        bookId = BookId(entry.bookFile.uri),
-        chaptersTotal = entry.audioFiles.size,
-      )
+    // report every book before anything is analyzed so its card shows up on
+    // the shelf right away instead of only after the first chapters were
+    // parsed. The chapter total is still unknown here, which the cards show
+    // as an indeterminate progress line.
+    files.forEach { bookFile ->
+      scanProgressReporter.beginBook(bookId = BookId(bookFile.uri), chaptersTotal = 0)
     }
 
     coroutineScope {
-      entries
-        .map { entry ->
+      files
+        .map { bookFile ->
           async(Dispatchers.IO) {
-            val bookId = BookId(entry.bookFile.uri)
+            val bookId = BookId(bookFile.uri)
             try {
-              scan(entry)
+              // enumerate this book's chapters first (directory listing only,
+              // no media parsing) so the import progress has an exact total
+              // and the bar never moves backwards. A book starts analyzing as
+              // soon as its own listing is known; one book's directory walk
+              // no longer delays the import of the others.
+              val audioFiles = semaphore.withPermit {
+                bookFile.walk()
+                  .filter { it.isAudioFile() }
+                  .toList()
+              }
+              scanProgressReporter.beginBook(
+                bookId = bookId,
+                chaptersTotal = audioFiles.size,
+              )
+              scan(BookEntry(bookFile, audioFiles))
             } catch (e: CancellationException) {
               throw e
             } catch (e: Exception) {
-              Logger.w(e, "Error while scanning ${entry.bookFile}")
+              Logger.w(e, "Error while scanning $bookFile")
             } finally {
               scanProgressReporter.finishBook(bookId)
             }

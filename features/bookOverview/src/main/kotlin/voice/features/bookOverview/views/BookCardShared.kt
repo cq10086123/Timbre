@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -12,8 +13,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import voice.core.data.BookId
@@ -98,18 +101,30 @@ internal fun BookProgressIndicator(
 /**
  * The slim import progress line that is pinned to the top edge of a book card
  * while the book is still being imported.
+ *
+ * The line is inset from the card edges because the card's large corner radius
+ * would otherwise clip the line at both ends and hide it. While the chapter
+ * total is still unknown (the directory listing hasn't finished), the line is
+ * indeterminate.
  */
 @Composable
 internal fun BookImportProgressLine(
   progress: BookScanProgress,
   modifier: Modifier = Modifier,
 ) {
-  LinearProgressIndicator(
-    progress = { progress.fraction },
-    modifier = modifier
-      .fillMaxWidth()
-      .height(3.dp),
-  )
+  val lineModifier = modifier
+    .fillMaxWidth()
+    .padding(start = 12.dp, end = 12.dp, top = 10.dp)
+    .height(4.dp)
+    .clip(MaterialTheme.shapes.small)
+  if (progress.chaptersTotal == 0) {
+    LinearProgressIndicator(modifier = lineModifier)
+  } else {
+    LinearProgressIndicator(
+      progress = { progress.fraction },
+      modifier = lineModifier,
+    )
+  }
 }
 
 /** The "importing x of y chapters" caption of a book card. */
@@ -118,13 +133,18 @@ internal fun BookImportProgressText(
   progress: BookScanProgress,
   modifier: Modifier = Modifier,
 ) {
-  Text(
-    text = pluralStringResource(
+  val text = if (progress.chaptersTotal == 0) {
+    stringResource(StringsR.string.library_import_preparing)
+  } else {
+    pluralStringResource(
       StringsR.plurals.library_import_progress,
       progress.chaptersTotal,
       progress.chaptersScanned,
       progress.chaptersTotal,
-    ),
+    )
+  }
+  Text(
+    text = text,
     style = MaterialTheme.typography.labelMedium,
     color = MaterialTheme.colorScheme.onSurfaceVariant,
     maxLines = 1,

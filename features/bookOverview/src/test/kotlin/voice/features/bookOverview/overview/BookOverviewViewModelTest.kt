@@ -1,6 +1,7 @@
 package voice.features.bookOverview.overview
 
 import androidx.datastore.core.DataStore
+import androidx.test.ext.junit.runners.AndroidJUnit4
 import app.cash.molecule.RecompositionMode
 import app.cash.molecule.launchMolecule
 import app.cash.turbine.test
@@ -16,7 +17,9 @@ import kotlinx.coroutines.flow.updateAndGet
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.yield
+import org.junit.runner.RunWith
 import voice.core.common.DispatcherProvider
+import voice.core.data.Book
 import voice.core.data.BookId
 import voice.core.data.GridMode
 import voice.core.data.KioskModeDemoData
@@ -28,6 +31,7 @@ import voice.core.playback.LivePlaybackState
 import voice.core.playback.PlayerController
 import voice.core.playback.overlay
 import voice.core.playback.playstate.PlayStateManager
+import voice.core.scanner.BookScanProgress
 import voice.core.scanner.DeviceHasStoragePermissionBug
 import voice.core.scanner.MediaScanTrigger
 import voice.core.search.BookSearch
@@ -38,6 +42,8 @@ import voice.navigation.Navigator
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
+// robolectric: the placeholder cards derive their name from the book uri
+@RunWith(AndroidJUnit4::class)
 class BookOverviewViewModelTest {
 
   private val testDispatcher = UnconfinedTestDispatcher()
@@ -109,6 +115,54 @@ class BookOverviewViewModelTest {
       assertEquals(expected = currentBook.overlay(livePlaybackState).toItemViewState(), actual = initial.currentBook(currentBook.id))
       assertEquals(expected = initialOtherItem, actual = initial.currentBook(otherBook.id))
       expectNoEvents()
+    }
+  }
+
+  @Test
+  fun `state shows importing books that are not stored yet as placeholder cards`() = runTest {
+    val importingBookId = BookId("content://x/凡人修仙传")
+    val importProgress = BookScanProgress(
+      bookId = importingBookId,
+      chaptersTotal = 3,
+      chaptersScanned = 1,
+    )
+    val viewModel = viewModel(
+      books = emptyList(),
+      scanProgress = mapOf(importingBookId to importProgress),
+    )
+
+    backgroundScope.launchMolecule(RecompositionMode.Immediate) {
+      viewModel.state()
+    }.test {
+      assertEquals(expected = BookOverviewViewState.Loading, actual = awaitItem())
+      val state = awaitItem()
+
+      // the card appears as soon as the scan discovered the book, before any
+      // chapter was stored, so the shelf never stays blank during an import
+      val placeholder = state.books.getValue(BookOverviewCategory.CURRENT).getValue(importingBookId).value
+      assertEquals(expected = "凡人修仙传", actual = placeholder.name)
+      assertEquals(expected = importProgress, actual = placeholder.importProgress)
+      assertEquals(expected = 0F, actual = placeholder.progress)
+    }
+  }
+
+  @Test
+  fun `state does not add a placeholder for books that are already stored`() = runTest {
+    val storedBook = book(name = "Stored", time = 1_000)
+    val importProgress = BookScanProgress(bookId = storedBook.id, chaptersTotal = 2, chaptersScanned = 1)
+    val viewModel = viewModel(
+      books = listOf(storedBook),
+      scanProgress = mapOf(storedBook.id to importProgress),
+    )
+
+    backgroundScope.launchMolecule(RecompositionMode.Immediate) {
+      viewModel.state()
+    }.test {
+      assertEquals(expected = BookOverviewViewState.Loading, actual = awaitItem())
+      val state = awaitItem()
+
+      assertEquals(expected = listOf(storedBook.id), actual = state.books.getValue(BookOverviewCategory.CURRENT).keys.toList())
+      assertEquals(expected = importProgress, actual = state.currentBook(storedBook.id).importProgress)
     }
   }
 
@@ -216,16 +270,20 @@ class BookOverviewViewModelTest {
   }
 
   private fun viewModel(
-    folderPickerInSettingsFeatureFlag: MemoryFeatureFlag<Boolean>,
+    folderPickerInSettingsFeatureFlag: MemoryFeatureFlag<Boolean> = MemoryFeatureFlag(false),
     navigator: Navigator = mockk(),
+    books: List<Book> = emptyList(),
+    // not named bookScanProgress: that would shadow the mocked property
+    // inside the every block below
+    scanProgress: Map<BookId, BookScanProgress> = emptyMap(),
   ): BookOverviewViewModel {
     return BookOverviewViewModel(
       repo = mockk<BookRepository> {
-        every { flow() } returns MutableStateFlow(emptyList())
+        every { flow() } returns MutableStateFlow(books)
       },
       mediaScanner = mockk<MediaScanTrigger> {
         every { scannerActive } returns MutableStateFlow(false)
-        every { bookScanProgress } returns MutableStateFlow(emptyMap())
+        every { bookScanProgress } returns MutableStateFlow(scanProgress)
         every { scan(any()) } just Runs
       },
       playStateManager = PlayStateManager(),

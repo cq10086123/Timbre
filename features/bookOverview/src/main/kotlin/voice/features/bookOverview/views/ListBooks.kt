@@ -147,13 +147,15 @@ internal fun ListBookRow(
       }
 
       if (book.progress > 0.05f) {
-        Spacer(Modifier.size(0.dp))
+        // the bar is inset from the card edges because the card's large corner
+        // radius would otherwise clip the ends of a full width bar
         BookProgressIndicator(
           progress = book.progress,
           modifier = Modifier
             .fillMaxWidth()
-            .clip(MaterialTheme.shapes.small)
-            .height(4.dp),
+            .padding(start = 12.dp, end = 12.dp, bottom = 10.dp)
+            .height(4.dp)
+            .clip(MaterialTheme.shapes.small),
           color = MaterialTheme.colorScheme.primary,
           trackColor = MaterialTheme.colorScheme.surfaceVariant,
         )

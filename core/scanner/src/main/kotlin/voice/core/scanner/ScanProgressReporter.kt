@@ -34,7 +34,10 @@ public class ScanProgressReporter {
     chaptersTotal: Int,
   ) {
     _bookProgress.update { progress ->
-      progress + (bookId to BookScanProgress(bookId = bookId, chaptersTotal = chaptersTotal, chaptersScanned = 0))
+      // re-reporting a book (for example once the chapter total is known after
+      // the directory listing) must not reset the already scanned count
+      val scanned = progress[bookId]?.chaptersScanned ?: 0
+      progress + (bookId to BookScanProgress(bookId = bookId, chaptersTotal = chaptersTotal, chaptersScanned = scanned))
     }
   }
 

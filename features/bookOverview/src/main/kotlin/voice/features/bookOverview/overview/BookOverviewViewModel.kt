@@ -18,6 +18,7 @@ import androidx.core.net.toUri
 import androidx.datastore.core.DataStore
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
+import kotlinx.coroutines.flow.sample
 import kotlinx.coroutines.launch
 import voice.core.common.DispatcherProvider
 import voice.core.common.MainScope
@@ -26,6 +27,7 @@ import voice.core.data.Book
 import voice.core.data.BookId
 import voice.core.data.GridMode
 import voice.core.data.KioskModeDemoData
+import voice.core.data.withoutAudioFileExtension
 import voice.core.data.repo.BookContentRepo
 import voice.core.data.repo.BookRepository
 import voice.core.data.repo.internals.dao.RecentBookSearchDao
@@ -99,7 +101,9 @@ class BookOverviewViewModel(
       .collectAsState(initial = null).value
     val scannerActive = remember { mediaScanner.scannerActive }
       .collectAsState(initial = false).value
-    val importingBooks = remember { mediaScanner.bookScanProgress }
+    // the scanner reports every analyzed chapter; sampling keeps the shelf
+    // from recomposing continuously while still animating the progress line
+    val importingBooks = remember { mediaScanner.bookScanProgress.sample(IMPORT_PROGRESS_UPDATE_INTERVAL_MS) }
       .collectAsState(initial = emptyMap()).value
     val gridMode = remember { gridModeStore.data }
       .collectAsState(initial = null).value
@@ -355,6 +359,7 @@ private fun BookId.toImportingItemViewState(progress: BookScanProgress): BookOve
   // back to the folder or file name of the book uri
   val lastSegment = value.toUri().lastPathSegment ?: value
   val name = lastSegment.substringAfterLast('/')
+    .withoutAudioFileExtension()
     .ifBlank { lastSegment }
   return BookOverviewItemViewState(
     name = name,
@@ -366,3 +371,4 @@ private fun BookId.toImportingItemViewState(progress: BookScanProgress): BookOve
     importProgress = progress,
   )
 }
+private const val IMPORT_PROGRESS_UPDATE_INTERVAL_MS = 250L

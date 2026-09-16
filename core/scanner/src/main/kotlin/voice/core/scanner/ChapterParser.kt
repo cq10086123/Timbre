@@ -4,10 +4,10 @@ import dev.zacsweers.metro.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
+import voice.core.common.PlaybackIoGate
 import voice.core.data.BookId
 import voice.core.data.Chapter
 import voice.core.data.ChapterId
@@ -17,6 +17,8 @@ import voice.core.documentfile.CachedDocumentFile
 import voice.core.documentfile.walk
 import voice.core.logging.api.Logger
 import java.time.Instant
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
 import kotlin.time.measureTime
 
 internal data class ChapterParseResult(
@@ -29,6 +31,7 @@ internal class ChapterParser(
   private val chapterRepo: ChapterRepo,
   private val mediaAnalyzer: MediaAnalyzer,
   private val scanProgressReporter: ScanProgressReporter,
+  private val playbackIoGate: PlaybackIoGate,
   @MediaAnalysisSemaphore private val analyzeSemaphore: Semaphore,
 ) {
 
@@ -49,6 +52,13 @@ internal class ChapterParser(
    * Reporting in order guarantees that a partially imported book always
    * contains the first chapters of the book, so it can already be played while
    * the remaining chapters are still being analyzed.
+   *
+   * Within a batch the chapters are reported as soon as they are known instead
+   * of only after the whole batch: a listener at the import frontier gets the
+   * next chapter after a single file analysis, not after the analysis time of
+   * an entire batch (with hundreds of episodes this is tens of seconds). For
+   * big books the reporting steps widen, because every report rewrites the
+   * chapter list of the book and that would multiply with the chapter count.
    */
   suspend fun parse(
     documentFile: CachedDocumentFile,
@@ -63,20 +73,42 @@ internal class ChapterParser(
     val sortedFiles = audioFiles.sortedBy { ChapterId(it.uri) }
     val chapters = mutableListOf<Chapter>()
     val metadataByChapter = mutableMapOf<ChapterId, Metadata>()
+    val publishStride = publishStride(sortedFiles.size)
 
     sortedFiles.chunked(PARSE_BATCH_SIZE).forEach { batch ->
       val batchDuration = measureTime {
-        val newChapters = mutableListOf<Chapter>()
-        parseBatch(batch, bookId).forEach { (chapter, metadata) ->
-          chapters += chapter
-          if (metadata != null) {
-            metadataByChapter[chapter.id] = metadata
-            newChapters += chapter
+        val unpublishedChapters = mutableListOf<Chapter>()
+        coroutineScope {
+          val deferred = batch.map { file ->
+            async(Dispatchers.IO) {
+              analyzeSemaphore.withPermit {
+                try {
+                  parseChapter(file)
+                } finally {
+                  scanProgressReporter.chapterScanned(bookId)
+                }
+              }
+            }
           }
-        }
-        // a single transaction per batch instead of one database write per file
-        if (newChapters.isNotEmpty()) {
-          chapterRepo.putAll(newChapters)
+
+          deferred.forEachIndexed { index, chapterDeferred ->
+            val (chapter, metadata) = chapterDeferred.await() ?: return@forEachIndexed
+            chapters += chapter
+            if (metadata != null) {
+              metadataByChapter[chapter.id] = metadata
+              unpublishedChapters += chapter
+            }
+            val isLastOfBatch = index == deferred.lastIndex
+            if (isLastOfBatch || chapters.size % publishStride == 0) {
+              // the chapters have to exist before the book content references
+              // them, otherwise the book can't be assembled while it plays
+              if (unpublishedChapters.isNotEmpty()) {
+                chapterRepo.putAll(unpublishedChapters)
+                unpublishedChapters.clear()
+              }
+              onProgress(parseResult(chapters, metadataByChapter))
+            }
+          }
         }
       }
       Logger.i("analyzed ${chapters.size}/${sortedFiles.size} chapters of $documentFile in $batchDuration")
@@ -86,26 +118,12 @@ internal class ChapterParser(
     return parseResult(chapters, metadataByChapter)
   }
 
-  private suspend fun parseBatch(
-    batch: List<CachedDocumentFile>,
-    bookId: BookId,
-  ): List<Pair<Chapter, Metadata?>> {
-    return coroutineScope {
-      batch
-        .map { file ->
-          async(Dispatchers.IO) {
-            analyzeSemaphore.withPermit {
-              try {
-                parseChapter(file)
-              } finally {
-                scanProgressReporter.chapterScanned(bookId)
-              }
-            }
-          }
-        }
-        .awaitAll()
-        .filterNotNull()
-    }
+  private fun publishStride(chapterCount: Int): Int {
+    // storing a chapter rewrites the chapter list of the book, which for a
+    // book with thousands of chapters is a big row. Bounding the number of
+    // reports to ~250 per import keeps that work in the same order as before
+    // while small and mid sized books report every single chapter.
+    return (chapterCount / MAX_CHAPTER_REPORTS).coerceAtLeast(1)
   }
 
   private fun parseResult(
@@ -136,7 +154,16 @@ internal class ChapterParser(
     }
 
     val metadata = try {
-      mediaAnalyzer.analyze(file)
+      var analyzed: Metadata? = null
+      val analysisDuration = measureTime {
+        // while playback is buffering it gets the storage to itself, so
+        // starting a chapter isn't queued behind the import analysis
+        analyzed = playbackIoGate.whilePlaybackLoads { mediaAnalyzer.analyze(file) }
+      }
+      if (analysisDuration >= SLOW_ANALYSIS_LOG_THRESHOLD) {
+        Logger.w("Analyzing $id took $analysisDuration")
+      }
+      analyzed
     } catch (e: CancellationException) {
       throw e
     } catch (e: Exception) {
@@ -156,3 +183,5 @@ internal class ChapterParser(
 }
 
 private const val PARSE_BATCH_SIZE = 20
+private const val MAX_CHAPTER_REPORTS = 250
+private val SLOW_ANALYSIS_LOG_THRESHOLD: Duration = 2.seconds

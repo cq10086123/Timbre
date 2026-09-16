@@ -59,6 +59,21 @@ class ScanProgressReporterTest {
   }
 
   @Test
+  fun `re-reporting a book keeps the already scanned count`() {
+    val reporter = ScanProgressReporter()
+
+    // the chapter total is reported before and after the directory listing
+    reporter.beginBook(bookId, chaptersTotal = 0)
+    reporter.chapterScanned(bookId)
+    reporter.beginBook(bookId, chaptersTotal = 5)
+
+    assertEquals(
+      expected = BookScanProgress(bookId = bookId, chaptersTotal = 5, chaptersScanned = 1),
+      actual = reporter.bookProgress.value[bookId],
+    )
+  }
+
+  @Test
   fun `ignores chapters of unknown books`() {
     val reporter = ScanProgressReporter()
 

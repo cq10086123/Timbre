@@ -10,6 +10,7 @@ import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import voice.core.common.PlaybackIoGate
 import voice.core.data.Book
 import voice.core.data.toUri
 import voice.core.logging.api.Logger
@@ -22,6 +23,7 @@ internal class CoverScanner(
   private val context: Context,
   private val coverSaver: CoverSaver,
   private val coverExtractor: CoverExtractor,
+  private val playbackIoGate: PlaybackIoGate,
   @MediaAnalysisSemaphore private val semaphore: Semaphore,
 ) {
 
@@ -38,7 +40,11 @@ internal class CoverScanner(
           async(Dispatchers.IO) {
             semaphore.withPermit {
               try {
-                findCoverForBook(book)
+                // cover lookup reads the audio files as well, so it pauses
+                // while playback is loading
+                playbackIoGate.whilePlaybackLoads<Unit> {
+                  findCoverForBook(book)
+                }
               } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
               } catch (e: Exception) {

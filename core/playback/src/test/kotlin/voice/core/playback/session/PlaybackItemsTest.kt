@@ -72,6 +72,40 @@ class PlaybackItemsTest {
     assertEquals(expected = 1_000, actual = playbackItem?.positionInMediaItem(8_000))
   }
 
+  @Test
+  fun `playback items from an index keep the global indexes`() {
+    val firstChapter = chapter(
+      duration = 20_000,
+      MarkData(startMs = 0, name = "One"),
+      MarkData(startMs = 5_000, name = "Two"),
+    )
+    val secondChapter = chapter(
+      duration = 20_000,
+      MarkData(startMs = 0, name = "Three"),
+      MarkData(startMs = 7_000, name = "Four"),
+    )
+    val thirdChapter = chapter(duration = 20_000, MarkData(startMs = 0, name = "Five"))
+    val book = book(listOf(firstChapter, secondChapter, thirdChapter))
+
+    val tail = book.playbackItems(fromItemIndex = 1)
+
+    // the indexes must line up with the ones of the full item list because the
+    // playlist positions are derived from them
+    assertEquals(
+      expected = book.playbackItems().drop(1),
+      actual = tail,
+    )
+    assertEquals(expected = listOf(1, 2, 3, 4), actual = tail.map { it.index })
+  }
+
+  @Test
+  fun `playback items from an index after the last item are empty`() {
+    val chapter = chapter(duration = 20_000, MarkData(startMs = 0, name = "One"))
+    val book = book(listOf(chapter))
+
+    assertEquals(expected = emptyList(), actual = book.playbackItems(fromItemIndex = 1))
+  }
+
   private fun chapter(
     @Suppress("SameParameterValue") duration: Long,
     vararg marks: MarkData,

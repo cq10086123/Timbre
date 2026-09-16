@@ -10,6 +10,7 @@ import androidx.media3.session.MediaSession.MediaItemsWithStartPosition
 import dev.zacsweers.metro.Inject
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
 import voice.core.data.Book
 import voice.core.data.BookComparator
 import voice.core.data.BookContent
@@ -119,6 +120,50 @@ class MediaItemProvider(
     return book.playbackItems().map { playbackItem ->
       mediaItem(playbackItem, book.content)
     }
+  }
+
+  /**
+   * The playback items of [book] starting at the global item index
+   * [fromItemIndex]. Appending a partially imported book only needs its new
+   * tail; building every item again would multiply with the chapter count.
+   */
+  internal fun playbackItems(
+    book: Book,
+    fromItemIndex: Int,
+  ): List<MediaItem> {
+    return book.playbackItems(fromItemIndex).map { playbackItem ->
+      mediaItem(playbackItem, book.content)
+    }
+  }
+
+  /**
+   * The media ids of the first [limit] playback items of [book], in playlist
+   * order. Used to check that an existing playlist is still a prefix of the
+   * book without assembling every item of a big book.
+   */
+  internal fun playbackItemIds(
+    book: Book,
+    limit: Int,
+  ): List<String> {
+    val ids = ArrayList<String>(limit)
+    var index = 0
+    bookChapters@ for (chapter in book.chapters) {
+      for (markIndex in chapter.chapterMarks.indices) {
+        if (index >= limit) {
+          break@bookChapters
+        }
+        val mediaId = MediaId.ChapterMark(
+          bookId = book.id,
+          chapterId = chapter.id,
+          markIndex = markIndex,
+          startMs = chapter.chapterMarks[markIndex].startMs,
+          endMs = chapter.chapterMarks[markIndex].endMs,
+        )
+        ids += Json.encodeToString(MediaId.serializer(), mediaId)
+        index++
+      }
+    }
+    return ids
   }
 
   suspend fun children(id: String): List<MediaItem>? {
