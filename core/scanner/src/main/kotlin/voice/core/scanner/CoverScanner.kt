@@ -22,6 +22,7 @@ internal class CoverScanner(
   private val context: Context,
   private val coverSaver: CoverSaver,
   private val coverExtractor: CoverExtractor,
+  private val coverGenerator: CoverGenerator,
   private val playbackIoGate: PlaybackIoGate,
   @MediaAnalysisSemaphore private val semaphore: Semaphore,
 ) {
@@ -62,6 +63,10 @@ internal class CoverScanner(
 
     val marker = markerFile(book)
     if (marker.exists()) {
+      // the audio files were searched for artwork before and contain none.
+      // The book still shouldn't sit on the shelf without a cover, so one is
+      // drawn from its name.
+      generateCover(book)
       return
     }
 
@@ -72,8 +77,26 @@ internal class CoverScanner(
 
     val foundEmbedded = scanForEmbeddedCover(book)
     if (!foundEmbedded) {
+      // Neither on the disc nor embedded: draw one from the book name so the
+      // shelf shows a cover instead of an empty placeholder. The marker keeps
+      // the next scan from searching the files again.
+      generateCover(book)
       runCatching { marker.createNewFile() }
         .onFailure { Logger.w(it, "Could not write no-cover marker for ${book.id}") }
+    }
+  }
+
+  private suspend fun generateCover(book: Book) {
+    val bookName = book.content.name
+    if (bookName.isBlank()) {
+      return
+    }
+    runCatching {
+      coverSaver.save(book.id, coverGenerator.create(bookName))
+    }.onSuccess {
+      Logger.i("Generated a cover for ${book.id}")
+    }.onFailure {
+      Logger.w(it, "Could not generate a cover for ${book.id}")
     }
   }
 
