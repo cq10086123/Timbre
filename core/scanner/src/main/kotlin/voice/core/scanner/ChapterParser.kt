@@ -6,7 +6,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Semaphore
-import kotlinx.coroutines.sync.withPermit
 import voice.core.common.PlaybackIoGate
 import voice.core.data.BookId
 import voice.core.data.Chapter
@@ -81,7 +80,7 @@ internal class ChapterParser(
         coroutineScope {
           val deferred = batch.map { file ->
             async(Dispatchers.IO) {
-              analyzeSemaphore.withPermit {
+              playbackIoGate.withScannerIoSlot(analyzeSemaphore) {
                 try {
                   parseChapter(file)
                 } finally {
@@ -156,9 +155,9 @@ internal class ChapterParser(
     val metadata = try {
       var analyzed: Metadata? = null
       val analysisDuration = measureTime {
-        // while playback is buffering it gets the storage to itself, so
-        // starting a chapter isn't queued behind the import analysis
-        analyzed = playbackIoGate.whilePlaybackLoads { mediaAnalyzer.analyze(file) }
+        // the io slot that guards this analysis was taken while holding the
+        // playback gate, so playback already has the storage here
+        analyzed = mediaAnalyzer.analyze(file)
       }
       if (analysisDuration >= SLOW_ANALYSIS_LOG_THRESHOLD) {
         Logger.w("Analyzing $id took $analysisDuration")

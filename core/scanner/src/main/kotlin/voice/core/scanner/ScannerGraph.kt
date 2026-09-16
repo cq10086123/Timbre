@@ -20,10 +20,13 @@ public interface ScannerGraph {
   private fun mediaAnalysisSemaphore(): Semaphore {
     // analyzing a chapter is io bound: opening the file through the documents
     // provider is also the path the player takes to open the next chapter.
-    // Too many parallel analyses starve the provider and delay playback, so
-    // the parallelism stays low even though imports take a bit longer.
-    val permits = Runtime.getRuntime().availableProcessors()
-      .coerceIn(MIN_ANALYSIS_PARALLELISM, MAX_ANALYSIS_PARALLELISM)
+    // A read that is already in flight cannot be cancelled, so the number of
+    // reads in flight decides whether a chapter switch gets its file right
+    // away or is queued behind the import. One analysis at a time is what
+    // makes "switch a chapter and it plays immediately" hold on slow storage;
+    // on fast storage imports only get a little slower, and on slow storage
+    // they get faster because the reads stop thrashing each other.
+    val permits = ANALYSIS_PARALLELISM
     // the retriever caps the number of parallel retrievals on its own, so it
     // has to be raised together with our permits
     MetadataRetriever.setMaximumParallelRetrievals(permits)
@@ -31,5 +34,4 @@ public interface ScannerGraph {
   }
 }
 
-private const val MIN_ANALYSIS_PARALLELISM = 3
-private const val MAX_ANALYSIS_PARALLELISM = 6
+private const val ANALYSIS_PARALLELISM = 1
