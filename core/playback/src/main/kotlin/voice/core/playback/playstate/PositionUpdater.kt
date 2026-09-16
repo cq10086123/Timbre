@@ -72,7 +72,12 @@ class PositionUpdater(
     newPosition: Player.PositionInfo,
     reason: Int,
   ) {
-    flushPosition()
+    val player = player ?: return
+    // writing the content row of a big book is expensive, so it is only forced
+    // when the chapter changed or while paused. While playing, the periodic
+    // updater persists the position regularly anyway.
+    val crossedChapter = oldPosition.mediaItemIndex != newPosition.mediaItemIndex
+    flushPosition(crossedChapter || !player.playWhenReady)
   }
 
   override fun onPlayWhenReadyChanged(
@@ -92,12 +97,14 @@ class PositionUpdater(
     mediaItem: MediaItem?,
     reason: Int,
   ) {
-    flushPosition()
+    // a chapter change also reports a position discontinuity, which decides
+    // whether the update has to be persisted
+    flushPosition(force = false)
   }
 
-  private fun flushPosition() {
+  private fun flushPosition(force: Boolean = true) {
     scope.launch {
-      flushPositionNow()
+      flushPositionNow(force)
     }
   }
 

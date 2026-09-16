@@ -161,7 +161,7 @@ class MediaScannerTest {
   }
 
   @Test
-  fun progressCountsBooksAndChapters() = test {
+  fun reportsProgressPerBookWhileScanning() = test {
     val shelf1 = folder("shelf1")
     val shelf2 = folder("shelf2")
     audioFile(parent = shelf1, "1.mp3")
@@ -171,11 +171,17 @@ class MediaScannerTest {
 
     scan(FolderType.SingleFolder, shelf1, shelf2)
 
-    val progress = scanProgress
-    assertEquals(expected = 2, actual = progress?.booksTotal)
-    assertEquals(expected = 2, actual = progress?.booksScanned)
-    assertEquals(expected = 4, actual = progress?.chaptersTotal)
-    assertEquals(expected = 4, actual = progress?.chaptersScanned)
+    // both books were reported with their own chapter counts while they were
+    // analyzed...
+    val shelf1Progress = analyzeSnapshots.mapNotNull { it[BookId(shelf1.toUri())] }
+    val shelf2Progress = analyzeSnapshots.mapNotNull { it[BookId(shelf2.toUri())] }
+    assertTrue(shelf1Progress.isNotEmpty())
+    assertTrue(shelf2Progress.isNotEmpty())
+    assertTrue(shelf1Progress.all { it.chaptersTotal == 3 })
+    assertTrue(shelf2Progress.all { it.chaptersTotal == 1 })
+    assertTrue(shelf1Progress.all { it.chaptersScanned in 0..3 })
+    // ...and no book is reported as importing anymore once the scan is done
+    assertEquals(expected = emptyMap(), actual = bookScanProgress)
   }
 
   @Test
@@ -284,11 +290,13 @@ class MediaScannerTest {
     private val mediaAnalyzer = mockk<MediaAnalyzer>()
     private val analyzeCounter = java.util.concurrent.atomic.AtomicInteger(0)
     val analyzeCalls: Int get() = analyzeCounter.get()
+    val analyzeSnapshots: MutableList<Map<BookId, BookScanProgress>> =
+      java.util.Collections.synchronizedList(mutableListOf())
     private val scannedRepo = ScannedBooksRecordingRepo(bookContentRepo)
     val scannedBooks: List<BookId> get() = scannedRepo.scannedBooks
     val storedContents: List<BookContent> get() = scannedRepo.storedContents
     private val scanProgressReporter = ScanProgressReporter()
-    val scanProgress: ScanProgress? get() = scanProgressReporter.progress.value
+    val bookScanProgress: Map<BookId, BookScanProgress> get() = scanProgressReporter.bookProgress.value
     private val scanner = MediaScanner(
       contentRepo = scannedRepo,
       chapterParser = ChapterParser(
@@ -331,6 +339,7 @@ class MediaScannerTest {
         }
         .also {
           coEvery { mediaAnalyzer.analyze(any()) } coAnswers {
+            analyzeSnapshots += scanProgressReporter.bookProgress.value
             analyzeCounter.incrementAndGet()
             Metadata(
               duration = 1000L,

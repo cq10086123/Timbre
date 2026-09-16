@@ -24,9 +24,8 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.guava.await
 import kotlinx.coroutines.guava.future
 import kotlinx.coroutines.launch
-import voice.core.data.Book
 import voice.core.data.BookId
-import voice.core.data.repo.BookRepository
+import voice.core.data.repo.BookContentRepo
 import voice.core.data.store.CurrentBookStore
 import voice.core.logging.api.Logger
 import voice.core.playback.player.VoicePlayer
@@ -42,7 +41,7 @@ class LibrarySessionCallback(
   private val bookSearchHandler: BookSearchHandler,
   @CurrentBookStore
   private val currentBookStoreId: DataStore<BookId?>,
-  private val bookRepository: BookRepository,
+  private val contentRepo: BookContentRepo,
 ) : MediaLibrarySession.Callback {
 
   override fun onAddMediaItems(
@@ -144,18 +143,14 @@ class LibrarySessionCallback(
   ): ListenableFuture<MediaItemsWithStartPosition> {
     Logger.d("onPlaybackResumption")
     return scope.future {
-      val currentBook = currentBook()
-      if (currentBook != null) {
-        mediaItemProvider.mediaItemsWithStartPosition(currentBook)
-      } else {
-        throw UnsupportedOperationException()
-      }
+      // only the content is needed here; assembling the whole book would
+      // resolve every chapter of a big book just to throw the result away
+      val bookId = currentBookStoreId.data.first()
+        ?: throw UnsupportedOperationException()
+      val content = contentRepo.get(bookId)
+        ?: throw UnsupportedOperationException()
+      mediaItemProvider.mediaItemsWithStartPosition(content)
     }
-  }
-
-  private suspend fun currentBook(): Book? {
-    val bookId = currentBookStoreId.data.first() ?: return null
-    return bookRepository.get(bookId)
   }
 
   override fun onConnect(
@@ -187,8 +182,8 @@ class LibrarySessionCallback(
 
   private suspend fun prepareCurrentBook() {
     val bookId = currentBookStoreId.data.first() ?: return
-    val book = bookRepository.get(bookId) ?: return
-    val item = mediaItemProvider.mediaItem(book)
+    val content = contentRepo.get(bookId) ?: return
+    val item = mediaItemProvider.mediaItem(content)
     player.setMediaItem(item)
     player.prepare()
   }

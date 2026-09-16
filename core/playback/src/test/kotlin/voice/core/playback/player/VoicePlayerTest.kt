@@ -243,9 +243,8 @@ class VoicePlayerTest {
     awaitReady()
     player.shouldHavePosition(3, 6_000)
 
-    player.forceSeekToPrevious()
-    player.shouldHavePosition(3, 0)
-
+    // the button always changes the chapter, also when the current one just
+    // started; restarting the current episode made it look broken
     player.forceSeekToPrevious()
     player.shouldHavePosition(2, 0)
 
@@ -254,10 +253,13 @@ class VoicePlayerTest {
 
     player.forceSeekToPrevious()
     player.shouldHavePosition(0, 0)
+
+    player.forceSeekToPrevious()
+    player.shouldHavePosition(0, 0)
   }
 
   @Test
-  fun `forceSeekToPrevious jumps to previous chapter when in the 2s window`() = scope.runTest {
+  fun `forceSeekToPrevious jumps to the previous chapter right after a transition`() = scope.runTest {
     setMediaItems(
       listOf(
         chapter(
@@ -383,7 +385,7 @@ class VoicePlayerTest {
   }
 
   @Test
-  fun `forceSeekToPrevious jumps to chapter start when outside the 2s window`() = scope.runTest {
+  fun `forceSeekToPrevious restarts the first chapter when there is no previous one`() = scope.runTest {
     setMediaItems(
       listOf(
         chapter(
@@ -397,17 +399,16 @@ class VoicePlayerTest {
       ),
     )
 
-    player.seekTo(2, 3_000)
+    player.seekTo(0, 3_000)
     player.prepare()
     awaitReady()
-    player.shouldHavePosition(2, 3_000)
+    player.shouldHavePosition(0, 3_000)
 
     player.forceSeekToPrevious()
-    player.shouldHavePosition(2, 0)
+    player.shouldHavePosition(0, 0)
 
-    player.seekTo(2, 1_000)
     player.forceSeekToPrevious()
-    player.shouldHavePosition(1, 0)
+    player.shouldHavePosition(0, 0)
   }
 
   private fun chapter(vararg marks: ChapterMark): Chapter {

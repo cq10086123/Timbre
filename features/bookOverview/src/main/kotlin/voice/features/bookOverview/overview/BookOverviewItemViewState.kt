@@ -4,6 +4,7 @@ import androidx.compose.runtime.Immutable
 import voice.core.data.Book
 import voice.core.data.BookId
 import voice.core.logging.api.Logger
+import voice.core.scanner.BookScanProgress
 import voice.core.ui.formatTime
 
 @Immutable
@@ -14,15 +15,17 @@ data class BookOverviewItemViewState(
   val progress: Float,
   val id: BookId,
   val remainingTime: String,
+  val importProgress: BookScanProgress? = null,
 )
 
-internal fun Book.toItemViewState() = BookOverviewItemViewState(
+internal fun Book.toItemViewState(importProgress: BookScanProgress? = null) = BookOverviewItemViewState(
   name = content.name,
   author = content.author,
   cover = content.coverUrl,
   id = id,
   progress = progress(),
   remainingTime = formatTime(duration - position),
+  importProgress = importProgress,
 )
 
 private fun Book.progress(): Float {

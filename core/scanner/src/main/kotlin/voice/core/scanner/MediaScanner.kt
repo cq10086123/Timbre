@@ -61,15 +61,20 @@ internal class MediaScanner(
         .awaitAll()
     }
 
-    scanProgressReporter.begin(
-      booksTotal = entries.size,
-      chaptersTotal = entries.sumOf { it.audioFiles.size },
-    )
+    // report every book before analyzing it so its card can show the progress
+    // right away, also while the book itself is not stored yet
+    entries.forEach { entry ->
+      scanProgressReporter.beginBook(
+        bookId = BookId(entry.bookFile.uri),
+        chaptersTotal = entry.audioFiles.size,
+      )
+    }
 
     coroutineScope {
       entries
         .map { entry ->
           async(Dispatchers.IO) {
+            val bookId = BookId(entry.bookFile.uri)
             try {
               scan(entry)
             } catch (e: CancellationException) {
@@ -77,7 +82,7 @@ internal class MediaScanner(
             } catch (e: Exception) {
               Logger.w(e, "Error while scanning ${entry.bookFile}")
             } finally {
-              scanProgressReporter.bookScanned()
+              scanProgressReporter.finishBook(bookId)
             }
           }
         }

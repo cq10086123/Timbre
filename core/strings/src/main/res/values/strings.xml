@@ -94,13 +94,11 @@
     <string name="library.empty.add_first_book">Let\'s add your audiobook folder so you can start listening!</string>
     <!-- Title for screens and rows that manage audiobook folders. -->
     <string name="library.folders.title">Audiobook folders</string>
-    <!-- Shown on the bookshelf while chapters are being analyzed. The quantity is the total chapter count. -->
+    <!-- Shown on the card of a book while its chapters are being analyzed. The quantity is the total chapter count. -->
     <plurals name="library.import.progress">
         <item quantity="one">Importing… %1$d / %2$d chapter</item>
         <item quantity="other">Importing… %1$d / %2$d chapters</item>
     </plurals>
-    <!-- Shown on the bookshelf before/after chapter analysis (enumerating files or covers). -->
-    <string name="library.import.preparing">Preparing your library…</string>
     <!-- Hint text for searching books in the library. -->
     <string name="library.search.hint">What are you looking for?</string>
     <!-- Button label for granting the storage permission workaround. -->

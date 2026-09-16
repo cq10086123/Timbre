@@ -291,7 +291,11 @@ class BookPlayViewModel(
         chapter.chapterMarks.forEach { mark ->
           currentIndex++
           if (currentIndex == number - 1) {
-            player.setPosition(mark.startMs, chapter.id)
+            player.setPosition(
+              book = book,
+              chapterId = chapter.id,
+              positionInChapterMs = mark.startMs,
+            )
             dialogState.value = null
             return@launch
           }
@@ -343,7 +347,11 @@ class BookPlayViewModel(
       val book = currentBook() ?: return@launch
       val currentChapter = book.currentChapter
       val currentMark = currentChapter.markForPosition(book.content.positionInChapter)
-      player.setPosition(currentMark.startMs + position.inWholeMilliseconds, currentChapter.id)
+      player.setPosition(
+        book = book,
+        chapterId = currentChapter.id,
+        positionInChapterMs = currentMark.startMs + position.inWholeMilliseconds,
+      )
     }
   }
 

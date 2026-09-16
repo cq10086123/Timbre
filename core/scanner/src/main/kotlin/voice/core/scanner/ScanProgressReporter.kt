@@ -7,10 +7,14 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import voice.core.data.BookId
 
-public data class ScanProgress(
-  val booksTotal: Int,
-  val booksScanned: Int,
+/**
+ * The import progress of a single book. It is shown on the card of the book
+ * while the book is being scanned.
+ */
+public data class BookScanProgress(
+  val bookId: BookId,
   val chaptersTotal: Int,
   val chaptersScanned: Int,
 ) {
@@ -22,34 +26,34 @@ public data class ScanProgress(
 @Inject
 public class ScanProgressReporter {
 
-  private val _progress = MutableStateFlow<ScanProgress?>(null)
-  public val progress: StateFlow<ScanProgress?> = _progress.asStateFlow()
+  private val _bookProgress = MutableStateFlow<Map<BookId, BookScanProgress>>(emptyMap())
+  public val bookProgress: StateFlow<Map<BookId, BookScanProgress>> = _bookProgress.asStateFlow()
 
-  public fun begin(
-    booksTotal: Int,
+  public fun beginBook(
+    bookId: BookId,
     chaptersTotal: Int,
   ) {
-    _progress.value = ScanProgress(
-      booksTotal = booksTotal,
-      booksScanned = 0,
-      chaptersTotal = chaptersTotal,
-      chaptersScanned = 0,
-    )
-  }
-
-  public fun chapterScanned() {
-    _progress.update { progress ->
-      progress?.copy(chaptersScanned = progress.chaptersScanned + 1)
+    _bookProgress.update { progress ->
+      progress + (bookId to BookScanProgress(bookId = bookId, chaptersTotal = chaptersTotal, chaptersScanned = 0))
     }
   }
 
-  public fun bookScanned() {
-    _progress.update { progress ->
-      progress?.copy(booksScanned = progress.booksScanned + 1)
+  public fun chapterScanned(bookId: BookId) {
+    _bookProgress.update { progress ->
+      val bookProgress = progress[bookId] ?: return@update progress
+      progress + (
+        bookId to bookProgress.copy(chaptersScanned = bookProgress.chaptersScanned + 1)
+        )
+    }
+  }
+
+  public fun finishBook(bookId: BookId) {
+    _bookProgress.update { progress ->
+      progress - bookId
     }
   }
 
   public fun finish() {
-    _progress.value = null
+    _bookProgress.value = emptyMap()
   }
 }

@@ -4,6 +4,7 @@ import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.ContributesBinding
 import dev.zacsweers.metro.SingleIn
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -46,20 +47,29 @@ public class BookRepositoryImpl(
     }
   }
 
+  /**
+   * The books of the whole library. The books on the shelf only need the
+   * persisted position, so an assembly is reused while only the position
+   * fields change; otherwise every position update of a playing book would
+   * reassemble it on the main thread several times per second.
+   */
   override fun flow(): Flow<List<Book>> {
     return contentRepo.flow()
       .map { contents ->
         contents.filter { it.isActive }
           .mapNotNull { content ->
-            content.book()
+            content.book(positionSensitive = false)
           }
       }
+      .distinctUntilChanged()
   }
 
   override suspend fun all(): List<Book> {
     return contentRepo.all()
       .filter { it.isActive }
-      .mapNotNull { it.book() }
+      .mapNotNull { content ->
+        content.book()
+      }
   }
 
   override fun flow(id: BookId): Flow<Book?> {
@@ -107,8 +117,10 @@ public class BookRepositoryImpl(
     }
   }
 
-  private suspend fun BookContent.book(): Book? {
+  private suspend fun BookContent.book(positionSensitive: Boolean = true): Book? {
     warmUp()
+    // a single bulk query per unknown chapter instead of one select per chapter
+    chapterRepo.prefetch(chapters)
     val chapters = this.chapters.map { chapterId ->
       val chapter = chapterRepo.get(chapterId)
       if (chapter == null) {
@@ -118,7 +130,7 @@ public class BookRepositoryImpl(
       chapter
     }
     bookCache[id]
-      ?.takeIf { it.isUpToDate(this, chapters) }
+      ?.takeIf { it.isUpToDate(this, chapters, positionSensitive) }
       ?.let { return it.book }
     return Book(content = this, chapters = chapters)
       .also { bookCache[id] = CachedBook(content = this, chapters = chapters, book = it) }
@@ -133,13 +145,22 @@ public class BookRepositoryImpl(
     fun isUpToDate(
       content: BookContent,
       chapters: List<Chapter>,
+      positionSensitive: Boolean,
     ): Boolean {
-      if (this.content !== content) return false
-      if (this.chapters.size != chapters.size) return false
+      if (chapters.size != this.chapters.size) return false
       for (index in this.chapters.indices) {
-        if (this.chapters[index] !== chapters[index]) return false
+        if (chapters[index] !== this.chapters[index]) return false
       }
-      return true
+      if (positionSensitive) {
+        return this.content === content
+      }
+      // only the playback position changed if the contents are equal once the
+      // position fields of the cached content are replaced by the new ones
+      return this.content.copy(
+        currentChapter = content.currentChapter,
+        positionInChapter = content.positionInChapter,
+        lastPlayedAt = content.lastPlayedAt,
+      ) == content
     }
   }
 }

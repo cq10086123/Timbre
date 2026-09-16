@@ -99,6 +99,10 @@ internal fun ListBookRow(
     modifier = modifier,
   ) {
     Column(Modifier.padding()) {
+      val importProgress = book.importProgress
+      if (importProgress != null) {
+        BookImportProgressLine(progress = importProgress)
+      }
       Row(verticalAlignment = Alignment.CenterVertically) {
         CoverImage(book.id, book.cover)
 
@@ -123,14 +127,22 @@ internal fun ListBookRow(
             maxLines = 2,
           )
 
-          BookRemainingProgressRow(
-            modifier = Modifier
-              .padding(end = 12.dp),
-            remainingTime = book.remainingTime,
-            progress = book.progress,
-            remainingTimeMaxLines = 1,
-            progressMaxLines = 1,
-          )
+          if (importProgress != null) {
+            // the total duration of the book is not known while it is imported
+            BookImportProgressText(
+              progress = importProgress,
+              modifier = Modifier.padding(end = 12.dp),
+            )
+          } else {
+            BookRemainingProgressRow(
+              modifier = Modifier
+                .padding(end = 12.dp),
+              remainingTime = book.remainingTime,
+              progress = book.progress,
+              remainingTimeMaxLines = 1,
+              progressMaxLines = 1,
+            )
+          }
         }
       }
 

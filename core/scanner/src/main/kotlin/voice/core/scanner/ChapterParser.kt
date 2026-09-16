@@ -8,6 +8,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
+import voice.core.data.BookId
 import voice.core.data.Chapter
 import voice.core.data.ChapterId
 import voice.core.data.isAudioFile
@@ -54,6 +55,7 @@ internal class ChapterParser(
     audioFiles: List<CachedDocumentFile>,
     onProgress: suspend (ChapterParseResult) -> Unit = { },
   ): ChapterParseResult {
+    val bookId = BookId(documentFile.uri)
     // bulk load existing chapters so the per-file checks hit the cache instead
     // of issuing one SELECT per audio file
     chapterRepo.prefetch(audioFiles.map { ChapterId(it.uri) })
@@ -65,7 +67,7 @@ internal class ChapterParser(
     sortedFiles.chunked(PARSE_BATCH_SIZE).forEach { batch ->
       val batchDuration = measureTime {
         val newChapters = mutableListOf<Chapter>()
-        parseBatch(batch).forEach { (chapter, metadata) ->
+        parseBatch(batch, bookId).forEach { (chapter, metadata) ->
           chapters += chapter
           if (metadata != null) {
             metadataByChapter[chapter.id] = metadata
@@ -84,7 +86,10 @@ internal class ChapterParser(
     return parseResult(chapters, metadataByChapter)
   }
 
-  private suspend fun parseBatch(batch: List<CachedDocumentFile>): List<Pair<Chapter, Metadata?>> {
+  private suspend fun parseBatch(
+    batch: List<CachedDocumentFile>,
+    bookId: BookId,
+  ): List<Pair<Chapter, Metadata?>> {
     return coroutineScope {
       batch
         .map { file ->
@@ -93,7 +98,7 @@ internal class ChapterParser(
               try {
                 parseChapter(file)
               } finally {
-                scanProgressReporter.chapterScanned()
+                scanProgressReporter.chapterScanned(bookId)
               }
             }
           }

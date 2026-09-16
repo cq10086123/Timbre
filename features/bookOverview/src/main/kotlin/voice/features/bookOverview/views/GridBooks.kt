@@ -105,45 +105,56 @@ internal fun GridBook(
     onBookClick = onBookClick,
     onBookLongClick = onBookLongClick,
   ) {
-    Column(
-      modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 12.dp),
-    ) {
-      Box(
-        modifier = Modifier
-          .fillMaxWidth()
-          .aspectRatio(4f / 3f)
-          .sharedCoverElementModifier(book.id)
-          .clip(MaterialTheme.shapes.large)
-          .background(MaterialTheme.colorScheme.surfaceVariant),
-        contentAlignment = Alignment.Center,
-      ) {
-        AsyncImage(
-          modifier = Modifier.fillMaxSize(),
-          contentScale = ContentScale.Crop,
-          model = book.cover,
-          placeholder = painterResource(id = UiR.drawable.album_art),
-          error = painterResource(id = UiR.drawable.album_art),
-          contentDescription = null,
-        )
+    Column {
+      val importProgress = book.importProgress
+      if (importProgress != null) {
+        BookImportProgressLine(progress = importProgress)
       }
+      Column(
+        modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 12.dp),
+      ) {
+        Box(
+          modifier = Modifier
+            .fillMaxWidth()
+            .aspectRatio(4f / 3f)
+            .sharedCoverElementModifier(book.id)
+            .clip(MaterialTheme.shapes.large)
+            .background(MaterialTheme.colorScheme.surfaceVariant),
+          contentAlignment = Alignment.Center,
+        ) {
+          AsyncImage(
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.Crop,
+            model = book.cover,
+            placeholder = painterResource(id = UiR.drawable.album_art),
+            error = painterResource(id = UiR.drawable.album_art),
+            contentDescription = null,
+          )
+        }
 
-      Spacer(Modifier.height(4.dp))
+        Spacer(Modifier.height(4.dp))
 
-      Text(
-        text = book.name,
-        style = MaterialTheme.typography.titleMedium,
-        color = MaterialTheme.colorScheme.onSurface,
-        maxLines = 3,
-        overflow = TextOverflow.Ellipsis,
-      )
+        Text(
+          text = book.name,
+          style = MaterialTheme.typography.titleMedium,
+          color = MaterialTheme.colorScheme.onSurface,
+          maxLines = 3,
+          overflow = TextOverflow.Ellipsis,
+        )
 
-      BookRemainingProgressRow(
-        remainingTime = book.remainingTime,
-        progress = book.progress,
-      )
+        if (importProgress != null) {
+          // the total duration of the book is not known while it is imported
+          BookImportProgressText(progress = importProgress)
+        } else {
+          BookRemainingProgressRow(
+            remainingTime = book.remainingTime,
+            progress = book.progress,
+          )
+        }
 
-      Spacer(Modifier.height(8.dp))
-      BookProgressIndicator(progress = book.progress)
+        Spacer(Modifier.height(8.dp))
+        BookProgressIndicator(progress = book.progress)
+      }
     }
   }
 }

@@ -21,7 +21,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.retain.retain
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.tooling.preview.Preview
@@ -212,8 +211,8 @@ internal fun BookOverview(
         !viewState.showStoragePermissionBugCard &&
         !viewState.searchActive
       ) {
-        // a running import is indicated by the progress overlay, so the shelf
-        // shouldn't stay blank while the first books are imported
+        // a running import is indicated by the progress on the book cards, so
+        // the shelf shouldn't stay blank while the first books are imported
         EmptyShelf(onAddClick = onAddBookClick)
       } else {
         when (viewState.layoutMode) {
@@ -237,12 +236,6 @@ internal fun BookOverview(
           }
         }
       }
-
-      ImportProgressOverlay(
-        visible = viewState.isLoading && !viewState.searchActive,
-        progress = viewState.importProgress,
-        modifier = Modifier.align(Alignment.BottomCenter),
-      )
     }
   }
 }
@@ -309,7 +302,6 @@ internal class BookOverviewPreviewParameterProvider : PreviewParameterProvider<B
       showAddBookHint = false,
       showSearchIcon = true,
       isLoading = true,
-      importProgress = null,
       searchActive = true,
       searchViewState = BookSearchViewState.EmptySearch(
         suggestedAuthors = emptyList(),
