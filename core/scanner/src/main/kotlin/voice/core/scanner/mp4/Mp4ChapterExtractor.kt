@@ -3,9 +3,9 @@ package voice.core.scanner.mp4
 import android.content.Context
 import android.net.Uri
 import dev.zacsweers.metro.Inject
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import voice.core.data.MarkData
 import voice.core.logging.api.Logger
 
 @Inject
@@ -15,24 +15,40 @@ internal class Mp4ChapterExtractor(
   private val chapterTrackProcessor: ChapterTrackProcessor,
 ) {
 
-  suspend fun extractChapters(uri: Uri): List<MarkData> = withContext(Dispatchers.IO) {
+  /**
+   * Reads the duration, the tags and the chapters of an mp4 style file from its
+   * boxes.
+   *
+   * Only the header boxes are read, the audio payload is skipped instead of read
+   * through. Returns null when the file could not be parsed at all, so the
+   * caller can fall back to preparing it with exoplayer.
+   */
+  suspend fun extract(uri: Uri): Mp4FileMetadata? = withContext(Dispatchers.IO) {
     Mp4BoxInput.create(context, uri).use { input ->
       try {
         input.open()
-        val topLevelResult = boxParser(input)
-        val trackId = topLevelResult.chapterTrackId
-        when {
-          topLevelResult.chplChapters.isNotEmpty() -> {
-            topLevelResult.chplChapters
-          }
-          trackId != null -> {
-            chapterTrackProcessor(uri, input.dataSource, trackId, topLevelResult)
-          }
+        val output = boxParser(input)
+        val trackId = output.chapterTrackId
+        val chapters = when {
+          output.chplChapters.isNotEmpty() -> output.chplChapters
+          trackId != null -> chapterTrackProcessor(uri, input.dataSource, trackId, output)
           else -> emptyList()
         }
+        Mp4FileMetadata(
+          chapters = chapters,
+          durationMs = output.audioDurationMs,
+          title = output.title,
+          artist = output.artist,
+          album = output.album,
+          genre = output.genre,
+          narrator = output.narrator,
+          tagsAreComplete = !output.tagsNeedRetriever,
+        )
+      } catch (e: CancellationException) {
+        throw e
       } catch (e: Exception) {
-        Logger.w(e, "Failed to extract MP4 chapters")
-        emptyList()
+        Logger.w(e, "Failed to parse the boxes of $uri")
+        null
       }
     }
   }

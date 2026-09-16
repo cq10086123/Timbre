@@ -6,6 +6,9 @@ import dev.zacsweers.metro.Inject
 import voice.core.logging.api.Logger
 import voice.core.scanner.mp4.visitor.ChapVisitor
 import voice.core.scanner.mp4.visitor.ChplVisitor
+import voice.core.scanner.mp4.visitor.HdlrVisitor
+import voice.core.scanner.mp4.visitor.IlstVisitor
+import voice.core.scanner.mp4.visitor.KeysVisitor
 import voice.core.scanner.mp4.visitor.MdhdVisitor
 import voice.core.scanner.mp4.visitor.StcoVisitor
 import voice.core.scanner.mp4.visitor.StscVisitor
@@ -19,6 +22,9 @@ internal class Mp4BoxParser(
   stcoVisitor: StcoVisitor,
   chplVisitor: ChplVisitor,
   chapVisitor: ChapVisitor,
+  hdlrVisitor: HdlrVisitor,
+  ilstVisitor: IlstVisitor,
+  keysVisitor: KeysVisitor,
 ) {
 
   private val visitors = listOf(
@@ -28,8 +34,14 @@ internal class Mp4BoxParser(
     stcoVisitor,
     chplVisitor,
     chapVisitor,
+    hdlrVisitor,
+    ilstVisitor,
+    keysVisitor,
   )
-  private val visitorByPath = visitors.associateBy { it.path }
+  private val visitorByPath = visitors
+    .flatMap { visitor -> visitor.allPaths.map { path -> path to visitor } }
+    .toMap()
+  private val paths = visitorByPath.keys.toList()
 
   operator fun invoke(input: Mp4BoxInput): Mp4ChpaterExtractorOutput {
     val scratch = ParsableByteArray(Mp4Box.LONG_HEADER_SIZE)
@@ -103,11 +115,14 @@ internal class Mp4BoxParser(
           }
           visitor.visit(scratch, parseOutput)
 
-          if (parseOutput.chplChapters.isNotEmpty()) {
+          if (parseOutput.isComplete()) {
             return
           }
         }
-        visitors.any { it.path.startsWith(currentPath) } -> {
+        paths.any { it.startsWith(currentPath) } -> {
+          if (atomType == FULL_BOX && !input.skipFully(FULL_BOX_HEADER_SIZE)) {
+            return
+          }
           parseBoxes(
             input = input,
             path = currentPath,
@@ -116,7 +131,7 @@ internal class Mp4BoxParser(
             parseOutput = parseOutput,
           )
 
-          if (parseOutput.chplChapters.isNotEmpty()) {
+          if (parseOutput.isComplete()) {
             return
           }
         }
@@ -135,7 +150,20 @@ internal class Mp4BoxParser(
     }
   }
 
+  /**
+   * True when there is nothing left to find. The tags are part of the condition
+   * because a file can list its chapters before them, and stopping there would
+   * lose the tags.
+   */
+  private fun Mp4ChpaterExtractorOutput.isComplete(): Boolean {
+    return chplChapters.isNotEmpty() && sawTags
+  }
+
   private fun List<String>.startsWith(other: List<String>): Boolean {
     return take(other.size) == other
   }
 }
+
+/** `meta` is a full box, so its children start after a version and flags field. */
+private const val FULL_BOX = "meta"
+private const val FULL_BOX_HEADER_SIZE = 4L

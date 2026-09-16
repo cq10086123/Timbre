@@ -32,6 +32,7 @@ import voice.core.scanner.matroska.MatroskaParseException
 import voice.core.scanner.mp4.Mp4ChapterExtractor
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.microseconds
+import kotlin.time.Duration.Companion.milliseconds
 
 @Inject
 internal class MediaAnalyzer(
@@ -54,6 +55,26 @@ internal class MediaAnalyzer(
 
   suspend fun analyze(file: CachedDocumentFile): Metadata? {
     val builder = Metadata.Builder(file.nameWithoutExtension())
+    val fileType = FileTypes.inferFileTypeFromUri(file.uri)
+    val extension = (file.name ?: "").substringAfterLast(delimiter = ".", missingDelimiterValue = "").lowercase()
+    val isMp4 = fileType == FileTypes.MP4 || extension == "mp4" || extension == "m4a" || extension == "m4b"
+
+    // the boxes of an mp4 hold the duration, the tags and the chapters, so the
+    // file does not have to be prepared by exoplayer as well
+    val mp4 = if (isMp4) mp4ChapterExtractor.extract(file.uri) else null
+    if (mp4 != null) {
+      builder.title = mp4.title
+      builder.artist = mp4.artist
+      builder.album = mp4.album
+      builder.genre = mp4.genre
+      builder.narrator = mp4.narrator
+      val durationMs = mp4.durationMs
+      if (durationMs != null && mp4.tagsAreComplete) {
+        builder.chapters += mp4.chapters
+        return builder.build(durationMs.milliseconds)
+      }
+    }
+
     val (duration, trackGroups) = retrieveDurationAndMetadata(file.uri)
       ?: return null
     if (duration <= Duration.ZERO) {
@@ -81,10 +102,8 @@ internal class MediaAnalyzer(
       }
     }
 
-    val fileType = FileTypes.inferFileTypeFromUri(file.uri)
-    val extension = (file.name ?: "").substringAfterLast(delimiter = ".", missingDelimiterValue = "").lowercase()
-    if (fileType == FileTypes.MP4 || extension == "mp4" || extension == "m4a" || extension == "m4b") {
-      parseMp4Chapters(file, builder)
+    if (mp4 != null) {
+      builder.chapters += mp4.chapters
     }
     if (fileType == FileTypes.MATROSKA || extension == "mka" || extension == "mkv") {
       parseMatroskaMetaData(file, builder)
@@ -108,14 +127,6 @@ internal class MediaAnalyzer(
     } catch (e: MatroskaParseException) {
       Logger.w(e, "Error parsing Matroska metadata")
     }
-  }
-
-  private suspend fun parseMp4Chapters(
-    file: CachedDocumentFile,
-    builder: Metadata.Builder,
-  ) {
-    val chapters = mp4ChapterExtractor.extractChapters(file.uri)
-    builder.chapters += chapters
   }
 
   private fun visitMdta(
