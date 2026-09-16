@@ -48,17 +48,17 @@ public class BookRepositoryImpl(
   }
 
   /**
-   * The books of the whole library. The books on the shelf only need the
-   * persisted position, so an assembly is reused while only the position
-   * fields change; otherwise every position update of a playing book would
-   * reassemble it on the main thread several times per second.
+   * The books of the whole library. Positions are updated several times per
+   * second while playing, which re-assembles the playing book on every
+   * update; resolving the chapters only reads the lock-free cache of the
+   * chapter repo, so this stays cheap.
    */
   override fun flow(): Flow<List<Book>> {
     return contentRepo.flow()
       .map { contents ->
         contents.filter { it.isActive }
           .mapNotNull { content ->
-            content.book(positionSensitive = false)
+            content.book()
           }
       }
       .distinctUntilChanged()
@@ -117,7 +117,7 @@ public class BookRepositoryImpl(
     }
   }
 
-  private suspend fun BookContent.book(positionSensitive: Boolean = true): Book? {
+  private suspend fun BookContent.book(): Book? {
     warmUp()
     // a single bulk query per unknown chapter instead of one select per chapter
     chapterRepo.prefetch(chapters)
@@ -130,7 +130,7 @@ public class BookRepositoryImpl(
       chapter
     }
     bookCache[id]
-      ?.takeIf { it.isUpToDate(this, chapters, positionSensitive) }
+      ?.takeIf { it.isUpToDate(this, chapters) }
       ?.let { return it.book }
     return Book(content = this, chapters = chapters)
       .also { bookCache[id] = CachedBook(content = this, chapters = chapters, book = it) }
@@ -145,22 +145,13 @@ public class BookRepositoryImpl(
     fun isUpToDate(
       content: BookContent,
       chapters: List<Chapter>,
-      positionSensitive: Boolean,
     ): Boolean {
-      if (chapters.size != this.chapters.size) return false
+      if (this.content !== content) return false
+      if (this.chapters.size != chapters.size) return false
       for (index in this.chapters.indices) {
         if (chapters[index] !== this.chapters[index]) return false
       }
-      if (positionSensitive) {
-        return this.content === content
-      }
-      // only the playback position changed if the contents are equal once the
-      // position fields of the cached content are replaced by the new ones
-      return this.content.copy(
-        currentChapter = content.currentChapter,
-        positionInChapter = content.positionInChapter,
-        lastPlayedAt = content.lastPlayedAt,
-      ) == content
+      return true
     }
   }
 }

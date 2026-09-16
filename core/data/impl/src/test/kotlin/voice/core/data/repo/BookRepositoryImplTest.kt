@@ -29,12 +29,13 @@ class BookRepositoryImplTest {
   }
 
   @Test
-  fun libraryFlowReusesTheBookWhileOnlyThePositionChanges() = test {
+  fun libraryFlowShowsFreshPositions() = test {
     val bookId = BookId("book")
     val chapterId = ChapterId("chapter")
     putBook(bookId, chapterId, positionInChapter = 1000)
 
     val initialBook = repo.flow().first().single()
+    assertEquals(expected = 1000, actual = initialBook.content.positionInChapter)
 
     repo.updatePlaybackPosition(
       id = bookId,
@@ -43,14 +44,16 @@ class BookRepositoryImplTest {
       persist = false,
     )
 
-    // the shelf only shows the persisted position, so the expensive assembly is
-    // not repeated for every position update of a playing book
+    // the shelf shows the current position, so the playing book is re-assembled
+    // on every position update. Resolving the chapters only reads the cache of
+    // the chapter repo, which keeps this cheap.
     val bookAfterPositionUpdate = repo.flow().first().single()
-    assertSame(initialBook, bookAfterPositionUpdate)
+    assertEquals(expected = 60_000, actual = bookAfterPositionUpdate.content.positionInChapter)
 
-    // the playback screen still sees the live position
-    val liveBook = repo.get(bookId)!!
-    assertEquals(expected = 60_000, actual = liveBook.content.positionInChapter)
+    // the same book instance is reused as long as nothing changed at all, so
+    // re-subscribing the flow does not re-assemble the library
+    val reCollectedBook = repo.flow().first().single()
+    assertSame(bookAfterPositionUpdate, reCollectedBook)
   }
 
   @Test
