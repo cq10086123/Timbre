@@ -8,10 +8,10 @@
     <string name="book.category.action.mark_not_started">Mark as Not Started Yet</string>
     <!-- Bottom-sheet action title for deleting a book. -->
     <string name="book.delete.bottom_sheet.title">Delete Book</string>
-    <!-- Checkbox label confirming that book files should be deleted. -->
-    <string name="book.delete.dialog.confirm_files">Delete my files</string>
-    <!-- Warning message in the delete-book confirmation dialog. -->
-    <string name="book.delete.dialog.message">This will delete the files on your device.</string>
+    <!-- Checkbox label confirming that the audio files should be deleted as well. -->
+    <string name="book.delete.dialog.confirm_files">Also delete my files</string>
+    <!-- Message in the delete-book confirmation dialog. Removing a book from the shelf keeps its files. -->
+    <string name="book.delete.dialog.message">Removes the book from your shelf. The audio files stay on your device.</string>
     <!-- Title for the delete-book confirmation dialog. -->
     <string name="book.delete.dialog.title">Delete Book</string>
     <!-- Bottom-sheet item for choosing a cover from local files. -->
@@ -56,6 +56,8 @@
     <string name="cover.content_description.selectable">Shows cover to choose</string>
     <!-- Content description for an icon indicating the author in cover search results. -->
     <string name="cover.search.author.content_description">Author</string>
+    <!-- Shown when a cover search finished without a single result, e.g. because there is no usable connection. -->
+    <string name="cover.search.empty.message">No cover found. Try another search term, or check your connection.</string>
     <!-- Search query template for cover lookup when title and author are known. -->
     <string name="cover.search.query.with_author">%1$s by %2$s audiobook cover</string>
     <!-- Search query template for cover lookup when only the book title is known. -->

@@ -7,7 +7,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.sync.Semaphore
-import kotlinx.coroutines.sync.withPermit
+import voice.core.common.PlaybackIoGate
 import voice.core.data.BookId
 import voice.core.data.Chapter
 import voice.core.data.folders.FolderType
@@ -25,6 +25,7 @@ internal class MediaScanner(
   private val deviceHasPermissionBug: DeviceHasStoragePermissionBug,
   private val scanProgressReporter: ScanProgressReporter,
   @MediaAnalysisSemaphore private val semaphore: Semaphore,
+  private val playbackIoGate: PlaybackIoGate,
 ) {
 
   suspend fun scan(folders: Map<FolderType, List<CachedDocumentFile>>) {
@@ -60,8 +61,10 @@ internal class MediaScanner(
               // no media parsing) so the import progress has an exact total
               // and the bar never moves backwards. A book starts analyzing as
               // soon as its own listing is known; one book's directory walk
-              // no longer delays the import of the others.
-              val audioFiles = semaphore.withPermit {
+              // no longer delays the import of the others. The walk goes
+              // through the documents provider as well, so it waits for
+              // playback before it takes an io slot.
+              val audioFiles = playbackIoGate.withScannerIoSlot(semaphore) {
                 bookFile.walk()
                   .filter { it.isAudioFile() }
                   .toList()

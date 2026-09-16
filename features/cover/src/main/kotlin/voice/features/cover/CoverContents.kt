@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
 import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
@@ -21,7 +22,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.painter.ColorPainter
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.paging.LoadState
 import coil.compose.AsyncImage
 import voice.core.strings.R
 import voice.features.cover.api.SearchResponse
@@ -80,21 +83,46 @@ private fun ItemsContent(
   onCoverClick: (SearchResponse.ImageResult) -> Unit,
 ) {
   val items = viewState.items
-  LazyVerticalStaggeredGrid(
-    columns = StaggeredGridCells.Adaptive(minSize = 150.dp),
-    contentPadding = PaddingValues(top = 96.dp),
-    content = {
-      items(
-        count = items.itemCount,
-        key = null,
-      ) { index ->
-        val item = items[index]
-        if (item != null) {
-          CoverImage(onCoverClick = onCoverClick, item = item)
+  // Without this the screen stayed on an empty grid while the first page was
+  // still loading or when the search came back without a single result, which
+  // looks like a screen that simply didn't work.
+  if (items.itemCount > 0) {
+    LazyVerticalStaggeredGrid(
+      columns = StaggeredGridCells.Adaptive(minSize = 150.dp),
+      contentPadding = PaddingValues(top = 96.dp),
+      content = {
+        items(
+          count = items.itemCount,
+          key = null,
+        ) { index ->
+          val item = items[index]
+          if (item != null) {
+            CoverImage(onCoverClick = onCoverClick, item = item)
+          }
         }
-      }
-    },
-  )
+      },
+    )
+  } else if (items.loadState.refresh is LoadState.Loading) {
+    LoadingContent()
+  } else {
+    EmptyContent()
+  }
+}
+
+@Composable
+private fun EmptyContent() {
+  Column(
+    modifier = Modifier.fillMaxSize(),
+    horizontalAlignment = Alignment.CenterHorizontally,
+    verticalArrangement = Arrangement.Center,
+  ) {
+    Text(
+      text = stringResource(id = R.string.cover_search_empty_message),
+      style = MaterialTheme.typography.bodyLarge,
+      textAlign = TextAlign.Center,
+      modifier = Modifier.padding(horizontal = 32.dp),
+    )
+  }
 }
 
 @Composable

@@ -69,14 +69,18 @@ class DeleteBookViewModel(
   internal fun onConfirmDeletion() {
     val state = _state.value
     if (state != null) {
-      check(state.confirmButtonEnabled)
       scope.launch {
-        val documentFile = DocumentFile.fromSingleUri(application, state.id.toUri())
-        val deleted = documentFile?.delete() == true
-        if (deleted) {
-          // unregister the shelf entry so the removed book isn't scanned back in
-          audiobookFolders.removeBookRegistration(state.id)
+        if (state.deleteCheckBoxChecked) {
+          val documentFile = DocumentFile.fromSingleUri(application, state.id.toUri())
+          if (documentFile?.delete() != true) {
+            Logger.w("Could not delete the files of ${state.id}")
+          }
         }
+        // The book always leaves the shelf. Keeping the files is the default,
+        // so a book can be dropped from the library without touching the audio
+        // on the device. The registration has to go in both cases, otherwise
+        // the next scan would put the book back on the shelf.
+        audiobookFolders.removeBookRegistration(state.id)
         mediaScanTrigger.scan(restartIfScanning = true)
       }
     }
@@ -88,7 +92,4 @@ data class DeleteBookViewState(
   val id: BookId,
   val deleteCheckBoxChecked: Boolean,
   val fileToDelete: String,
-) {
-
-  val confirmButtonEnabled = deleteCheckBoxChecked
-}
+)

@@ -315,6 +315,7 @@ class MediaScannerTest {
       deviceHasPermissionBug = mockk(),
       scanProgressReporter = scanProgressReporter,
       semaphore = Semaphore(4),
+      playbackIoGate = PlaybackIoGate(),
     )
 
     val bookRepo = BookRepositoryImpl(chapterRepo, bookContentRepo)

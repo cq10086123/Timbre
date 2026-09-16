@@ -8,7 +8,6 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.sync.Semaphore
-import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import voice.core.common.PlaybackIoGate
 import voice.core.data.Book
@@ -23,6 +22,7 @@ internal class CoverScanner(
   private val context: Context,
   private val coverSaver: CoverSaver,
   private val coverExtractor: CoverExtractor,
+  private val coverGenerator: CoverGenerator,
   private val playbackIoGate: PlaybackIoGate,
   @MediaAnalysisSemaphore private val semaphore: Semaphore,
 ) {
@@ -38,13 +38,11 @@ internal class CoverScanner(
       books
         .map { book ->
           async(Dispatchers.IO) {
-            semaphore.withPermit {
+            // cover lookup reads the audio files as well, so it waits for
+            // playback before it takes an io slot
+            playbackIoGate.withScannerIoSlot(semaphore) {
               try {
-                // cover lookup reads the audio files as well, so it pauses
-                // while playback is loading
-                playbackIoGate.whilePlaybackLoads<Unit> {
-                  findCoverForBook(book)
-                }
+                findCoverForBook(book)
               } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
               } catch (e: Exception) {
@@ -65,6 +63,10 @@ internal class CoverScanner(
 
     val marker = markerFile(book)
     if (marker.exists()) {
+      // the audio files were searched for artwork before and contain none.
+      // The book still shouldn't sit on the shelf without a cover, so one is
+      // drawn from its name.
+      generateCover(book)
       return
     }
 
@@ -75,8 +77,26 @@ internal class CoverScanner(
 
     val foundEmbedded = scanForEmbeddedCover(book)
     if (!foundEmbedded) {
+      // Neither on the disc nor embedded: draw one from the book name so the
+      // shelf shows a cover instead of an empty placeholder. The marker keeps
+      // the next scan from searching the files again.
+      generateCover(book)
       runCatching { marker.createNewFile() }
         .onFailure { Logger.w(it, "Could not write no-cover marker for ${book.id}") }
+    }
+  }
+
+  private suspend fun generateCover(book: Book) {
+    val bookName = book.content.name
+    if (bookName.isBlank()) {
+      return
+    }
+    runCatching {
+      coverSaver.save(book.id, coverGenerator.create(bookName))
+    }.onSuccess {
+      Logger.i("Generated a cover for ${book.id}")
+    }.onFailure {
+      Logger.w(it, "Could not generate a cover for ${book.id}")
     }
   }
 
