@@ -270,7 +270,7 @@ class BookOverviewViewModelTest {
   }
 
   private fun viewModel(
-    folderPickerInSettingsFeatureFlag: MemoryFeatureFlag<Boolean>,
+    folderPickerInSettingsFeatureFlag: MemoryFeatureFlag<Boolean> = MemoryFeatureFlag(false),
     navigator: Navigator = mockk(),
     books: List<Book> = emptyList(),
     bookScanProgress: Map<BookId, BookScanProgress> = emptyMap(),
