@@ -36,11 +36,17 @@ internal fun DeleteBookDialog(
     confirmButton = {
       Button(
         onClick = onConfirmDeletion,
-        enabled = viewState.deleteCheckBoxChecked,
-        colors = ButtonDefaults.buttonColors(
-          containerColor = MaterialTheme.colorScheme.errorContainer,
-          contentColor = MaterialTheme.colorScheme.error,
-        ),
+        // removing a book from the shelf keeps the files and is therefore not
+        // destructive. The error colours and the required checkbox only apply
+        // when the user also asks for the files to be deleted.
+        colors = if (viewState.deleteCheckBoxChecked) {
+          ButtonDefaults.buttonColors(
+            containerColor = MaterialTheme.colorScheme.errorContainer,
+            contentColor = MaterialTheme.colorScheme.error,
+          )
+        } else {
+          ButtonDefaults.buttonColors()
+        },
       ) {
         Text(stringResource(id = StringsR.string.common_action_delete))
       }

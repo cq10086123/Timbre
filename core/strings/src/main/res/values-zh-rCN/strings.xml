@@ -4,8 +4,8 @@
     <string name="book.category.action.mark_current">标记为正在播放</string>
     <string name="book.category.action.mark_not_started">标记为尚未开始播放</string>
     <string name="book.delete.bottom_sheet.title">删除有声书</string>
-    <string name="book.delete.dialog.confirm_files">删除我的文件</string>
-    <string name="book.delete.dialog.message">这样做将从您的设备上删除文件。</string>
+    <string name="book.delete.dialog.confirm_files">同时删除我的文件</string>
+    <string name="book.delete.dialog.message">将从书架移除这本有声书，音频文件会保留在设备上。</string>
     <string name="book.delete.dialog.title">删除有声书</string>
     <string name="book.edit.cover.file">从本机寻找封面图片</string>
     <string name="book.edit.cover.internet">从互联网寻找封面图片</string>
