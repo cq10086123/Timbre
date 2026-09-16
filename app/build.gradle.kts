@@ -163,6 +163,7 @@ dependencies {
   implementation(projects.core.scanner)
   implementation(projects.core.featureflag)
   implementation(projects.core.initializer)
+  implementation(projects.core.update)
   implementation(projects.features.playbackScreen)
   implementation(projects.navigation)
   implementation(projects.core.sleeptimer.api)

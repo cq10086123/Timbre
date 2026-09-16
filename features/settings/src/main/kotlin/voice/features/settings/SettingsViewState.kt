@@ -19,6 +19,7 @@ data class SettingsViewState(
   val showDeveloperMenu: Boolean,
   val showSupportDevelopment: Boolean,
   val kioskMode: Boolean,
+  val updateAvailable: String? = null,
 ) {
 
   enum class Dialog {

@@ -64,3 +64,22 @@ jobs:
             --title "Timbre v${{ inputs.versionName }}" \
             --generate-notes \
             --target "$GITHUB_SHA"
+
+      - name: 更新 update.json 供应用内检查更新
+        run: |
+          cat > update.json <<EOF
+          {
+            "versionName": "${{ inputs.versionName }}",
+            "versionCode": ${{ inputs.versionCode }},
+            "releaseUrl": "https://github.com/cq10086123/Timbre/releases/latest"
+          }
+          EOF
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add update.json
+          if git diff --cached --quiet; then
+            echo "update.json unchanged"
+          else
+            git commit -m "Publish update.json for v${{ inputs.versionName }}"
+            git push origin HEAD:main
+          fi

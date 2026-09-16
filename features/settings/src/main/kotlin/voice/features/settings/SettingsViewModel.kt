@@ -30,6 +30,7 @@ import voice.core.featureflag.FeatureFlag
 import voice.core.featureflag.KioskModeFeatureFlagQualifier
 import voice.core.ui.DynamicColorAvailability
 import voice.core.ui.GridCount
+import voice.core.update.UpdateNotifier
 import voice.navigation.Destination
 import voice.navigation.Navigator
 import java.time.LocalTime
@@ -58,6 +59,7 @@ class SettingsViewModel(
   @DeveloperMenuUnlockedStore
   private val developerMenuUnlockedStore: DataStore<Boolean>,
   private val dynamicColorAvailability: DynamicColorAvailability,
+  private val updateNotifier: UpdateNotifier,
   dispatcherProvider: DispatcherProvider,
 ) : SettingsListener {
 
@@ -93,6 +95,7 @@ class SettingsViewModel(
       autoRewindInSeconds = autoRewindAmount,
       dialog = dialog.value,
       appVersion = appInfoProvider.versionName,
+      updateAvailable = updateNotifier.update.collectAsState().value?.versionName,
       useGrid = when (gridMode) {
         GridMode.LIST -> false
         GridMode.GRID -> true
@@ -221,6 +224,10 @@ class SettingsViewModel(
 
   override fun onAppVersionClick() {
     mainScope.launch {
+      if (updateNotifier.update.value != null) {
+        navigator.goTo(Destination.Website(UpdateNotifier.RELEASE_PAGE_URL))
+        return@launch
+      }
       if (developerMenuUnlockedStore.data.first()) {
         return@launch
       }

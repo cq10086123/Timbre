@@ -80,6 +80,7 @@ include(":core:sleeptimer:api")
 include(":core:sleeptimer:impl")
 include(":core:strings")
 include(":core:ui")
+include(":core:update")
 
 include(":features:bookOverview")
 include(":features:bookmark")

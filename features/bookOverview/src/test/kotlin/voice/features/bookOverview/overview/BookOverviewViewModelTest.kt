@@ -36,6 +36,7 @@ import voice.core.scanner.DeviceHasStoragePermissionBug
 import voice.core.scanner.MediaScanTrigger
 import voice.core.search.BookSearch
 import voice.core.ui.GridCount
+import voice.core.update.UpdateNotifier
 import voice.features.bookOverview.book
 import voice.navigation.Destination
 import voice.navigation.Navigator
@@ -64,6 +65,9 @@ class BookOverviewViewModelTest {
         every { scan(any()) } just Runs
       },
       playStateManager = PlayStateManager(),
+      updateNotifier = mockk {
+        every { update } returns MutableStateFlow(null)
+      },
       playerController = mockk<PlayerController> {
         every { livePlaybackStateFlow(currentBook.id) } returns livePlaybackFlow
       },
@@ -178,6 +182,9 @@ class BookOverviewViewModelTest {
         every { scan(any()) } just Runs
       },
       playStateManager = PlayStateManager(),
+      updateNotifier = mockk {
+        every { update } returns MutableStateFlow(null)
+      },
       playerController = mockk(),
       currentBookStoreDataStore = MemoryDataStore(null),
       gridModeStore = MemoryDataStore(GridMode.LIST),
@@ -287,6 +294,9 @@ class BookOverviewViewModelTest {
         every { scan(any()) } just Runs
       },
       playStateManager = PlayStateManager(),
+      updateNotifier = mockk {
+        every { update } returns MutableStateFlow(null)
+      },
       playerController = mockk(),
       currentBookStoreDataStore = MemoryDataStore(null),
       gridModeStore = MemoryDataStore(GridMode.LIST),

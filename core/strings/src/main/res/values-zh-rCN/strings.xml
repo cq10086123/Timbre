@@ -135,4 +135,8 @@
     <string name="support.helps.open_source">保持 Timbre 无广告</string>
     <string name="support.helps.title">捐赠将用于</string>
     <string name="support.title">支持开发</string>
+    <string name="update.dialog.title">发现新版本</string>
+    <string name="update.dialog.message">最新版本 %1$s 已经发布，要现在去下载吗？</string>
+    <string name="update.dialog.confirm">立即更新</string>
+    <string name="settings.about.app_version.update_available">可更新到 %1$s</string>
 </resources>

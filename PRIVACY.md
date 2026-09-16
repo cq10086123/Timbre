@@ -1,6 +1,6 @@
 # 隐私政策 / Privacy Policy
 
-**最后更新：2026-09-15**
+**最后更新：2026-09-16**
 
 Timbre（以下简称"本应用"）是一款**自由开源**的本地有声书播放器（GPLv3），基于开源项目 [Voice](https://github.com/PaulWoitaschek/Voice) 二次开发。完整源代码公开于：
 https://github.com/cq10086123/Timbre
@@ -29,7 +29,14 @@ https://github.com/cq10086123/Timbre
 
 ## 唯一的联网行为
 
-本应用默认不联网。只有当你**主动**使用「从互联网寻找封面图片」功能时，应用会把书名（可能包含作者名）作为关键词发送到 DuckDuckGo 图片搜索（https://duckduckgo.com）以检索封面。除此之外没有任何网络请求。
+本应用仅有一项联网功能：**检查更新**。
+
+- 应用启动后约 10 秒，会在后台尝试获取仓库中的 `update.json` 版本文件（优先走 jsDelivr CDN：`cdn.jsdelivr.net` / `fastly.jsdelivr.net`，失败则尝试 GitHub API：`api.github.com`），用于对比最新版本号。
+- **每天最多检查一次**，请求超时即静默放弃，不影响任何功能。
+- 请求中**不包含任何账号、设备标识或个人信息**，也不会自动下载或安装任何文件。
+- 检测到新版本时仅弹窗提示，是否前往下载页面由你自己点击决定（前往下载同样是打开浏览器访问 GitHub Release 页面）。
+
+除此之外没有任何网络请求。
 
 ## 数据存储与备份
 
@@ -60,7 +67,7 @@ Timbre is a free and open-source (GPLv3) local audiobook player, forked from the
 
 - **No data collection.** The app contains no accounts, no ads, and no analytics or tracking SDKs.
 - **Everything stays on your device:** your library, playback positions, bookmarks, and settings.
-- **Only network call:** when you *manually* search the internet for a book cover, the book title is sent as a query to DuckDuckGo image search. Nothing else ever leaves your device.
+- **Only network call:** an update check that runs at most once per day in the background. It downloads a small version file from the jsDelivr CDN (fallback: the GitHub API) and sends nothing - no account, no device identifier, no personal data. Nothing is ever downloaded or installed automatically; visiting the download page is your choice.
 - Permissions (media files, notifications, foreground service, wake lock, Bluetooth) are used solely to provide audiobook playback.
 - Uninstalling the app removes all of its data.
 

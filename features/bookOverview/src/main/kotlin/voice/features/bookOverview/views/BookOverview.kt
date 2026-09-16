@@ -15,6 +15,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -117,6 +118,21 @@ fun BookOverviewScreen(modifier: Modifier = Modifier) {
       onDismiss = deleteBookViewModel::onDismiss,
       onConfirmDeletion = deleteBookViewModel::onConfirmDeletion,
       onDeleteCheckBoxCheck = deleteBookViewModel::onDeleteCheckBoxCheck,
+    )
+  }
+  val update = bookOverviewViewModel.updateNotifier.update.collectAsState().value
+  if (update != null) {
+    UpdateDialog(
+      update = update,
+      onUpdateClick = {
+        bookOverviewViewModel.openLatestRelease()
+        bookOverviewViewModel.updateNotifier.onUpdatePageOpened()
+      },
+      onDismissClick = {
+        scope.launch {
+          bookOverviewViewModel.updateNotifier.dismiss()
+        }
+      },
     )
   }
   val editBookTitleState = editBookTitleViewModel.state.value

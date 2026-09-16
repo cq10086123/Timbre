@@ -14,6 +14,7 @@ dependencies {
   implementation(projects.core.data.api)
   implementation(projects.core.scanner)
   implementation(projects.core.featureflag)
+  implementation(projects.core.update)
 
   implementation(libs.lifecycle)
   implementation(libs.documentFile)

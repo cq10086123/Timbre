@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.LocalContentColor
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -15,6 +16,7 @@ import voice.core.strings.R as StringsR
 @Composable
 internal fun AppVersion(
   appVersion: String,
+  updateAvailable: String?,
   onClick: () -> Unit,
 ) {
   ListItem(
@@ -31,8 +33,16 @@ internal fun AppVersion(
     },
     supportingContent = {
       Text(
-        text = appVersion,
-        color = LocalContentColor.current.copy(alpha = 0.5F),
+        text = if (updateAvailable != null) {
+          stringResource(StringsR.string.settings_about_app_version_update_available, updateAvailable)
+        } else {
+          appVersion
+        },
+        color = if (updateAvailable != null) {
+          MaterialTheme.colorScheme.primary
+        } else {
+          LocalContentColor.current.copy(alpha = 0.5F)
+        },
       )
     },
   ) {
