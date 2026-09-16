@@ -178,8 +178,14 @@ class MediaScannerTest {
     val shelf2Progress = analyzeSnapshots.mapNotNull { it[BookId(shelf2.toUri())] }
     assertTrue(shelf1Progress.isNotEmpty())
     assertTrue(shelf2Progress.isNotEmpty())
-    assertTrue(shelf1Progress.all { it.chaptersTotal == 3 })
-    assertTrue(shelf2Progress.all { it.chaptersTotal == 1 })
+    // A book is first reported with chaptersTotal = 0 as soon as it is
+    // discovered, so its card shows up before its directory listing is known.
+    // The snapshots hold the whole progress map, so a snapshot taken while the
+    // other book is still being listed carries that 0 for it. What has to hold
+    // is that every book reported its real total while the scan was running:
+    // a book is only analyzed after its own total was reported.
+    assertEquals(expected = 3, actual = shelf1Progress.last().chaptersTotal)
+    assertEquals(expected = 1, actual = shelf2Progress.last().chaptersTotal)
     assertTrue(shelf1Progress.all { it.chaptersScanned in 0..3 })
     // ...and no book is reported as importing anymore once the scan is done
     assertEquals(expected = emptyMap(), actual = bookScanProgress)
