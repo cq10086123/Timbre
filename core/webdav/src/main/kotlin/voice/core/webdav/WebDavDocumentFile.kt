@@ -25,19 +25,38 @@ internal class WebDavDocumentFile(
   @Volatile
   private var fetchedResource: WebDavResource? = null
 
+  // a file whose properties are unknown asks the server exactly once: every
+  // access to name/length/isFile would otherwise start another request, and an
+  // unreachable server costs a connect timeout each time (a scan over a whole
+  // library adds up to minutes of network timeouts)
+  @Volatile
+  private var fetchFailed: Boolean = false
+
+  /**
+   * The reason the last read failed, so the scan can tell an unreachable book
+   * (it stays on the shelf) apart from an empty one (it is removed).
+   */
+  @Volatile
+  private var readError: Throwable? = null
+
+  override val error: Throwable? get() = readError
+
   override val children: List<CachedDocumentFile>
     get() {
       val resolved = resolved ?: return emptyList()
       return try {
-        runBlocking {
+        val resources = runBlocking {
           client.list(resolved.server, resolved.password, url)
-        }.map { child ->
+        }
+        readError = null
+        resources.map { child ->
           WebDavDocumentFile(client, resolver, child.url.toUri(), child)
         }
       } catch (e: CancellationException) {
         throw e
       } catch (e: Exception) {
         Logger.w(e, "Could not list $url")
+        readError = e
         emptyList()
       }
     }
@@ -61,6 +80,7 @@ internal class WebDavDocumentFile(
     knownResource?.let { return it }
     fetchedResource?.let { return it }
     val resolved = resolved ?: return null
+    if (fetchFailed) return null
     val fetched = try {
       runBlocking {
         client.resource(resolved.server, resolved.password, url)
@@ -69,11 +89,17 @@ internal class WebDavDocumentFile(
       throw e
     } catch (e: Exception) {
       Logger.w(e, "Could not fetch properties of $url")
-      null
+      fetchFailed = true
+      readError = e
+      return null
     }
-    if (fetched != null) {
-      fetchedResource = fetched
+    if (fetched == null) {
+      // the server answered, but has no such resource: it is gone, not offline
+      fetchFailed = true
+      return null
     }
+    fetchedResource = fetched
+    readError = null
     return fetched
   }
 }

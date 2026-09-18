@@ -42,6 +42,13 @@ internal constructor(
   public val bookScanProgress: StateFlow<Map<BookId, BookScanProgress>>
     get() = scanProgressReporter.bookProgress
 
+  /**
+   * Books of the running (or last) scan that could not be imported completely.
+   * The shelf shows them on the card of the book together with a retry.
+   */
+  public val bookScanErrors: StateFlow<Map<BookId, BookScanError>>
+    get() = scanProgressReporter.bookErrors
+
   private val scope = CoroutineScope(Dispatchers.IO)
   private var scanningJob: Job? = null
 
@@ -78,7 +85,7 @@ internal constructor(
         return@launch
       }
       scannerActive.value = true
-      scanProgressReporter.finish()
+      scanProgressReporter.beginScan()
 
       try {
         // load the books and their chapters into the caches while we are in the
@@ -104,8 +111,16 @@ internal constructor(
               documentFilesWithUri.map { it.documentFile }
             }
           // remote books (e.g. webdav) join the scan so they stay active and
-          // are (re)scanned alongside the local ones
-          val remoteBooks = remoteBookSources.books().first().map { it.documentFile }
+          // are (re)scanned alongside the local ones. A broken remote source
+          // must not take the whole scan (and with it the local books) down.
+          val remoteBooks = try {
+            remoteBookSources.books().first().map { it.documentFile }
+          } catch (e: CancellationException) {
+            throw e
+          } catch (e: Exception) {
+            Logger.w(e, "Could not load the remote book sources")
+            emptyList()
+          }
           val folders: Map<FolderType, List<CachedDocumentFile>> = if (remoteBooks.isEmpty()) {
             localFolders
           } else {

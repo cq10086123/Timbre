@@ -56,6 +56,7 @@ internal class MediaScanner(
         .map { bookFile ->
           async(Dispatchers.IO) {
             val bookId = BookId(bookFile.uri)
+            var error: BookScanError? = null
             try {
               // enumerate this book's chapters first (directory listing only,
               // no media parsing) so the import progress has an exact total
@@ -69,17 +70,44 @@ internal class MediaScanner(
                   .filter { it.isAudioFile() }
                   .toList()
               }
+              val readError = bookFile.error
+              if (audioFiles.isEmpty() && readError != null) {
+                // an unreadable folder is not an empty one. Its stored
+                // chapters are kept, so the book stays on the shelf (with an
+                // error on its card) instead of silently disappearing
+                Logger.w(readError, "Could not read the folder of $bookId")
+                error = BookScanError(bookId = bookId, kind = BookScanError.Kind.Unreachable)
+              }
               scanProgressReporter.beginBook(
                 bookId = bookId,
                 chaptersTotal = audioFiles.size,
               )
-              scan(BookEntry(bookFile, audioFiles))
+              if (audioFiles.isNotEmpty()) {
+                val result = scan(BookEntry(bookFile, audioFiles))
+                if (result.failedChapters > 0) {
+                  error = BookScanError(
+                    bookId = bookId,
+                    kind = BookScanError.Kind.AnalysisFailed,
+                    failedChapters = result.failedChapters,
+                  )
+                }
+              }
             } catch (e: CancellationException) {
               throw e
             } catch (e: Exception) {
               Logger.w(e, "Error while scanning $bookFile")
+              error = BookScanError(bookId = bookId, kind = BookScanError.Kind.Unreachable)
             } finally {
               scanProgressReporter.finishBook(bookId)
+              val scanError = error
+              if (scanError == null) {
+                scanProgressReporter.clearError(bookId)
+              } else {
+                // reported through the shelf, which shows the error on the
+                // card of the book with a retry: a failed import must not stay
+                // invisible
+                scanProgressReporter.reportError(scanError)
+              }
             }
           }
         }
@@ -88,13 +116,17 @@ internal class MediaScanner(
   }
 
   private fun List<CachedDocumentFile>.findProbeFile(): CachedDocumentFile? {
-    return asSequence().flatMap { it.walk() }
+    return asSequence()
+      // the storage permission bug only exists on the local external storage;
+      // walking a remote book would only cost a network request per folder
+      .filter { it.uri.scheme != "http" && it.uri.scheme != "https" }
+      .flatMap { it.walk() }
       .firstOrNull { child ->
         child.isAudioFile() && child.uri.authority == "com.android.externalstorage.documents"
       }
   }
 
-  private suspend fun scan(entry: BookEntry) {
+  private suspend fun scan(entry: BookEntry): ChapterParseResult {
     val file = entry.bookFile
     val parseResult = chapterParser.parse(file, entry.audioFiles) { progress ->
       // store every batch so the book shows up in the library and can already
@@ -102,6 +134,7 @@ internal class MediaScanner(
       storeChapters(file, progress.chapters, progress.firstChapterMetadata, isComplete = false)
     }
     storeChapters(file, parseResult.chapters, parseResult.firstChapterMetadata, isComplete = true)
+    return parseResult
   }
 
   private suspend fun storeChapters(

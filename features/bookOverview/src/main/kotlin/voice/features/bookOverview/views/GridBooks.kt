@@ -45,6 +45,7 @@ internal fun GridBooks(
   books: Map<BookOverviewCategory, Map<BookId, State<BookOverviewItemViewState>>>,
   onBookClick: (BookId) -> Unit,
   onBookLongClick: (BookId) -> Unit,
+  onRetryImport: (BookId) -> Unit,
   showPermissionBugCard: Boolean,
   onPermissionBugCardClick: () -> Unit,
 ) {
@@ -83,6 +84,7 @@ internal fun GridBooks(
           book = bookState.value,
           onBookClick = onBookClick,
           onBookLongClick = onBookLongClick,
+          onRetryImport = onRetryImport,
         )
       }
       item(
@@ -99,6 +101,7 @@ internal fun GridBook(
   book: BookOverviewItemViewState,
   onBookClick: (BookId) -> Unit,
   onBookLongClick: (BookId) -> Unit,
+  onRetryImport: (BookId) -> Unit,
 ) {
   BookCard(
     bookId = book.id,
@@ -142,7 +145,15 @@ internal fun GridBook(
           overflow = TextOverflow.Ellipsis,
         )
 
-        if (importProgress != null) {
+        val importError = book.importError
+        if (importError != null) {
+          // a book whose import failed keeps its card, with the reason and a
+          // retry instead of silently disappearing
+          BookImportErrorRow(
+            error = importError,
+            onRetry = { onRetryImport(book.id) },
+          )
+        } else if (importProgress != null) {
           // the total duration of the book is not known while it is imported
           BookImportProgressText(progress = importProgress)
         } else {
@@ -173,11 +184,11 @@ internal fun gridColumnCount(): Int {
 @Composable
 @Preview(widthDp = 200)
 private fun GridBookPreviewWithProgress() {
-  GridBook(BookOverviewPreviewParameterProvider().book().copy(progress = 0.66f), {}, {})
+  GridBook(BookOverviewPreviewParameterProvider().book().copy(progress = 0.66f), {}, {}, {})
 }
 
 @Composable
 @Preview(widthDp = 200)
 private fun GridBookPreviewWithoutProgress() {
-  GridBook(BookOverviewPreviewParameterProvider().book().copy(progress = 0f), {}, {})
+  GridBook(BookOverviewPreviewParameterProvider().book().copy(progress = 0f), {}, {}, {})
 }

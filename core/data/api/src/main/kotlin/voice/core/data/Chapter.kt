@@ -82,13 +82,13 @@ internal object ChapterIdSerializer : KSerializer<ChapterId> {
   override val descriptor: SerialDescriptor
     get() = PrimitiveSerialDescriptor("chapterId", PrimitiveKind.STRING)
 
-  override fun deserialize(decoder: Decoder): ChapterId = ChapterId(decoder.decodeString())
+  override fun deserialize(decoder: Decoder): ChapterId = ChapterId(normalizeRemoteUrl(decoder.decodeString()))
 
   override fun serialize(
     encoder: Encoder,
     value: ChapterId,
   ) {
-    encoder.encodeString(value.value)
+    encoder.encodeString(normalizeRemoteUrl(value.value))
   }
 }
 

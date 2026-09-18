@@ -10,6 +10,7 @@ import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -20,6 +21,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import voice.core.data.BookId
+import voice.core.scanner.BookScanError
 import voice.core.scanner.BookScanProgress
 import voice.core.strings.R as StringsR
 
@@ -124,6 +126,53 @@ internal fun BookImportProgressLine(
       progress = { progress.fraction },
       modifier = lineModifier,
     )
+  }
+}
+
+/**
+ * The error line of a book card: the import of the book failed (or only
+ * partially succeeded) and the user can retry it right there. Without it a
+ * failing import was only visible in the log, while the book either never
+ * showed up on the shelf or its import placeholder vanished.
+ */
+@Composable
+internal fun BookImportErrorRow(
+  error: BookScanError,
+  onRetry: () -> Unit,
+  modifier: Modifier = Modifier,
+) {
+  val message = when (error.kind) {
+    BookScanError.Kind.Unreachable -> stringResource(StringsR.string.library_import_error_unreachable)
+    BookScanError.Kind.AnalysisFailed -> if (error.failedChapters > 0) {
+      pluralStringResource(
+        StringsR.plurals.library_import_error_partial,
+        error.failedChapters,
+        error.failedChapters,
+      )
+    } else {
+      stringResource(StringsR.string.library_import_error_analysis_failed)
+    }
+  }
+  Row(
+    modifier = modifier,
+    verticalAlignment = Alignment.CenterVertically,
+    horizontalArrangement = Arrangement.SpaceBetween,
+  ) {
+    Text(
+      text = message,
+      style = MaterialTheme.typography.labelMedium,
+      color = MaterialTheme.colorScheme.error,
+      maxLines = 2,
+      overflow = TextOverflow.Ellipsis,
+      modifier = Modifier.weight(1f, fill = false),
+    )
+    TextButton(onClick = onRetry) {
+      Text(
+        text = stringResource(StringsR.string.library_import_error_retry),
+        style = MaterialTheme.typography.labelMedium,
+        maxLines = 1,
+      )
+    }
   }
 }
 

@@ -38,10 +38,12 @@ import voice.core.featureflag.ExperimentalPlaybackPersistenceQualifier
 import voice.core.featureflag.FeatureFlag
 import voice.core.featureflag.FolderPickerInSettingsFeatureFlagQualifier
 import voice.core.featureflag.KioskModeFeatureFlagQualifier
+import voice.core.logging.api.Logger
 import voice.core.playback.LivePlaybackState
 import voice.core.playback.PlayerController
 import voice.core.playback.overlay
 import voice.core.playback.playstate.PlayStateManager
+import voice.core.scanner.BookScanError
 import voice.core.scanner.BookScanProgress
 import voice.core.scanner.DeviceHasStoragePermissionBug
 import voice.core.scanner.MediaScanTrigger
@@ -115,6 +117,10 @@ class BookOverviewViewModel(
         .sample(IMPORT_PROGRESS_UPDATE_INTERVAL_MS)
         .onStart { emit(progress.value) }
     }.collectAsState(initial = emptyMap()).value
+    // books that could not be imported (partially): shown on their card with a
+    // retry, so a failing import never stays invisible
+    val scanErrors = remember { mediaScanner.bookScanErrors }
+      .collectAsState(initial = emptyMap()).value
     val gridMode = remember { gridModeStore.data }
       .collectAsState(initial = null).value
       ?: return BookOverviewViewState.Loading
@@ -153,16 +159,20 @@ class BookOverviewViewModel(
               currentBookId = currentBookId,
               livePlaybackState = { livePlaybackState.value },
               importProgress = importingBooks[book.id],
+              importError = scanErrors[book.id],
             )
           }
       }
       .toSortedMap()
 
-    val booksWithImporting = groupedBooks.withImportingBooks(importingBooks)
+    val booksWithPendingImports = groupedBooks.withPendingImports(
+      importingBooks = importingBooks,
+      scanErrors = scanErrors,
+    )
 
     return BookOverviewViewState(
       layoutMode = layoutMode,
-      books = booksWithImporting,
+      books = booksWithPendingImports,
       playButtonState = if (playState == PlayStateManager.PlayState.Playing) {
         BookOverviewViewState.PlayButtonState.Playing
       } else {
@@ -273,6 +283,18 @@ class BookOverviewViewModel(
     navigator.goTo(Destination.FolderPicker)
   }
 
+  /**
+   * Retries the import of a book that reported an error. The scan itself works
+   * on the whole library, so retrying one book re-checks the others as well -
+   * which is what the user wants after a connection problem.
+   */
+  fun retryImport(id: BookId) {
+    Logger.d("Retrying the import of $id")
+    // an explicit retry must not be swallowed by the throttle that keeps the
+    // shelf from re-scanning on every appearance
+    mediaScanner.scan(restartIfScanning = true)
+  }
+
   fun onAddBookClick() {
     navigator.goTo(Destination.AddContent(Origin.Default))
   }
@@ -320,12 +342,14 @@ private fun Book.itemViewState(
   currentBookId: BookId?,
   livePlaybackState: () -> LivePlaybackState?,
   importProgress: BookScanProgress?,
+  importError: BookScanError?,
 ): State<BookOverviewItemViewState> {
   if (id != currentBookId) {
-    return rememberUpdatedState(toItemViewState(importProgress))
+    return rememberUpdatedState(toItemViewState(importProgress, importError))
   }
   val currentPlaybackState by rememberUpdatedState(livePlaybackState)
   val currentImportProgress by rememberUpdatedState(importProgress)
+  val currentImportError by rememberUpdatedState(importError)
   return remember(this, currentBookId) {
     derivedStateOf {
       val livePlayback = currentPlaybackState()
@@ -333,21 +357,25 @@ private fun Book.itemViewState(
         overlay(livePlayback)
       } else {
         this
-      }.toItemViewState(currentImportProgress)
+      }.toItemViewState(currentImportProgress, currentImportError)
     }
   }
 }
 
 /**
  * Cards for books that are being imported but not stored yet (no chapter was
- * analyzed so far). They show up the moment the scan discovers the book, so
- * the shelf reflects an import instantly instead of staying blank until the
- * first chapters were parsed.
+ * analyzed so far), and for books that failed to import. They show up the
+ * moment the scan discovers the book, so the shelf reflects an import
+ * instantly instead of staying blank until the first chapters were parsed -
+ * and a book that never made it into the library still shows up with its
+ * error instead of silently vanishing again.
  */
-private fun Map<BookOverviewCategory, Map<BookId, State<BookOverviewItemViewState>>>.withImportingBooks(
+private fun Map<BookOverviewCategory, Map<BookId, State<BookOverviewItemViewState>>>.withPendingImports(
   importingBooks: Map<BookId, BookScanProgress>,
+  scanErrors: Map<BookId, BookScanError>,
 ): Map<BookOverviewCategory, Map<BookId, State<BookOverviewItemViewState>>> {
-  val pendingBooks = importingBooks.filterKeys { bookId ->
+  val pendingBookIds = importingBooks.keys + scanErrors.keys
+  val pendingBooks = pendingBookIds.filter { bookId ->
     values.none { it.containsKey(bookId) }
   }
   if (pendingBooks.isEmpty()) {
@@ -359,8 +387,13 @@ private fun Map<BookOverviewCategory, Map<BookId, State<BookOverviewItemViewStat
       this + (BookOverviewCategory.CURRENT to current)
     }
   }
-  val placeholders = pendingBooks.mapValues { (bookId, progress) ->
-    mutableStateOf(bookId.toImportingItemViewState(progress))
+  val placeholders = pendingBooks.associateWith { bookId ->
+    mutableStateOf(
+      bookId.toPendingItemViewState(
+        progress = importingBooks[bookId],
+        error = scanErrors[bookId],
+      ),
+    )
   }
   val current = getOrDefault(BookOverviewCategory.CURRENT, emptyMap())
   // BookId is not Comparable, so sorting needs an explicit comparator
@@ -368,7 +401,10 @@ private fun Map<BookOverviewCategory, Map<BookId, State<BookOverviewItemViewStat
   return this + (BookOverviewCategory.CURRENT to merged)
 }
 
-private fun BookId.toImportingItemViewState(progress: BookScanProgress): BookOverviewItemViewState {
+private fun BookId.toPendingItemViewState(
+  progress: BookScanProgress?,
+  error: BookScanError?,
+): BookOverviewItemViewState {
   // the book name isn't known before the first chapter was analyzed, so fall
   // back to the folder or file name of the book uri
   val lastSegment = value.toUri().lastPathSegment ?: value
@@ -383,6 +419,7 @@ private fun BookId.toImportingItemViewState(progress: BookScanProgress): BookOve
     id = this,
     remainingTime = "",
     importProgress = progress,
+    importError = error,
   )
 }
 private const val IMPORT_PROGRESS_UPDATE_INTERVAL_MS = 250L

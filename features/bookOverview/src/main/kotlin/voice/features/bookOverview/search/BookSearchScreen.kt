@@ -87,6 +87,9 @@ internal fun BookSearchContent(
                   book = book,
                   onBookClick = onBookClick,
                   onBookLongClick = onBookClick,
+                  // search results never carry an import error, so there is
+                  // nothing to retry here
+                  onRetryImport = {},
                 )
               }
             },
@@ -104,6 +107,9 @@ internal fun BookSearchContent(
                   book = book,
                   onBookClick = onBookClick,
                   onBookLongClick = onBookClick,
+                  // search results never carry an import error, so there is
+                  // nothing to retry here
+                  onRetryImport = {},
                 )
               }
             },

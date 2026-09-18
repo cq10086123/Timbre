@@ -9,6 +9,7 @@ import voice.core.data.BookId
 import voice.core.data.Bookmark
 import voice.core.data.ChapterId
 import voice.core.data.MarkData
+import voice.core.data.normalizeRemoteUrl
 import java.io.File
 import java.time.Instant
 import kotlin.uuid.Uuid
@@ -62,13 +63,13 @@ internal class Converters {
   }
 
   @TypeConverter
-  fun toBookId(value: String): BookId = BookId(value)
+  fun toBookId(value: String): BookId = BookId(normalizeRemoteUrl(value))
 
   @TypeConverter
   fun fromBookId(id: BookId): String = id.value
 
   @TypeConverter
-  fun toChapterId(value: String): ChapterId = ChapterId(value)
+  fun toChapterId(value: String): ChapterId = ChapterId(normalizeRemoteUrl(value))
 
   @TypeConverter
   fun fromChapterId(id: ChapterId): String = id.value

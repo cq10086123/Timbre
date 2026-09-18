@@ -6,6 +6,7 @@ import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
+import voice.core.data.normalizeRemoteUrl
 import java.util.UUID
 
 /**
@@ -127,7 +128,7 @@ public class WebDavLibrary internal constructor(
     sourcesStore.updateData { sources ->
       val source = WebDavBookSource(
         serverId = serverId,
-        url = url.trimEnd('/'),
+        url = normalizeRemoteUrl(url),
         displayName = displayName,
         mode = mode,
       )
