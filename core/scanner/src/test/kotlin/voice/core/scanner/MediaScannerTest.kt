@@ -495,9 +495,7 @@ class MediaScannerTest {
    * A folder that cannot be read anymore (the server it lives on is offline):
    * it reports an error and has no children.
    */
-  private class UnreachableDocumentFile(
-    private val delegate: CachedDocumentFile,
-  ) : CachedDocumentFile by delegate {
+  private class UnreachableDocumentFile(private val delegate: CachedDocumentFile) : CachedDocumentFile by delegate {
 
     override val children: List<CachedDocumentFile> get() = emptyList()
 
