@@ -13,7 +13,7 @@ import kotlinx.serialization.encoding.Encoder
 @Serializable(with = BookIdSerializer::class)
 public data class BookId(val value: String) {
 
-  public constructor(uri: Uri) : this(uri.toString())
+  public constructor(uri: Uri) : this(normalizeRemoteUrl(uri.toString()))
 
   public fun toUri(): Uri {
     return value.toUri()
@@ -25,12 +25,12 @@ public object BookIdSerializer : KSerializer<BookId> {
   override val descriptor: SerialDescriptor
     get() = PrimitiveSerialDescriptor("bookId", PrimitiveKind.STRING)
 
-  override fun deserialize(decoder: Decoder): BookId = BookId(decoder.decodeString())
+  override fun deserialize(decoder: Decoder): BookId = BookId(normalizeRemoteUrl(decoder.decodeString()))
 
   override fun serialize(
     encoder: Encoder,
     value: BookId,
   ) {
-    encoder.encodeString(value.value)
+    encoder.encodeString(normalizeRemoteUrl(value.value))
   }
 }

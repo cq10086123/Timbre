@@ -31,6 +31,7 @@ import voice.core.playback.LivePlaybackState
 import voice.core.playback.PlayerController
 import voice.core.playback.overlay
 import voice.core.playback.playstate.PlayStateManager
+import voice.core.scanner.BookScanError
 import voice.core.scanner.BookScanProgress
 import voice.core.scanner.DeviceHasStoragePermissionBug
 import voice.core.scanner.MediaScanTrigger
@@ -62,6 +63,7 @@ class BookOverviewViewModelTest {
       mediaScanner = mockk<MediaScanTrigger> {
         every { scannerActive } returns MutableStateFlow(false)
         every { bookScanProgress } returns MutableStateFlow(emptyMap())
+        every { bookScanErrors } returns MutableStateFlow(emptyMap())
         every { scan(any()) } just Runs
       },
       playStateManager = PlayStateManager(),
@@ -171,6 +173,67 @@ class BookOverviewViewModelTest {
   }
 
   @Test
+  fun `state keeps a card with its error for books that could not be imported`() = runTest {
+    val failedBookId = BookId("content://x/凡人修仙传")
+    val error = BookScanError(bookId = failedBookId, kind = BookScanError.Kind.Unreachable)
+    val viewModel = viewModel(
+      books = emptyList(),
+      scanErrors = mapOf(failedBookId to error),
+    )
+
+    backgroundScope.launchMolecule(RecompositionMode.Immediate) {
+      viewModel.state()
+    }.test {
+      assertEquals(expected = BookOverviewViewState.Loading, actual = awaitItem())
+      val state = awaitItem()
+
+      // the import of the book failed before anything was stored: its card has
+      // to stay on the shelf with the error, instead of vanishing at the end
+      // of the scan and leaving the user without any hint
+      val card = state.books.getValue(BookOverviewCategory.CURRENT).getValue(failedBookId).value
+      assertEquals(expected = "凡人修仙传", actual = card.name)
+      assertEquals(expected = error, actual = card.importError)
+    }
+  }
+
+  @Test
+  fun `state shows the import error of a stored book`() = runTest {
+    val storedBook = book(name = "Stored", time = 1_000)
+    val error = BookScanError(bookId = storedBook.id, kind = BookScanError.Kind.Unreachable)
+    val viewModel = viewModel(
+      books = listOf(storedBook),
+      scanErrors = mapOf(storedBook.id to error),
+    )
+
+    backgroundScope.launchMolecule(RecompositionMode.Immediate) {
+      viewModel.state()
+    }.test {
+      assertEquals(expected = BookOverviewViewState.Loading, actual = awaitItem())
+      val state = awaitItem()
+
+      assertEquals(expected = listOf(storedBook.id), actual = state.books.getValue(BookOverviewCategory.CURRENT).keys.toList())
+      assertEquals(expected = error, actual = state.currentBook(storedBook.id).importError)
+    }
+  }
+
+  @Test
+  fun `retrying a failed import restarts the scan`() = runTest {
+    val mediaScanner = mockk<MediaScanTrigger> {
+      every { scannerActive } returns MutableStateFlow(false)
+      every { bookScanProgress } returns MutableStateFlow(emptyMap())
+      every { bookScanErrors } returns MutableStateFlow(emptyMap())
+      every { scan(any()) } just Runs
+    }
+    val viewModel = viewModel(mediaScanner = mediaScanner)
+
+    viewModel.retryImport(BookId("content://x/book"))
+
+    // an unchanged library is only re-scanned after a while, but a retry the
+    // user asked for has to start right away
+    verify { mediaScanner.scan(restartIfScanning = true) }
+  }
+
+  @Test
   fun `state uses demo books in kiosk mode`() = runTest {
     val viewModel = BookOverviewViewModel(
       repo = mockk<BookRepository> {
@@ -179,6 +242,7 @@ class BookOverviewViewModelTest {
       mediaScanner = mockk<MediaScanTrigger> {
         every { scannerActive } returns MutableStateFlow(false)
         every { bookScanProgress } returns MutableStateFlow(emptyMap())
+        every { bookScanErrors } returns MutableStateFlow(emptyMap())
         every { scan(any()) } just Runs
       },
       playStateManager = PlayStateManager(),
@@ -283,14 +347,17 @@ class BookOverviewViewModelTest {
     // not named bookScanProgress: that would shadow the mocked property
     // inside the every block below
     scanProgress: Map<BookId, BookScanProgress> = emptyMap(),
+    scanErrors: Map<BookId, BookScanError> = emptyMap(),
+    mediaScanner: MediaScanTrigger? = null,
   ): BookOverviewViewModel {
     return BookOverviewViewModel(
       repo = mockk<BookRepository> {
         every { flow() } returns MutableStateFlow(books)
       },
-      mediaScanner = mockk<MediaScanTrigger> {
+      mediaScanner = mediaScanner ?: mockk<MediaScanTrigger> {
         every { scannerActive } returns MutableStateFlow(false)
         every { bookScanProgress } returns MutableStateFlow(scanProgress)
+        every { bookScanErrors } returns MutableStateFlow(scanErrors)
         every { scan(any()) } just Runs
       },
       playStateManager = PlayStateManager(),

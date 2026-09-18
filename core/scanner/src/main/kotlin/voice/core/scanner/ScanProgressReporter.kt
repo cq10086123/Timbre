@@ -29,6 +29,9 @@ public class ScanProgressReporter {
   private val _bookProgress = MutableStateFlow<Map<BookId, BookScanProgress>>(emptyMap())
   public val bookProgress: StateFlow<Map<BookId, BookScanProgress>> = _bookProgress.asStateFlow()
 
+  private val _bookErrors = MutableStateFlow<Map<BookId, BookScanError>>(emptyMap())
+  public val bookErrors: StateFlow<Map<BookId, BookScanError>> = _bookErrors.asStateFlow()
+
   public fun beginBook(
     bookId: BookId,
     chaptersTotal: Int,
@@ -56,6 +59,35 @@ public class ScanProgressReporter {
     }
   }
 
+  /** Reports that [BookScanError.bookId] could not be imported completely. */
+  public fun reportError(error: BookScanError) {
+    _bookErrors.update { errors ->
+      errors + (error.bookId to error)
+    }
+  }
+
+  /** Removes a previously reported error, e.g. after a successful rescan. */
+  public fun clearError(bookId: BookId) {
+    if (bookId !in _bookErrors.value) return
+    _bookErrors.update { errors ->
+      errors - bookId
+    }
+  }
+
+  /**
+   * Clears everything a scan reports. A new scan starts from scratch: errors
+   * of a previous one are re-reported if the problem is still there.
+   */
+  public fun beginScan() {
+    _bookProgress.value = emptyMap()
+    _bookErrors.value = emptyMap()
+  }
+
+  /**
+   * The scan itself is over. The progress is gone with it, but the errors stay:
+   * the card of a book that could not be imported shows them (with a retry)
+   * until the next scan.
+   */
   public fun finish() {
     _bookProgress.value = emptyMap()
   }

@@ -14,6 +14,7 @@ import voice.core.data.repo.internals.getInt
 import voice.core.data.repo.internals.getString
 import voice.core.data.repo.internals.getStringOrNull
 import voice.core.data.repo.internals.mapRows
+import java.time.Instant
 import kotlin.random.Random
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -112,6 +113,76 @@ class DataBaseMigratorTest {
         BookSetting(id = defectBookId, currentFile = file2, positionInChapter = 0),
       ),
       actual = migratedBookSettings,
+    )
+  }
+
+  @Test
+  fun migrate60() {
+    val dbName = "testDb"
+    val db = helper.createDatabase(dbName, 60)
+
+    val bookId = "https://nas.example.com/dav/Book/"
+    val firstChapterId = "https://nas.example.com/dav/Book/01.mp3"
+    val secondChapterId = "https://nas.example.com/dav/Book/02.mp3/"
+    val bookmarkId = Uuid.random().toString()
+
+    db.execSQL(
+      "INSERT INTO `content2`(`id`,`playbackSpeed`,`skipSilence`,`isActive`,`lastPlayedAt`,`author`,`name`,`addedAt`," +
+        "`chapters`,`currentChapter`,`positionInChapter`,`cover`,`gain`,`genre`,`narrator`,`series`,`part`,`skipIntro`,`skipOutro`) " +
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+      arrayOf<Any?>(
+        bookId, 1F, 0, 1, Instant.EPOCH.toString(), null, "Book", Instant.EPOCH.toString(),
+        """["$firstChapterId","$secondChapterId"]""", secondChapterId, 0, null, 0F, null, null, null, null, 0, 0,
+      ),
+    )
+    db.execSQL(
+      "INSERT INTO `chapters2`(`id`,`name`,`duration`,`fileLastModified`,`fileSize`,`markData`) VALUES (?,?,?,?,?,?)",
+      arrayOf<Any>(firstChapterId, "Chapter 1", 1000, Instant.EPOCH.toString(), 100, "[]"),
+    )
+    db.execSQL(
+      "INSERT INTO `chapters2`(`id`,`name`,`duration`,`fileLastModified`,`fileSize`,`markData`) VALUES (?,?,?,?,?,?)",
+      arrayOf<Any>(secondChapterId, "Chapter 2", 1000, Instant.EPOCH.toString(), 100, "[]"),
+    )
+    db.execSQL(
+      "INSERT INTO `bookmark2`(`bookId`,`chapterId`,`title`,`time`,`addedAt`,`setBySleepTimer`,`id`) VALUES (?,?,?,?,?,?,?)",
+      arrayOf<Any>(bookId, secondChapterId, "title", 5, Instant.EPOCH.toString(), 0, bookmarkId),
+    )
+    db.close()
+
+    val migratedDb = helper.runMigrationsAndValidate(
+      dbName,
+      AppDb.VERSION,
+      true,
+      *allMigrations(),
+    )
+
+    val books = migratedDb.query("SELECT * FROM content2").mapRows {
+      Triple(getString("id"), getString("chapters"), getString("currentChapter"))
+    }
+    assertEquals(
+      expected = listOf(
+        Triple(
+          "https://nas.example.com/dav/Book",
+          """["https://nas.example.com/dav/Book/01.mp3","https://nas.example.com/dav/Book/02.mp3"]""",
+          "https://nas.example.com/dav/Book/02.mp3",
+        ),
+      ),
+      actual = books,
+    )
+
+    // replaced rows get a new rowid, so the order is not part of the assertion
+    val chapters = migratedDb.query("SELECT * FROM chapters2").mapRows { getString("id") }.sorted()
+    assertEquals(
+      expected = listOf(firstChapterId, "https://nas.example.com/dav/Book/02.mp3").sorted(),
+      actual = chapters,
+    )
+
+    val bookmarks = migratedDb.query("SELECT * FROM bookmark2").mapRows {
+      getString("bookId") to getString("chapterId")
+    }
+    assertEquals(
+      expected = listOf("https://nas.example.com/dav/Book" to "https://nas.example.com/dav/Book/02.mp3"),
+      actual = bookmarks,
     )
   }
 

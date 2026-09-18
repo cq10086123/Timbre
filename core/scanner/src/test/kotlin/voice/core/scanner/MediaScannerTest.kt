@@ -21,10 +21,12 @@ import voice.core.data.repo.BookRepositoryImpl
 import voice.core.data.repo.ChapterRepoImpl
 import voice.core.data.repo.internals.AppDb
 import voice.core.data.toUri
+import voice.core.documentfile.CachedDocumentFile
 import voice.core.documentfile.FileBasedDocumentFactory
 import voice.core.documentfile.FileBasedDocumentFile
 import java.io.Closeable
 import java.io.File
+import java.io.IOException
 import java.nio.file.Files
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -57,6 +59,79 @@ class MediaScannerTest {
         chapters = book1Chapters.drop(1),
       ),
     )
+  }
+
+  @Test
+  fun unreachableFolderKeepsTheBookOnTheShelf() = test {
+    val audiobookFolder = folder("audiobooks")
+    val book = File(audiobookFolder, "book1")
+    val chapters = listOf(
+      audioFile(book, "1.mp3"),
+      audioFile(book, "2.mp3"),
+    )
+
+    scan(FolderType.Root, audiobookFolder)
+    assertBookContents(BookContentView(audiobookFolder, chapters))
+
+    // the nas is offline: the folder cannot be listed anymore
+    scanDocuments(UnreachableDocumentFile(FileBasedDocumentFile(audiobookFolder)))
+
+    // the book keeps its chapters - and with them its playback position and
+    // bookmarks - instead of being deactivated by the scan
+    assertBookContents(BookContentView(audiobookFolder, chapters))
+    assertEquals(
+      expected = mapOf(
+        BookId(audiobookFolder.toUri()) to
+          BookScanError(bookId = BookId(audiobookFolder.toUri()), kind = BookScanError.Kind.Unreachable),
+      ),
+      actual = bookScanErrors,
+    )
+  }
+
+  @Test
+  fun failedAnalysisIsReported() = test {
+    val audiobookFolder = folder("audiobooks")
+    val book = File(audiobookFolder, "book1")
+    audioFile(book, "1.mp3")
+    audioFile(book, "2.mp3")
+    // no audio file can be read, e.g. because the server rejects the range
+    // requests of the analyzer
+    failAnalysis()
+
+    scan(FolderType.Root, audiobookFolder)
+
+    // the book cannot be imported, which the shelf reports on its card instead
+    // of letting the placeholder disappear at the end of the scan
+    val bookId = BookId(audiobookFolder.toUri())
+    assertEquals(
+      expected = mapOf(
+        bookId to BookScanError(
+          bookId = bookId,
+          kind = BookScanError.Kind.AnalysisFailed,
+          failedChapters = 2,
+        ),
+      ),
+      actual = bookScanErrors,
+    )
+    assertBookContents()
+  }
+
+  @Test
+  fun successfulRescanClearsTheError() = test {
+    val audiobookFolder = folder("audiobooks")
+    val book = File(audiobookFolder, "book1")
+    val chapters = listOf(audioFile(book, "1.mp3"))
+    failAnalysis()
+
+    scan(FolderType.Root, audiobookFolder)
+    assertEquals(expected = 1, actual = bookScanErrors.size)
+
+    // the media is readable again
+    succeedAnalysis()
+    scan(FolderType.Root, audiobookFolder)
+
+    assertEquals(expected = emptyMap(), actual = bookScanErrors)
+    assertBookContents(BookContentView(audiobookFolder, chapters))
   }
 
   @Test
@@ -304,6 +379,7 @@ class MediaScannerTest {
     val storedContents: List<BookContent> get() = scannedRepo.storedContents
     private val scanProgressReporter = ScanProgressReporter()
     val bookScanProgress: Map<BookId, BookScanProgress> get() = scanProgressReporter.bookProgress.value
+    val bookScanErrors: Map<BookId, BookScanError> get() = scanProgressReporter.bookErrors.value
     private val scanner = MediaScanner(
       contentRepo = scannedRepo,
       chapterParser = ChapterParser(
@@ -335,6 +411,10 @@ class MediaScannerTest {
       scanner.scan(mapOf(type to roots.map(::FileBasedDocumentFile)))
     }
 
+    suspend fun scanDocuments(vararg files: CachedDocumentFile) {
+      scanner.scan(mapOf(FolderType.Root to files.toList()))
+    }
+
     @IgnorableReturnValue
     fun audioFile(
       parent: File,
@@ -347,23 +427,35 @@ class MediaScannerTest {
           check(it.createNewFile())
         }
         .also {
-          coEvery { mediaAnalyzer.analyze(any()) } coAnswers {
-            analyzeSnapshots += scanProgressReporter.bookProgress.value
-            analyzeCounter.incrementAndGet()
-            Metadata(
-              duration = 1000L,
-              artist = "Author",
-              album = "Book Name",
-              fileName = "Chapter",
-              chapters = emptyList(),
-              title = "Title",
-              genre = "Genre",
-              narrator = "Narrator",
-              series = "Series",
-              part = "Part",
-            )
-          }
+          succeedAnalysis()
         }
+    }
+
+    /** The analysis of every audio file fails, e.g. because it is unreadable. */
+    fun failAnalysis() {
+      coEvery { mediaAnalyzer.analyze(any()) } coAnswers {
+        throw IOException("the audio file cannot be read")
+      }
+    }
+
+    /** The analysis works again (the file is readable). */
+    fun succeedAnalysis() {
+      coEvery { mediaAnalyzer.analyze(any()) } coAnswers {
+        analyzeSnapshots += scanProgressReporter.bookProgress.value
+        analyzeCounter.incrementAndGet()
+        Metadata(
+          duration = 1000L,
+          artist = "Author",
+          album = "Book Name",
+          fileName = "Chapter",
+          chapters = emptyList(),
+          title = "Title",
+          genre = "Genre",
+          narrator = "Narrator",
+          series = "Series",
+          part = "Part",
+        )
+      }
     }
 
     fun folder(name: String): File {
@@ -398,6 +490,17 @@ class MediaScannerTest {
     val id: File,
     val chapters: List<File>,
   )
+
+  /**
+   * A folder that cannot be read anymore (the server it lives on is offline):
+   * it reports an error and has no children.
+   */
+  private class UnreachableDocumentFile(private val delegate: CachedDocumentFile) : CachedDocumentFile by delegate {
+
+    override val children: List<CachedDocumentFile> get() = emptyList()
+
+    override val error: Throwable get() = IOException("the server is offline")
+  }
 
   private class ScannedBooksRecordingRepo(private val delegate: BookContentRepo) : BookContentRepo by delegate {
 

@@ -23,6 +23,12 @@ import kotlin.time.measureTime
 internal data class ChapterParseResult(
   val chapters: List<Chapter>,
   val firstChapterMetadata: Metadata?,
+  /**
+   * How many of the analyzed audio files could not be read. They are missing
+   * from [chapters], which the import reports to the shelf instead of silently
+   * importing a book with missing chapters.
+   */
+  val failedChapters: Int = 0,
 )
 
 @Inject
@@ -73,6 +79,7 @@ internal class ChapterParser(
     val chapters = mutableListOf<Chapter>()
     val metadataByChapter = mutableMapOf<ChapterId, Metadata>()
     val publishStride = publishStride(sortedFiles.size)
+    var failedChapters = 0
 
     sortedFiles.chunked(PARSE_BATCH_SIZE).forEach { batch ->
       val batchDuration = measureTime {
@@ -91,7 +98,10 @@ internal class ChapterParser(
           }
 
           deferred.forEachIndexed { index, chapterDeferred ->
-            val (chapter, metadata) = chapterDeferred.await() ?: return@forEachIndexed
+            val (chapter, metadata) = chapterDeferred.await() ?: run {
+              failedChapters++
+              return@forEachIndexed
+            }
             chapters += chapter
             if (metadata != null) {
               metadataByChapter[chapter.id] = metadata
@@ -105,16 +115,16 @@ internal class ChapterParser(
                 chapterRepo.putAll(unpublishedChapters)
                 unpublishedChapters.clear()
               }
-              onProgress(parseResult(chapters, metadataByChapter))
+              onProgress(parseResult(chapters, metadataByChapter, failedChapters))
             }
           }
         }
       }
       Logger.i("analyzed ${chapters.size}/${sortedFiles.size} chapters of $documentFile in $batchDuration")
-      onProgress(parseResult(chapters, metadataByChapter))
+      onProgress(parseResult(chapters, metadataByChapter, failedChapters))
     }
 
-    return parseResult(chapters, metadataByChapter)
+    return parseResult(chapters, metadataByChapter, failedChapters)
   }
 
   private fun publishStride(chapterCount: Int): Int {
@@ -128,10 +138,12 @@ internal class ChapterParser(
   private fun parseResult(
     chapters: List<Chapter>,
     metadataByChapter: Map<ChapterId, Metadata>,
+    failedChapters: Int,
   ): ChapterParseResult {
     return ChapterParseResult(
       chapters = chapters.toList(),
       firstChapterMetadata = chapters.firstOrNull()?.let { metadataByChapter[it.id] },
+      failedChapters = failedChapters,
     )
   }
 

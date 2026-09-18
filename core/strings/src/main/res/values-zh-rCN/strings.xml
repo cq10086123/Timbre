@@ -43,6 +43,12 @@
     <string name="library.category.not_started.title">尚未开始播放</string>
     <string name="library.empty.add_first_book">首先添加有声书文件夹，然后就可以开始听书啦！</string>
     <string name="library.folders.title">有声书文件夹</string>
+    <string name="library.import.error.analysis_failed">音频文件解析失败</string>
+    <plurals name="library.import.error.partial">
+        <item quantity="other">%1$d 个章节解析失败</item>
+    </plurals>
+    <string name="library.import.error.retry">重试</string>
+    <string name="library.import.error.unreachable">无法读取这本书，请检查网络后重试</string>
     <plurals name="library.import.progress">
         <item quantity="other">正在导入… 已处理 %1$d / %2$d 集</item>
     </plurals>

@@ -81,6 +81,30 @@ class WebDavClientTest {
   }
 
   @Test
+  fun listRetriesWithATrailingSlash() = runTest {
+    // servers that only answer a PROPFIND in the trailing slash form of a
+    // collection hand out something that is no multistatus for the slash-less
+    // form (the http client follows their redirect as a GET)
+    server.enqueue(
+      MockResponse.Builder()
+        .code(200)
+        .body("<html>directory listing</html>")
+        .build(),
+    )
+    server.enqueue(
+      MockResponse.Builder()
+        .code(207)
+        .body(propfindBody())
+        .build(),
+    )
+
+    val resources = client.list(newServer(), "secret", url = server.url("/dav").toString())
+
+    assertEquals(expected = 2, actual = resources.size)
+    assertEquals(expected = 2, actual = server.requestCount)
+  }
+
+  @Test
   fun propfindUnauthorizedThrowsAuthException() = runTest {
     server.enqueue(
       MockResponse.Builder()

@@ -36,6 +36,12 @@ public data class WebDavBookSource(
   val url: String,
   val displayName: String,
   val mode: Mode,
+  /**
+   * The books this registration expanded into the last time the listing
+   * worked. Used as a fallback when the server cannot be reached: a scan must
+   * not deactivate already imported books just because one request failed.
+   */
+  val lastExpandedUrls: List<String> = emptyList(),
 ) {
   public enum class Mode {
     /** The registered url itself is one book. */

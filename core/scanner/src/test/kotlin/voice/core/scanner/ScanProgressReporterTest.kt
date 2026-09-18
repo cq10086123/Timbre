@@ -84,6 +84,44 @@ class ScanProgressReporterTest {
   }
 
   @Test
+  fun `reports and clears the errors of a book`() {
+    val reporter = ScanProgressReporter()
+    val error = BookScanError(bookId = bookId, kind = BookScanError.Kind.Unreachable)
+
+    reporter.reportError(error)
+    assertEquals(expected = mapOf(bookId to error), actual = reporter.bookErrors.value)
+
+    reporter.clearError(bookId)
+    assertEquals(expected = emptyMap(), actual = reporter.bookErrors.value)
+  }
+
+  @Test
+  fun `finishing a scan keeps the errors`() {
+    val reporter = ScanProgressReporter()
+    val error = BookScanError(bookId = bookId, kind = BookScanError.Kind.Unreachable)
+
+    reporter.reportError(error)
+    reporter.finish()
+
+    // the card of a book that could not be imported shows its error until the
+    // next scan, which is long after the scan that reported it ended
+    assertEquals(expected = mapOf(bookId to error), actual = reporter.bookErrors.value)
+    assertEquals(expected = emptyMap(), actual = reporter.bookProgress.value)
+  }
+
+  @Test
+  fun `beginning a scan clears the errors of the previous one`() {
+    val reporter = ScanProgressReporter()
+
+    reporter.reportError(BookScanError(bookId = bookId, kind = BookScanError.Kind.Unreachable))
+    reporter.beginScan()
+
+    // a stale error of a book that isn't part of the library anymore must not
+    // stay on the shelf forever
+    assertEquals(expected = emptyMap(), actual = reporter.bookErrors.value)
+  }
+
+  @Test
   fun `fraction is one once all chapters were scanned`() {
     val reporter = ScanProgressReporter()
 

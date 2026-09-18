@@ -41,6 +41,7 @@ internal fun ListBooks(
   books: Map<BookOverviewCategory, Map<BookId, State<BookOverviewItemViewState>>>,
   onBookClick: (BookId) -> Unit,
   onBookLongClick: (BookId) -> Unit,
+  onRetryImport: (BookId) -> Unit,
   showPermissionBugCard: Boolean,
   onPermissionBugCardClick: () -> Unit,
 ) {
@@ -76,6 +77,7 @@ internal fun ListBooks(
           book = bookState.value,
           onBookClick = onBookClick,
           onBookLongClick = onBookLongClick,
+          onRetryImport = onRetryImport,
         )
       }
       item {
@@ -90,6 +92,7 @@ internal fun ListBookRow(
   book: BookOverviewItemViewState,
   onBookClick: (BookId) -> Unit,
   onBookLongClick: (BookId) -> Unit,
+  onRetryImport: (BookId) -> Unit,
   modifier: Modifier = Modifier,
 ) {
   BookCard(
@@ -127,7 +130,16 @@ internal fun ListBookRow(
             maxLines = 2,
           )
 
-          if (importProgress != null) {
+          val importError = book.importError
+          if (importError != null) {
+            // a book whose import failed keeps its card, with the reason and a
+            // retry instead of silently disappearing
+            BookImportErrorRow(
+              error = importError,
+              onRetry = { onRetryImport(book.id) },
+              modifier = Modifier.padding(end = 4.dp),
+            )
+          } else if (importProgress != null) {
             // the total duration of the book is not known while it is imported
             BookImportProgressText(
               progress = importProgress,
@@ -188,11 +200,11 @@ private fun CoverImage(
 @Composable
 @Preview
 private fun ListBookRowPreviewWithProgress() {
-  ListBookRow(BookOverviewPreviewParameterProvider().book().copy(progress = 0.6f), {}, {})
+  ListBookRow(BookOverviewPreviewParameterProvider().book().copy(progress = 0.6f), {}, {}, {})
 }
 
 @Composable
 @Preview
 private fun ListBookRowPreviewWithoutProgress() {
-  ListBookRow(BookOverviewPreviewParameterProvider().book().copy(progress = 0f), {}, {})
+  ListBookRow(BookOverviewPreviewParameterProvider().book().copy(progress = 0f), {}, {}, {})
 }

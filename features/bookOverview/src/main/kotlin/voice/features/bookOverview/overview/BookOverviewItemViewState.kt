@@ -4,6 +4,7 @@ import androidx.compose.runtime.Immutable
 import voice.core.data.Book
 import voice.core.data.BookId
 import voice.core.logging.api.Logger
+import voice.core.scanner.BookScanError
 import voice.core.scanner.BookScanProgress
 import voice.core.ui.formatTime
 
@@ -16,9 +17,13 @@ data class BookOverviewItemViewState(
   val id: BookId,
   val remainingTime: String,
   val importProgress: BookScanProgress? = null,
+  val importError: BookScanError? = null,
 )
 
-internal fun Book.toItemViewState(importProgress: BookScanProgress? = null) = BookOverviewItemViewState(
+internal fun Book.toItemViewState(
+  importProgress: BookScanProgress? = null,
+  importError: BookScanError? = null,
+) = BookOverviewItemViewState(
   name = content.name,
   author = content.author,
   cover = content.coverUrl,
@@ -26,6 +31,7 @@ internal fun Book.toItemViewState(importProgress: BookScanProgress? = null) = Bo
   progress = progress(),
   remainingTime = formatTime(duration - position),
   importProgress = importProgress,
+  importError = importError,
 )
 
 private fun Book.progress(): Float {

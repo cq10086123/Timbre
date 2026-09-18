@@ -6,6 +6,7 @@ import androidx.core.net.toUri
 import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
@@ -178,6 +179,60 @@ public class WebDavClient {
   }
 
   private suspend fun propfind(
+    server: WebDavServer,
+    password: String,
+    url: String,
+    depth: Int,
+  ): List<WebDavResource> {
+    return propfindOnce(server, password, url, depth).fold(
+      onSuccess = { it },
+      onFailure = { error ->
+        if (error is CancellationException) throw error
+        // Only for a few responses it is worth asking again in the trailing
+        // slash form of the url: an offline server (or a rejected password)
+        // fails the same way twice and would only double the timeout. Book ids
+        // drop the trailing slash of a collection (see `normalizeRemoteUrl`),
+        // so the request is repeated before the resource is given up.
+        if (!error.isWorthRetryingWithSlash() || url.endsWith("/")) throw error
+        Logger.d("Retrying the propfind of $url with a trailing slash: $error")
+        propfindOnce(server, password, "$url/", depth).getOrElse { retryError ->
+          if (retryError is CancellationException) throw retryError
+          throw retryError
+        }
+      },
+    )
+  }
+
+  private suspend fun propfindOnce(
+    server: WebDavServer,
+    password: String,
+    url: String,
+    depth: Int,
+  ): Result<List<WebDavResource>> {
+    return try {
+      Result.success(propfindRequest(server, password, url, depth))
+    } catch (e: CancellationException) {
+      throw e
+    } catch (e: Exception) {
+      Result.failure(e)
+    }
+  }
+
+  /**
+   * A server that only serves a collection in its trailing slash form answers
+   * the slash-less form with a redirect or with a 404. The http client follows
+   * the redirect of the collection as a GET, so what arrives here is a plain
+   * `200` (with a body that is no multistatus) instead of a `207`.
+   */
+  private fun Throwable.isWorthRetryingWithSlash(): Boolean {
+    return when (this) {
+      is WebDavException.NotFound -> true
+      is WebDavException.Http -> code == 200 || code == 404 || code == 405
+      else -> false
+    }
+  }
+
+  private suspend fun propfindRequest(
     server: WebDavServer,
     password: String,
     url: String,

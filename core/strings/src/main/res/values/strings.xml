@@ -94,6 +94,17 @@
     <string name="library.empty.add_first_book">Let\'s add your audiobook folder so you can start listening!</string>
     <!-- Title for screens and rows that manage audiobook folders. -->
     <string name="library.folders.title">Audiobook folders</string>
+    <!-- Shown on the card of a book whose audio files were found but could not be analyzed. -->
+    <string name="library.import.error.analysis_failed">Could not analyze the audio files.</string>
+    <!-- Shown on the card of a book of which only some chapters could be analyzed. The quantity is the number of chapters that failed. -->
+    <plurals name="library.import.error.partial">
+        <item quantity="one">%1$d chapter could not be analyzed.</item>
+        <item quantity="other">%1$d chapters could not be analyzed.</item>
+    </plurals>
+    <!-- Action on the card of a book that failed to import, imports the book again. -->
+    <string name="library.import.error.retry">Retry</string>
+    <!-- Shown on the card of a book whose folder could not be read, e.g. because the server is unreachable. -->
+    <string name="library.import.error.unreachable">Could not read this book. Check the connection and try again.</string>
     <!-- Shown on the card of a book while its chapters are being analyzed. The quantity is the total chapter count. -->
     <plurals name="library.import.progress">
         <item quantity="one">Importing… %1$d / %2$d chapter</item>

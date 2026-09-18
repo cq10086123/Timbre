@@ -103,6 +103,7 @@ fun BookOverviewScreen(modifier: Modifier = Modifier) {
       bottomSheetViewModel.bookSelected(bookId)
       showBottomSheet = true
     },
+    onRetryImport = bookOverviewViewModel::retryImport,
     onBookFolderClick = bookOverviewViewModel::onBookFolderClick,
     onAddBookClick = bookOverviewViewModel::onAddBookClick,
     onPlayButtonClick = bookOverviewViewModel::playPause,
@@ -181,6 +182,7 @@ internal fun BookOverview(
   onSettingsClick: () -> Unit,
   onBookClick: (BookId) -> Unit,
   onBookLongClick: (BookId) -> Unit,
+  onRetryImport: (BookId) -> Unit,
   onBookFolderClick: () -> Unit,
   onAddBookClick: () -> Unit,
   onPlayButtonClick: () -> Unit,
@@ -237,6 +239,7 @@ internal fun BookOverview(
               books = viewState.books,
               onBookClick = onBookClick,
               onBookLongClick = onBookLongClick,
+              onRetryImport = onRetryImport,
               showPermissionBugCard = viewState.showStoragePermissionBugCard,
               onPermissionBugCardClick = onPermissionBugCardClick,
             )
@@ -246,6 +249,7 @@ internal fun BookOverview(
               books = viewState.books,
               onBookClick = onBookClick,
               onBookLongClick = onBookLongClick,
+              onRetryImport = onRetryImport,
               showPermissionBugCard = viewState.showStoragePermissionBugCard,
               onPermissionBugCardClick = onPermissionBugCardClick,
             )
@@ -269,6 +273,7 @@ fun BookOverviewPreview(
       onSettingsClick = {},
       onBookClick = {},
       onBookLongClick = {},
+      onRetryImport = {},
       onBookFolderClick = {},
       onAddBookClick = {},
       onPlayButtonClick = {},
