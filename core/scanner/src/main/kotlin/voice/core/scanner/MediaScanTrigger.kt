@@ -1,6 +1,10 @@
 package voice.core.scanner
 
+import android.app.Application
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.os.SystemClock
+import androidx.datastore.core.DataStore
 import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
@@ -19,6 +23,7 @@ import voice.core.data.folders.AudiobookFolders
 import voice.core.data.folders.FolderType
 import voice.core.data.folders.RemoteBookSources
 import voice.core.data.repo.BookRepository
+import voice.core.data.store.WebDavAutoRefreshWifiStore
 import voice.core.documentfile.CachedDocumentFile
 import voice.core.logging.api.Logger
 import java.util.concurrent.atomic.AtomicInteger
@@ -34,6 +39,8 @@ internal constructor(
   private val coverScanner: CoverScanner,
   private val bookRepo: BookRepository,
   private val scanProgressReporter: ScanProgressReporter,
+  @WebDavAutoRefreshWifiStore private val autoRefreshWifiStore: DataStore<Boolean>,
+  private val application: Application,
 ) {
 
   public val scannerActive: Flow<Boolean>
@@ -60,6 +67,18 @@ internal constructor(
   private val scanGeneration = AtomicInteger()
 
   private var lastScanCompletedAt: Long? = null
+
+  /** Starts the app-start refresh when the network policy allows it. */
+  public fun automaticScan() {
+    scope.launch {
+      val wifiOnly = autoRefreshWifiStore.data.first()
+      if (!wifiOnly || isWifiConnected()) {
+        scan()
+      } else {
+        Logger.i("Skipping automatic library refresh because Wi-Fi is unavailable")
+      }
+    }
+  }
 
   public fun scan(restartIfScanning: Boolean = false) {
     Logger.i("scanForFiles with restartIfScanning=$restartIfScanning")
@@ -146,6 +165,14 @@ internal constructor(
         }
       }
     }
+  }
+
+  private fun isWifiConnected(): Boolean {
+    val connectivityManager = application.getSystemService(ConnectivityManager::class.java)
+      ?: return false
+    val network = connectivityManager.activeNetwork ?: return false
+    val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return false
+    return capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
   }
 
   private fun skippedRecently(): Boolean {

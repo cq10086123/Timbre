@@ -2,24 +2,34 @@ package voice.features.bookOverview.views
 
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.size
 import voice.core.data.BookId
 import voice.core.scanner.BookScanError
 import voice.core.scanner.BookScanProgress
@@ -42,7 +52,33 @@ internal fun BookCard(
         onLongClick = { onBookLongClick(bookId) },
       ),
   ) {
-    content()
+    Box {
+      content()
+      if (bookId.toUri().scheme.equals("http", ignoreCase = true) ||
+        bookId.toUri().scheme.equals("https", ignoreCase = true)
+      ) {
+        Surface(
+          modifier = Modifier
+            .align(Alignment.TopEnd)
+            .padding(8.dp)
+            .size(28.dp)
+            .semantics {
+              contentDescription = stringResource(StringsR.string.webdav_title)
+            },
+          shape = CircleShape,
+          color = MaterialTheme.colorScheme.primaryContainer,
+          contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+        ) {
+          Text(
+            text = "☁",
+            modifier = Modifier.fillMaxSize().padding(top = 1.dp),
+            textAlign = TextAlign.Center,
+            fontSize = 17.sp,
+            fontWeight = FontWeight.Bold,
+          )
+        }
+      }
+    }
   }
 }
 

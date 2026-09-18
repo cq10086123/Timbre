@@ -2,8 +2,10 @@ package voice.core.webdav
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import kotlinx.coroutines.test.runTest
+import mockwebserver3.Dispatcher
 import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
+import mockwebserver3.RecordedRequest
 import org.junit.After
 import org.junit.Before
 import org.junit.runner.RunWith
@@ -115,6 +117,43 @@ class WebDavClientTest {
     kotlin.test.assertFailsWith<WebDavException.Auth> {
       client.list(newServer(), "wrong", url = server.url("/dav").toString())
     }
+  }
+
+  @Test
+  fun digestChallengeIsRetriedWithDigestAuthorization() = runTest {
+    val nonce = "fixed-nonce"
+    server.dispatcher = object : Dispatcher() {
+      override fun dispatch(request: RecordedRequest): MockResponse {
+        val authorization = request.headers["Authorization"].orEmpty()
+        return if (authorization.startsWith("Digest ")) {
+          MockResponse.Builder()
+            .code(207)
+            .body(propfindBody())
+            .build()
+        } else {
+          MockResponse.Builder()
+            .code(401)
+            .header(
+              "WWW-Authenticate",
+              "Digest realm=\"dav\", nonce=\"$nonce\", qop=\"auth\", algorithm=MD5",
+            )
+            .build()
+        }
+      }
+    }
+
+    val resources = client.list(newServer(), "secret", url = server.url("/dav").toString())
+
+    assertEquals(expected = 2, actual = server.requestCount)
+    assertEquals(expected = 2, actual = resources.size)
+    val requests = listOf(server.takeRequest(), server.takeRequest())
+    val digestHeader = requests.asSequence()
+      .mapNotNull { it.headers["Authorization"] }
+      .firstOrNull { it.startsWith("Digest ") }
+    assertTrue(digestHeader != null)
+    assertTrue(digestHeader.contains("username=\"user\""))
+    assertTrue(digestHeader.contains("nonce=\"$nonce\""))
+
   }
 
   @Test

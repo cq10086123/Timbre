@@ -6,7 +6,10 @@ import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
+import voice.core.data.BookId
 import voice.core.data.normalizeRemoteUrl
+import voice.core.data.repo.RemoteUrlMigration
+import voice.core.data.store.CurrentBookStore
 import java.util.UUID
 
 /**
@@ -21,6 +24,8 @@ public class WebDavLibrary internal constructor(
   private val client: WebDavClient,
   private val resolver: WebDavCredentialResolver,
   private val playbackCache: WebDavPlaybackCache,
+  private val remoteUrlMigration: RemoteUrlMigration,
+  @CurrentBookStore private val currentBookStore: DataStore<BookId?>,
 ) {
 
   public fun servers(): Flow<List<WebDavServer>> {
@@ -75,6 +80,20 @@ public class WebDavLibrary internal constructor(
       encryptedPassword = encryptedPassword,
       trustAllCertificates = trustAllCertificates,
     )
+
+    val oldPrefix = existing?.baseUrl
+    if (oldPrefix != null && oldPrefix != normalized) {
+      // The Room rewrite is deliberately completed before the new server
+      // address is published. A failed migration therefore leaves both the
+      // server config and all progress pointing at the old, working prefix.
+      remoteUrlMigration.migrate(oldPrefix, normalized)
+      playbackCache.removeByPrefix(oldPrefix)
+      rewriteRegisteredSources(id, oldPrefix, normalized)
+      currentBookStore.updateData { current ->
+        current?.let { BookId(rewriteUrlPrefix(it.value, oldPrefix, normalized)) }
+      }
+    }
+
     serversStore.updateData { servers ->
       servers.filterNot { it.id == id } + server
     }
@@ -140,6 +159,25 @@ public class WebDavLibrary internal constructor(
     sourcesStore.updateData { sources -> sources - source }
   }
 
+  private suspend fun rewriteRegisteredSources(
+    serverId: String,
+    oldPrefix: String,
+    newPrefix: String,
+  ) {
+    sourcesStore.updateData { sources ->
+      sources.map { source ->
+        if (source.serverId != serverId || !source.url.belongsToPrefix(oldPrefix)) {
+          source
+        } else {
+          source.copy(
+            url = rewriteUrlPrefix(source.url, oldPrefix, newPrefix),
+            lastExpandedUrls = source.lastExpandedUrls.map { rewriteUrlPrefix(it, oldPrefix, newPrefix) },
+          )
+        }
+      }
+    }
+  }
+
   public companion object {
 
     public fun normalizeBaseUrl(baseUrl: String): String {
@@ -150,4 +188,19 @@ public class WebDavLibrary internal constructor(
       return trimmed
     }
   }
+}
+
+private fun rewriteUrlPrefix(value: String, oldPrefix: String, newPrefix: String): String {
+  val old = oldPrefix.trimEnd('/')
+  val new = newPrefix.trimEnd('/')
+  return when {
+    value == old -> new
+    value.startsWith("$old/") -> new + value.removePrefix(old)
+    else -> value
+  }
+}
+
+private fun String.belongsToPrefix(prefix: String): Boolean {
+  val old = prefix.trimEnd('/')
+  return this == old || startsWith("$old/")
 }

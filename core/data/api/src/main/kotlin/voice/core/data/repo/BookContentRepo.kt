@@ -26,6 +26,9 @@ public interface BookContentRepo {
     content: BookContent,
     persist: Boolean = true,
   )
+
+  /** Refreshes the in-memory view after an operation that rewrote database ids. */
+  public suspend fun refreshFromDatabase()
 }
 
 public suspend inline fun BookContentRepo.getOrPut(

@@ -16,4 +16,7 @@ public interface ChapterRepo {
    * subsequent [get] calls don't trigger one database query per chapter.
    */
   public suspend fun prefetch(ids: Collection<ChapterId>)
+
+  /** Drops cached chapter ids after a database-wide id rewrite. */
+  public suspend fun invalidateCache()
 }

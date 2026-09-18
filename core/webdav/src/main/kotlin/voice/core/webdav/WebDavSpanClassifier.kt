@@ -49,6 +49,16 @@ public class WebDavSpanClassifier {
     }
   }
 
+  /** Drops classification for every cached resource below a server prefix. */
+  public fun forgetByPrefix(prefix: String) {
+    val normalized = prefix.trimEnd('/')
+    synchronized(lock) {
+      speculativeByBook.entries.removeAll { (_, book) ->
+        book == normalized || book.startsWith("$normalized/")
+      }
+    }
+  }
+
   public fun isSpeculativeOfInactiveBook(url: String): Boolean {
     val book = synchronized(lock) {
       speculativeByBook[url] ?: return false

@@ -63,4 +63,10 @@ public class ChapterRepoImpl(private val dao: ChapterDao) : ChapterRepo {
     dao.insertAll(chapters.toList())
     chapters.forEach { cache[it.id] = Optional.of(it) }
   }
+
+  override suspend fun invalidateCache() {
+    dbMutex.withLock {
+      cache.clear()
+    }
+  }
 }
