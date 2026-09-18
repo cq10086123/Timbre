@@ -41,7 +41,7 @@ public class WebDavDataSourceFactory internal constructor(
   }
 
   /** Upstream for the prefetcher, which manages the speculative classification itself. */
-  fun createUnmarkedDataSource(): DataSource {
+  public fun createUnmarkedDataSource(): DataSource {
     return WebDavDataSource(resolver, client, delegateFactory, classifier, markConsumed = false)
   }
 

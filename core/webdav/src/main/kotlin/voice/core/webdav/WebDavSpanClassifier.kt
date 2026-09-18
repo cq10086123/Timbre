@@ -13,7 +13,7 @@ import dev.zacsweers.metro.SingleIn
  */
 @SingleIn(AppScope::class)
 @Inject
-internal class WebDavSpanClassifier {
+public class WebDavSpanClassifier {
 
   private val lock = Any()
   private val speculativeByBook = HashMap<String, String>()
@@ -21,12 +21,12 @@ internal class WebDavSpanClassifier {
   @Volatile
   private var activeBookPrefix: String? = null
 
-  fun markActiveBook(bookUrl: String?) {
+  public fun markActiveBook(bookUrl: String?) {
     activeBookPrefix = bookUrl?.trimEnd('/')
   }
 
   /** Marks [url] as speculative data prefetched for the book at [bookUrl]. */
-  fun markSpeculative(
+  public fun markSpeculative(
     url: String,
     bookUrl: String,
   ) {
@@ -36,20 +36,20 @@ internal class WebDavSpanClassifier {
   }
 
   /** The url was read by actual playback, so it is no longer speculative. */
-  fun markConsumed(url: String) {
+  public fun markConsumed(url: String) {
     synchronized(lock) {
       speculativeByBook.remove(url)
     }
   }
 
-  fun forgetBook(bookUrl: String) {
+  public fun forgetBook(bookUrl: String) {
     val prefix = bookUrl.trimEnd('/')
     synchronized(lock) {
       speculativeByBook.entries.removeAll { it.value == prefix }
     }
   }
 
-  fun isSpeculativeOfInactiveBook(url: String): Boolean {
+  public fun isSpeculativeOfInactiveBook(url: String): Boolean {
     val book = synchronized(lock) {
       speculativeByBook[url] ?: return false
     }

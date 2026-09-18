@@ -33,8 +33,15 @@ internal class WebDavCacheEvictor(
 
   override fun onSpanTouched(
     cache: Cache,
-    span: CacheSpan,
-    touchTimestamp: Long,
+    oldSpan: CacheSpan,
+    newSpan: CacheSpan,
+  ) = Unit
+
+  override fun onStartFile(
+    cache: Cache,
+    key: String,
+    position: Long,
+    maxLength: Long,
   ) = Unit
 
   /** Runs a full eviction round, e.g. after the limit was lowered in the settings. */

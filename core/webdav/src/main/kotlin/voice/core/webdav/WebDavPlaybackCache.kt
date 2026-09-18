@@ -2,9 +2,9 @@ package voice.core.webdav
 
 import android.app.Application
 import androidx.datastore.core.DataStore
+import androidx.media3.database.StandaloneDatabaseProvider
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.cache.SimpleCache
-import androidx.media3.database.StandaloneDatabaseProvider
 import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
@@ -24,7 +24,7 @@ import java.io.File
  */
 @SingleIn(AppScope::class)
 @Inject
-internal class WebDavPlaybackCache(
+public class WebDavPlaybackCache(
   private val context: Application,
   @WebDavCacheSettingsStore private val settingsStore: DataStore<WebDavCacheSettings>,
   private val classifier: WebDavSpanClassifier,
@@ -63,21 +63,21 @@ internal class WebDavPlaybackCache(
    * cached, local playback passes straight through. Returns [upstream]
    * unchanged when caching is disabled.
    */
-  fun dataSourceFactory(upstream: DataSource.Factory): DataSource.Factory {
+  public fun dataSourceFactory(upstream: DataSource.Factory): DataSource.Factory {
     return DataSource.Factory {
       WebDavCachingDataSource(upstream) { cacheOrNull() }
     }
   }
 
-  fun cacheOrNull(): SimpleCache? {
+  public fun cacheOrNull(): SimpleCache? {
     synchronized(lock) {
       simpleCache?.let { return it }
       if (maxBytes <= 0L) return null
       return try {
         SimpleCache(
           File(context.cacheDir, CACHE_DIR),
-          StandaloneDatabaseProvider(context),
           evictor,
+          StandaloneDatabaseProvider(context),
         ).also {
           simpleCache = it
         }
@@ -89,11 +89,11 @@ internal class WebDavPlaybackCache(
   }
 
   /** Total size of the cached data in bytes. */
-  fun cachedBytes(): Long {
+  public fun cachedBytes(): Long {
     return simpleCache?.cacheSpace ?: 0L
   }
 
-  suspend fun clear() {
+  public suspend fun clear() {
     val cache = simpleCache ?: return
     for (key in cache.keys) {
       cache.removeResource(key)
@@ -101,7 +101,7 @@ internal class WebDavPlaybackCache(
   }
 
   /** Removes all cached resources whose url starts with [prefix]. */
-  fun removeByPrefix(prefix: String) {
+  public fun removeByPrefix(prefix: String) {
     val cache = simpleCache ?: return
     val normalized = prefix.trimEnd('/')
     for (key in cache.keys) {
@@ -111,7 +111,7 @@ internal class WebDavPlaybackCache(
     }
   }
 
-  fun settings(): DataStore<WebDavCacheSettings> {
+  public fun settings(): DataStore<WebDavCacheSettings> {
     return settingsStore
   }
 

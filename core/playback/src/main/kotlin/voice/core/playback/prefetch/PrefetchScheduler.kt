@@ -44,7 +44,7 @@ import voice.core.webdav.WebDavSpanClassifier
  */
 @SingleIn(AppScope::class)
 @Inject
-internal class PrefetchScheduler(
+public class PrefetchScheduler(
   private val playbackCache: WebDavPlaybackCache,
   private val webDavDataSourceFactory: WebDavDataSourceFactory,
   private val bookRepository: BookRepository,
@@ -179,12 +179,14 @@ internal class PrefetchScheduler(
       .setCache(cache)
       .setUpstreamDataSourceFactory(unmarkedUpstream)
       .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
-      .build()
+      .createDataSource()
     val dataSpec = DataSpec.Builder()
       .setUri(Uri.parse(url))
-      .setLength(C.LENGTH_UNSET)
+      .setLength(C.LENGTH_UNSET.toLong())
       .build()
-    return CacheWriter(cacheDataSource, dataSpec, null, null).cache()
+    val bytesBefore = cache.cacheSpace
+    CacheWriter(cacheDataSource, dataSpec, null, null).cache()
+    return cache.cacheSpace - bytesBefore
   }
 
   private fun isMeteredNetwork(): Boolean {

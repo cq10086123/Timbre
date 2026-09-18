@@ -5,11 +5,11 @@ import kotlinx.coroutines.test.runTest
 import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
 import org.junit.After
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
 import org.junit.Before
-import org.junit.Test
 import org.junit.runner.RunWith
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 @RunWith(AndroidJUnit4::class)
 class WebDavClientTest {
@@ -44,7 +44,7 @@ class WebDavClientTest {
     server.enqueue(
       MockResponse.Builder()
         .code(207)
-        .setBody(propfindBody())
+        .body(propfindBody())
         .build(),
     )
     val serverConfig = newServer()
@@ -66,14 +66,15 @@ class WebDavClientTest {
     server.enqueue(
       MockResponse.Builder()
         .code(207)
-        .setBody(propfindBody())
+        .body(propfindBody())
         .build(),
     )
     val serverConfig = newServer()
     val url = server.url("/dav").toString()
 
-    client.list(serverConfig, "secret", url)
+    client.list(serverConfig, "secret", url).let { check(it.isNotEmpty()) }
     val second = client.list(serverConfig, "secret", url)
+    check(second.size == 2)
 
     assertEquals(expected = 2, actual = second.size)
     assertEquals(expected = 1, actual = server.requestCount)
@@ -97,13 +98,13 @@ class WebDavClientTest {
     server.enqueue(
       MockResponse.Builder()
         .code(207)
-        .setBody(propfindBody())
+        .body(propfindBody())
         .build(),
     )
     server.enqueue(
       MockResponse.Builder()
         .code(206)
-        .setBody("x")
+        .body("x")
         .build(),
     )
 

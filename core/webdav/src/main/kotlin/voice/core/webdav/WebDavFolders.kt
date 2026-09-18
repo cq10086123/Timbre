@@ -11,9 +11,9 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import voice.core.data.BookId
-import voice.core.data.isAudioFile
 import voice.core.data.folders.DocumentFileWithUri
 import voice.core.data.folders.RemoteBookSources
+import voice.core.data.isAudioFile
 import voice.core.data.toUri
 import voice.core.documentfile.CachedDocumentFile
 
@@ -48,40 +48,36 @@ public class WebDavRemoteBookSources internal constructor(
     return sourcesStore.data.first().isNotEmpty()
   }
 
-  private suspend fun expand(source: WebDavBookSource): List<DocumentFileWithUri> =
-    withContext(Dispatchers.IO) {
-      when (source.mode) {
-        WebDavBookSource.Mode.SingleBook -> listOf(source.toDocumentFileWithUri(source.url))
-
-        WebDavBookSource.Mode.LibraryRoot -> {
-          val resolved = resolver.byId(source.serverId)
-          if (resolved == null) {
-            // the server was deleted: the registration is gone with it
-            return@withContext emptyList()
-          }
-          try {
-            client.list(resolved.server, resolved.password, source.url)
-              .mapNotNull { child ->
-                val documentFile = documentFile(child.url, child)
-                when {
-                  child.isDirectory -> source.toDocumentFileWithUri(child.url)
-
-                  documentFile.isAudioFile() -> source.toDocumentFileWithUri(child.url)
-
-                  else -> null
-                }
+  private suspend fun expand(source: WebDavBookSource): List<DocumentFileWithUri> = withContext(Dispatchers.IO) {
+    when (source.mode) {
+      WebDavBookSource.Mode.SingleBook -> listOf(source.toDocumentFileWithUri(source.url))
+      WebDavBookSource.Mode.LibraryRoot -> {
+        val resolved = resolver.byId(source.serverId)
+        if (resolved == null) {
+          // the server was deleted: the registration is gone with it
+          return@withContext emptyList()
+        }
+        try {
+          client.list(resolved.server, resolved.password, source.url)
+            .mapNotNull { child ->
+              val documentFile = documentFile(child.url, child)
+              when {
+                child.isDirectory -> source.toDocumentFileWithUri(child.url)
+                documentFile.isAudioFile() -> source.toDocumentFileWithUri(child.url)
+                else -> null
               }
-          } catch (e: Exception) {
-            if (e is kotlinx.coroutines.CancellationException) throw e
-            // listing failed (e.g. offline): keep the registration itself so the
-            // book stays on the shelf with its stored metadata instead of
-            // disappearing just because the nas is unreachable
-            voice.core.logging.api.Logger.w(e, "Could not expand webdav library root ${source.url}")
-            listOf(source.toDocumentFileWithUri(source.url))
-          }
+            }
+        } catch (e: Exception) {
+          if (e is kotlinx.coroutines.CancellationException) throw e
+          // listing failed (e.g. offline): keep the registration itself so the
+          // book stays on the shelf with its stored metadata instead of
+          // disappearing just because the nas is unreachable
+          voice.core.logging.api.Logger.w(e, "Could not expand webdav library root ${source.url}")
+          listOf(source.toDocumentFileWithUri(source.url))
         }
       }
     }
+  }
 
   private fun documentFile(
     url: String,

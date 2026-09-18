@@ -20,6 +20,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.retain.retain
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.navigation3.runtime.NavEntry
 import androidx.compose.ui.unit.dp
 import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.ContributesTo
@@ -125,10 +126,9 @@ private fun WebDavBrowseView(
                   contentDescription = null,
                 )
               },
-              headlineContent = {
-                Text(entry.name)
-              },
-            )
+            ) {
+              Text(entry.name)
+            }
           }
         }
       }

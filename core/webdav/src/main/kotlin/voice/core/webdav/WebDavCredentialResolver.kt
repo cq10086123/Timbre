@@ -16,12 +16,12 @@ import kotlinx.coroutines.runBlocking
  */
 @SingleIn(AppScope::class)
 @Inject
-internal class WebDavCredentialResolver(
+public class WebDavCredentialResolver(
   @WebDavServersStore private val serversStore: DataStore<List<WebDavServer>>,
   private val secrets: WebDavSecrets,
 ) {
 
-  internal data class Resolved(
+  public data class Resolved(
     val server: WebDavServer,
     val password: String,
   )
@@ -29,19 +29,19 @@ internal class WebDavCredentialResolver(
   private val lock = Any()
   private var cache: Pair<Long, List<Resolved>>? = null
 
-  internal fun byUri(uri: Uri): Resolved? {
+  public fun byUri(uri: Uri): Resolved? {
     return synchronized(lock) {
       snapshot().firstOrNull { it.server.matches(uri) }
     }
   }
 
-  internal fun byId(id: String): Resolved? {
+  public fun byId(id: String): Resolved? {
     return synchronized(lock) {
       snapshot().firstOrNull { it.server.id == id }
     }
   }
 
-  internal fun invalidate() {
+  public fun invalidate() {
     synchronized(lock) {
       cache = null
     }
@@ -67,7 +67,7 @@ internal class WebDavCredentialResolver(
 }
 
 /** Whether [uri] points into this server (scheme, host, port and path prefix). */
-internal fun WebDavServer.matches(uri: android.net.Uri): Boolean {
+public fun WebDavServer.matches(uri: android.net.Uri): Boolean {
   if (uri.scheme?.lowercase() !in setOf("http", "https")) return false
   val base = Uri.parse(baseUrl)
   if (!uri.scheme.equals(base.scheme, ignoreCase = true)) return false

@@ -4,9 +4,9 @@ import android.util.Base64
 import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.Dispatchers
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.OkHttpClient
@@ -28,9 +28,7 @@ import kotlin.coroutines.resumeWithException
 
 public sealed class WebDavProbeResult {
   /** The server is reachable and authenticated. [rangeSupported] reports GET Range support. */
-  public class Success(
-    public val rangeSupported: Boolean,
-  ) : WebDavProbeResult()
+  public class Success(public val rangeSupported: Boolean) : WebDavProbeResult()
 
   public data object AuthError : WebDavProbeResult()
 
@@ -38,9 +36,7 @@ public sealed class WebDavProbeResult {
 
   public data object NetworkError : WebDavProbeResult()
 
-  public class Other(
-    public val message: String,
-  ) : WebDavProbeResult()
+  public class Other(public val message: String) : WebDavProbeResult()
 }
 
 @SingleIn(AppScope::class)
@@ -190,7 +186,7 @@ public class WebDavClient {
     clientFor(server).await(request).use { response ->
       when (response.code) {
         207 -> {
-          val body = response.body?.string() ?: throw WebDavException.Http(response.code, url)
+          val body = response.body.string()
           MultiStatusParser.parse(StringReader(body), baseUrl = url, rootUrl = rootUrl(url))
         }
         401, 403 -> throw WebDavException.Auth(url)
@@ -216,28 +212,27 @@ public class WebDavClient {
     return null
   }
 
-  private suspend fun OkHttpClient.await(request: Request): Response =
-    suspendCancellableCoroutine { continuation ->
-      val call = newCall(request)
-      continuation.invokeOnCancellation { call.cancel() }
-      call.enqueue(
-        object : Callback {
-          override fun onFailure(
-            call: Call,
-            e: IOException,
-          ) {
-            if (continuation.isActive) continuation.resumeWithException(e)
-          }
+  private suspend fun OkHttpClient.await(request: Request): Response = suspendCancellableCoroutine { continuation ->
+    val call = newCall(request)
+    continuation.invokeOnCancellation { call.cancel() }
+    call.enqueue(
+      object : Callback {
+        override fun onFailure(
+          call: Call,
+          e: IOException,
+        ) {
+          if (continuation.isActive) continuation.resumeWithException(e)
+        }
 
-          override fun onResponse(
-            call: Call,
-            response: Response,
-          ) {
-            if (continuation.isActive) continuation.resume(response) else response.close()
-          }
-        },
-      )
-    }
+        override fun onResponse(
+          call: Call,
+          response: Response,
+        ) {
+          if (continuation.isActive) continuation.resume(response) else response.close()
+        }
+      },
+    )
+  }
 
   private companion object {
     const val LISTING_TTL_MS = 30_000L

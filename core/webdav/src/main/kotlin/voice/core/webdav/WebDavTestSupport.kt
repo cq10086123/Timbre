@@ -5,15 +5,8 @@ import androidx.datastore.core.DataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 
-/**
- * Test support that has to live in the main source set because the webdav
- * internals are only visible inside this module.
- */
-
 /** A [DataStore] fake for tests. */
-public class MemoryDataStore<T>(
-  initial: T,
-) : DataStore<T> {
+public class MemoryDataStore<T>(initial: T) : DataStore<T> {
 
   private val state = MutableStateFlow(initial)
 

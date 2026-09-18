@@ -2,11 +2,11 @@ package voice.core.webdav
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
 import org.junit.runner.RunWith
 import java.io.StringReader
 import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 @RunWith(AndroidJUnit4::class)
 class MultiStatusParserTest {
@@ -38,7 +38,11 @@ class MultiStatusParserTest {
       </d:multistatus>
     """.trimIndent()
 
-    val resources = MultiStatusParser.parse(StringReader(body), baseUrl = "https://nas.example.com:5006/dav", rootUrl = "https://nas.example.com:5006")
+    val resources = MultiStatusParser.parse(
+      StringReader(body),
+      baseUrl = "https://nas.example.com:5006/dav",
+      rootUrl = "https://nas.example.com:5006",
+    )
 
     assertEquals(expected = 2, actual = resources.size)
     val folder = resources[0]
@@ -66,7 +70,11 @@ class MultiStatusParserTest {
       </D:multistatus>
     """.trimIndent()
 
-    val resources = MultiStatusParser.parse(StringReader(body), baseUrl = "https://nas.example.com/dav", rootUrl = "https://nas.example.com")
+    val resources = MultiStatusParser.parse(
+      StringReader(body),
+      baseUrl = "https://nas.example.com/dav",
+      rootUrl = "https://nas.example.com",
+    )
 
     assertEquals(expected = 1, actual = resources.size)
     assertEquals(expected = "https://nas.example.com/dav/Folder%20Name/", actual = resources[0].url)
@@ -85,7 +93,11 @@ class MultiStatusParserTest {
       </multistatus>
     """.trimIndent()
 
-    val resources = MultiStatusParser.parse(StringReader(body), baseUrl = "https://nas.example.com/dav", rootUrl = "https://nas.example.com")
+    val resources = MultiStatusParser.parse(
+      StringReader(body),
+      baseUrl = "https://nas.example.com/dav",
+      rootUrl = "https://nas.example.com",
+    )
 
     assertEquals(expected = "a+b", actual = resources.single().name)
   }

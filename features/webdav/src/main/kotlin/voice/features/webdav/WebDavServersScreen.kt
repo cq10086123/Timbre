@@ -27,6 +27,7 @@ import androidx.compose.runtime.retain.retain
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.navigation3.runtime.NavEntry
 import androidx.compose.ui.unit.dp
 import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.ContributesTo
@@ -66,6 +67,15 @@ fun WebDavServersScreen() {
     viewState = viewState,
     listener = viewModel,
   )
+  viewState.dialog?.let { dialog ->
+    WebDavServerDialogView(
+      dialog = dialog,
+      listener = viewModel,
+    )
+  }
+  viewState.deleteCandidate?.let { _ ->
+    WebDavDeleteConfirmView(listener = viewModel)
+  }
 }
 
 @Composable
@@ -104,23 +114,16 @@ private fun WebDavServersView(
         item {
           ListItem(
             modifier = Modifier.clickable(onClick = listener::openCacheSettings),
-            headlineContent = {
+          ) {
+            Column {
               Text(stringResource(StringsR.string.webdav_cache_title))
-            },
-            supportingContent = {
               Text(stringResource(StringsR.string.webdav_cache_settings_summary))
-            },
-          )
+            }
+          }
         }
         items(viewState.servers, key = { it.id }) { server ->
           ListItem(
             modifier = Modifier.clickable { listener.editServer(server) },
-            headlineContent = {
-              Text(server.name)
-            },
-            supportingContent = {
-              Text(server.baseUrl)
-            },
             trailingContent = {
               Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = { listener.browse(server) }) {
@@ -131,40 +134,39 @@ private fun WebDavServersView(
                 }
               }
             },
-          )
+          ) {
+            Column {
+              Text(server.name)
+              Text(server.baseUrl)
+            }
+          }
         }
       }
     }
   }
+}
 
-  viewState.dialog?.let { dialog ->
-    WebDavServerDialogView(
-      dialog = dialog,
-      listener = listener,
-    )
-  }
-
-  viewState.deleteCandidate?.let { candidate ->
-    AlertDialog(
-      onDismissRequest = listener::dismissDelete,
-      title = {
-        Text(stringResource(StringsR.string.webdav_server_delete))
-      },
-      text = {
-        Text(stringResource(StringsR.string.webdav_delete_server_message))
-      },
-      confirmButton = {
-        TextButton(onClick = listener::confirmDelete) {
-          Text(stringResource(StringsR.string.webdav_delete))
-        }
-      },
-      dismissButton = {
-        TextButton(onClick = listener::dismissDelete) {
-          Text(stringResource(StringsR.string.common_dialog_cancel))
-        }
-      },
-    )
-  }
+@Composable
+private fun WebDavDeleteConfirmView(listener: WebDavServersViewModel) {
+  AlertDialog(
+    onDismissRequest = listener::dismissDelete,
+    title = {
+      Text(stringResource(StringsR.string.webdav_server_delete))
+    },
+    text = {
+      Text(stringResource(StringsR.string.webdav_delete_server_message))
+    },
+    confirmButton = {
+      TextButton(onClick = listener::confirmDelete) {
+        Text(stringResource(StringsR.string.webdav_delete))
+      }
+    },
+    dismissButton = {
+      TextButton(onClick = listener::dismissDelete) {
+        Text(stringResource(StringsR.string.common_dialog_cancel))
+      }
+    },
+  )
 }
 
 @Composable

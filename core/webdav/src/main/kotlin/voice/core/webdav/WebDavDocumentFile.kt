@@ -84,17 +84,17 @@ internal class WebDavDocumentFile(
  */
 @ContributesIntoSet(AppScope::class)
 @Inject
-internal class WebDavSchemeHandler(
+public class WebDavSchemeHandler(
   private val client: WebDavClient,
   private val resolver: WebDavCredentialResolver,
 ) : DocumentFileSchemeHandler {
 
-  override fun supports(uri: Uri): Boolean {
+  public override fun supports(uri: Uri): Boolean {
     if (uri.scheme !in setOf("http", "https")) return false
     return resolver.byUri(uri) != null
   }
 
-  override fun create(uri: Uri): CachedDocumentFile {
+  public override fun create(uri: Uri): CachedDocumentFile {
     return WebDavDocumentFile(client, resolver, uri, knownResource = null)
   }
 }

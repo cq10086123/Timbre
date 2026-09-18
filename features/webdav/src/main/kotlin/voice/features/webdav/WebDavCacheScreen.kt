@@ -24,11 +24,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.retain.retain
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.navigation3.runtime.NavEntry
 import androidx.compose.ui.unit.dp
 import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.ContributesTo
@@ -98,23 +99,20 @@ private fun WebDavCacheView(
         .padding(contentPadding)
         .verticalScroll(rememberScrollState()),
     ) {
+      ListItem {
+        Text(
+          stringResource(
+            StringsR.string.webdav_cache_usage,
+            formatBytes(context, viewState.cachedBytes),
+            formatBytes(context, viewState.settings.maxBytes),
+          ),
+        )
+      }
       ListItem(
-        headlineContent = {
-          Text(
-            stringResource(
-              StringsR.string.webdav_cache_usage,
-              formatBytes(context, viewState.cachedBytes),
-              formatBytes(context, viewState.settings.maxBytes),
-            ),
-          )
-        },
-      )
-      ListItem(
-        headlineContent = {
-          Text(stringResource(StringsR.string.webdav_cache_clear))
-        },
         modifier = Modifier.clickable { showClearConfirmation = true },
-      )
+      ) {
+        Text(stringResource(StringsR.string.webdav_cache_clear))
+      }
 
       Text(
         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
@@ -166,16 +164,15 @@ private fun WebDavCacheView(
       }
 
       ListItem(
-        headlineContent = {
-          Text(stringResource(StringsR.string.webdav_cache_metered))
-        },
         trailingContent = {
           Switch(
             checked = viewState.settings.prefetchOnMetered,
             onCheckedChange = listener::setPrefetchOnMetered,
           )
         },
-      )
+      ) {
+        Text(stringResource(StringsR.string.webdav_cache_metered))
+      }
     }
   }
 

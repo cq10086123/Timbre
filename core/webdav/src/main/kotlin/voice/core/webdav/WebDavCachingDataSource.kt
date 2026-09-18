@@ -28,12 +28,12 @@ internal class WebDavCachingDataSource(
   override fun open(dataSpec: DataSpec): Long {
     val cache = cacheProvider()
     val useCache = cache != null && dataSpec.uri.scheme in setOf("http", "https")
-    val source = if (useCache && cache != null) {
+    val source = if (useCache) {
       CacheDataSource.Factory()
         .setCache(cache)
         .setUpstreamDataSourceFactory(upstreamFactory)
         .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
-        .build()
+        .createDataSource()
     } else {
       upstreamFactory.createDataSource()
     }

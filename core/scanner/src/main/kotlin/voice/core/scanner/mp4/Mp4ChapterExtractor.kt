@@ -12,7 +12,7 @@ import voice.core.webdav.WebDavDataSourceFactory
 internal class Mp4ChapterExtractor(
   private val boxParser: Mp4BoxParser,
   private val chapterTrackProcessor: ChapterTrackProcessor,
-  dataSourceFactory: WebDavDataSourceFactory,
+  private val dataSourceFactory: WebDavDataSourceFactory,
 ) {
 
   /**

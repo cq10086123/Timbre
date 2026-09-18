@@ -51,7 +51,7 @@ internal class WebDavDataStoreSerializer<T>(
 }
 
 @Inject
-internal class WebDavStoreFactory(private val context: Application) {
+public class WebDavStoreFactory(private val context: Application) {
 
   private val json: Json = Json {
     ignoreUnknownKeys = true
@@ -77,7 +77,7 @@ public interface WebDavGraph {
   @Provides
   @SingleIn(AppScope::class)
   @WebDavServersStore
-  internal fun webDavServersStore(factory: WebDavStoreFactory): DataStore<List<WebDavServer>> {
+  public fun webDavServersStore(factory: WebDavStoreFactory): DataStore<List<WebDavServer>> {
     return factory.create(
       serializer = ListSerializer(WebDavServer.serializer()),
       defaultValue = emptyList(),
@@ -88,7 +88,7 @@ public interface WebDavGraph {
   @Provides
   @SingleIn(AppScope::class)
   @WebDavBookSourcesStore
-  internal fun webDavBookSourcesStore(factory: WebDavStoreFactory): DataStore<List<WebDavBookSource>> {
+  public fun webDavBookSourcesStore(factory: WebDavStoreFactory): DataStore<List<WebDavBookSource>> {
     return factory.create(
       serializer = ListSerializer(WebDavBookSource.serializer()),
       defaultValue = emptyList(),
@@ -99,7 +99,7 @@ public interface WebDavGraph {
   @Provides
   @SingleIn(AppScope::class)
   @WebDavCacheSettingsStore
-  internal fun webDavCacheSettingsStore(factory: WebDavStoreFactory): DataStore<WebDavCacheSettings> {
+  public fun webDavCacheSettingsStore(factory: WebDavStoreFactory): DataStore<WebDavCacheSettings> {
     return factory.create(
       serializer = WebDavCacheSettings.serializer(),
       defaultValue = WebDavCacheSettings(),
