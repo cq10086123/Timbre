@@ -4,9 +4,9 @@ import androidx.datastore.core.DataStore
 import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
+import java.util.UUID
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
-import java.util.UUID
 
 /**
  * Facade for the server management and remote browsing ui.
@@ -36,7 +36,9 @@ public class WebDavLibrary internal constructor(
   }
 
   public suspend fun clearCache() {
-    playbackCache.clear()
+    // a failing cache must never take the settings screen down with it
+    runCatching { playbackCache.clear() }
+      .onFailure { voice.core.logging.api.Logger.w(it, "Could not clear the webdav cache") }
   }
 
   public suspend fun server(serverId: String): WebDavServer? {
@@ -84,7 +86,10 @@ public class WebDavLibrary internal constructor(
     serversStore.updateData { servers -> servers.filterNot { it.id == id } }
     sourcesStore.updateData { sources -> sources.filterNot { it.serverId == id } }
     resolver.invalidate()
-    server?.let { playbackCache.removeByPrefix(it.baseUrl) }
+    server?.let {
+      runCatching { playbackCache.removeByPrefix(it.baseUrl) }
+        .onFailure { e -> voice.core.logging.api.Logger.w(e, "Could not clear the webdav cache prefix") }
+    }
   }
 
   public suspend fun testConnection(

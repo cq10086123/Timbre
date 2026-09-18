@@ -2,11 +2,11 @@ package voice.core.webdav
 
 import android.net.Uri
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
-import org.junit.runner.RunWith
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
+import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class WebDavServerTest {

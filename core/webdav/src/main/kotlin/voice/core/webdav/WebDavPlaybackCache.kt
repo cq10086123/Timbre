@@ -8,13 +8,13 @@ import androidx.media3.datasource.cache.SimpleCache
 import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
+import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import voice.core.logging.api.Logger
-import java.io.File
 
 /**
  * Holds the process wide [SimpleCache] for webdav playback and hands out data
@@ -49,7 +49,7 @@ public class WebDavPlaybackCache(
       .onEach { settings ->
         val previous = maxBytes
         maxBytes = settings.maxBytes
-        if (settings.maxBytes in 1 until previous) {
+        if (settings.maxBytes > 0 && settings.maxBytes < previous) {
           // the limit was lowered: shrink immediately instead of waiting for
           // the next write
           simpleCache?.let { evictor.evictIfNeeded(it) }
@@ -113,6 +113,28 @@ public class WebDavPlaybackCache(
 
   public fun settings(): DataStore<WebDavCacheSettings> {
     return settingsStore
+  }
+
+  /** The book at [url] is the one currently playing. */
+  public fun markActiveBook(url: String?) {
+    classifier.markActiveBook(url)
+  }
+
+  /** [url] was prefetched for the book at [bookUrl] without being played yet. */
+  public fun markSpeculative(
+    url: String,
+    bookUrl: String,
+  ) {
+    classifier.markSpeculative(url, bookUrl)
+  }
+
+  /** [url] was read by actual playback, so it is no longer speculative. */
+  public fun markConsumed(url: String) {
+    classifier.markConsumed(url)
+  }
+
+  public fun forgetBook(bookUrl: String) {
+    classifier.forgetBook(bookUrl)
   }
 
   private companion object {
