@@ -133,7 +133,7 @@ class WebDavClientTest {
         } else {
           MockResponse.Builder()
             .code(401)
-            .header(
+            .setHeader(
               "WWW-Authenticate",
               "Digest realm=\"dav\", nonce=\"$nonce\", qop=\"auth\", algorithm=MD5",
             )
