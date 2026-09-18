@@ -1,6 +1,7 @@
 package voice.core.webdav
 
 import android.net.Uri
+import androidx.core.net.toUri
 import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.ContributesIntoSet
 import dev.zacsweers.metro.Inject
@@ -31,7 +32,7 @@ internal class WebDavDocumentFile(
         runBlocking {
           client.list(resolved.server, resolved.password, url)
         }.map { child ->
-          WebDavDocumentFile(client, resolver, Uri.parse(child.url), child)
+          WebDavDocumentFile(client, resolver, child.url.toUri(), child)
         }
       } catch (e: CancellationException) {
         throw e

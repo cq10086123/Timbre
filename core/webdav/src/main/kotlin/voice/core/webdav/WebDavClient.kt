@@ -1,6 +1,8 @@
 package voice.core.webdav
 
+import android.annotation.SuppressLint
 import android.util.Base64
+import androidx.core.net.toUri
 import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
@@ -50,20 +52,24 @@ public class WebDavClient {
       .build()
   }
 
+  // Opt-in per server for self-signed certificates; the user explicitly
+  // enables this in the server settings, so a lint suppression is intended.
   private val trustAllClient: OkHttpClient by lazy {
-    val trustManager = object : X509TrustManager {
-      override fun checkClientTrusted(
-        chain: Array<X509Certificate>,
-        authType: String,
-      ) = Unit
+    val trustManager =
+      @SuppressLint("CustomX509TrustManager")
+      object : X509TrustManager {
+        override fun checkClientTrusted(
+          chain: Array<X509Certificate>,
+          authType: String,
+        ) = Unit
 
-      override fun checkServerTrusted(
-        chain: Array<X509Certificate>,
-        authType: String,
-      ) = Unit
+        override fun checkServerTrusted(
+          chain: Array<X509Certificate>,
+          authType: String,
+        ) = Unit
 
-      override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
-    }
+        override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
+      }
     val sslContext = SSLContext.getInstance("TLS")
     sslContext.init(null, arrayOf<TrustManager>(trustManager), SecureRandom())
     plainClient.newBuilder()
@@ -198,7 +204,7 @@ public class WebDavClient {
 
   /** The origin of [url]: `scheme://host[:port]`. */
   private fun rootUrl(url: String): String {
-    val uri = android.net.Uri.parse(url)
+    val uri = url.toUri()
     val authority = uri.encodedAuthority ?: return url
     return "${uri.scheme}://$authority"
   }

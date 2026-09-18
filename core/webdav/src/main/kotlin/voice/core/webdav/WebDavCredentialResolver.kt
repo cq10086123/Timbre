@@ -2,6 +2,7 @@ package voice.core.webdav
 
 import android.net.Uri
 import android.os.SystemClock
+import androidx.core.net.toUri
 import androidx.datastore.core.DataStore
 import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.Inject
@@ -69,7 +70,7 @@ public class WebDavCredentialResolver(
 /** Whether [uri] points into this server (scheme, host, port and path prefix). */
 public fun WebDavServer.matches(uri: android.net.Uri): Boolean {
   if (uri.scheme?.lowercase() !in setOf("http", "https")) return false
-  val base = Uri.parse(baseUrl)
+  val base = baseUrl.toUri()
   if (!uri.scheme.equals(base.scheme, ignoreCase = true)) return false
   if (!uri.host.equals(base.host, ignoreCase = true)) return false
   if (base.port != -1 && uri.port != base.port) return false

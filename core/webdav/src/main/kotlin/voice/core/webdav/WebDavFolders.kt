@@ -1,6 +1,6 @@
 package voice.core.webdav
 
-import android.net.Uri
+import androidx.core.net.toUri
 import androidx.datastore.core.DataStore
 import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.ContributesBinding
@@ -83,11 +83,11 @@ public class WebDavRemoteBookSources internal constructor(
     url: String,
     resource: WebDavResource?,
   ): CachedDocumentFile {
-    return WebDavDocumentFile(client, resolver, Uri.parse(url), resource)
+    return WebDavDocumentFile(client, resolver, url.toUri(), resource)
   }
 
   private fun WebDavBookSource.toDocumentFileWithUri(url: String): DocumentFileWithUri {
-    val uri = Uri.parse(url)
+    val uri = url.toUri()
     return DocumentFileWithUri(
       documentFile = documentFile(url, null),
       uri = uri,

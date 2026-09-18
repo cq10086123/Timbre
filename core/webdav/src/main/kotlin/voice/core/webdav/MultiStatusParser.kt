@@ -1,6 +1,6 @@
 package voice.core.webdav
 
-import android.net.Uri
+import androidx.core.net.toUri
 import org.xmlpull.v1.XmlPullParser
 import org.xmlpull.v1.XmlPullParserFactory
 import java.io.Reader
@@ -97,7 +97,7 @@ internal object MultiStatusParser {
     if (trimmed.isEmpty()) return null
     return when {
       trimmed.startsWith("http://") || trimmed.startsWith("https://") -> {
-        val path = Uri.parse(trimmed).encodedPath ?: return null
+        val path = trimmed.toUri().encodedPath ?: return null
         rootUrl + path
       }
       trimmed.startsWith("/") -> rootUrl + trimmed
