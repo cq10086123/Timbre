@@ -120,11 +120,7 @@ internal class WebDavDataSource(
       response = null
       throw IOException("WebDAV GET ${dataSpec.uri} returned HTTP ${opened.code}")
     }
-    val body = opened.body ?: run {
-      opened.close()
-      response = null
-      throw IOException("WebDAV GET ${dataSpec.uri} returned an empty body")
-    }
+    val body = opened.body
     input = body.byteStream()
 
     // A compliant server answers a ranged request with 206. For a server that
@@ -166,9 +162,17 @@ internal class WebDavDataSource(
   }
 
   override fun close() {
-    runCatching { input?.close() }
+    try {
+      input?.close()
+    } catch (_: IOException) {
+      // Closing a remote stream is best effort; the response is closed below.
+    }
     input = null
-    runCatching { response?.close() }
+    try {
+      response?.close()
+    } catch (_: IOException) {
+      // The stream has already been released, so there is nothing else to do.
+    }
     response = null
     delegate?.close()
     delegate = null
