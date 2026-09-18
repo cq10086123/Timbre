@@ -18,7 +18,7 @@ class MultiStatusParserTest {
       <d:multistatus xmlns:d="DAV:">
         <d:response>
           <d:href>/dav/</d:href>
-          <d:propstat><d:prop><d:resourcetype><d:collection/></d:resourcetype></d:propstat>
+          <d:propstat><d:prop><d:resourcetype><d:collection/></d:resourcetype></d:prop></d:propstat>
         </d:response>
         <d:response>
           <d:href>/dav/%E4%B8%89%E4%BD%93/</d:href>
@@ -65,7 +65,7 @@ class MultiStatusParserTest {
       <D:multistatus xmlns:D="DAV:">
         <D:response>
           <D:href>https://other-host.example.com/dav/Folder%20Name/</D:href>
-          <D:propstat><D:prop><D:resourcetype><D:collection/></D:resourcetype></D:propstat>
+          <D:propstat><D:prop><D:resourcetype><D:collection/></D:resourcetype></D:prop></D:propstat>
         </D:response>
       </D:multistatus>
     """.trimIndent()
@@ -99,6 +99,6 @@ class MultiStatusParserTest {
       rootUrl = "https://nas.example.com",
     )
 
-    assertEquals(expected = "a+b", actual = resources.single().name)
+    assertEquals(expected = "01.mp3", actual = resources.single().name)
   }
 }

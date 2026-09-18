@@ -46,10 +46,10 @@ internal object MultiStatusParser {
             lastModified = 0L
             isCollection = false
           }
-          "href" -> if (inResponse) href = parser.textUntilEndTag()
-          "displayname" -> if (inResponse) displayName = parser.textUntilEndTag()
-          "getcontentlength" -> if (inResponse) contentLength = parser.textUntilEndTag().toLongOrNull() ?: -1L
-          "getlastmodified" -> if (inResponse) lastModified = parseDate(parser.textUntilEndTag())
+          "href" -> if (inResponse) href = parser.nextText()
+          "displayname" -> if (inResponse) displayName = parser.nextText()
+          "getcontentlength" -> if (inResponse) contentLength = parser.nextText().toLongOrNull() ?: -1L
+          "getlastmodified" -> if (inResponse) lastModified = parseDate(parser.nextText())
           "collection" -> if (inResponse) isCollection = true
         }
         XmlPullParser.END_TAG -> if (parser.localName() == "response" && inResponse) {
@@ -75,6 +75,8 @@ internal object MultiStatusParser {
     lastModified: Long,
   ): WebDavResource? {
     val url = hrefToUrl(href, baseUrl, rootUrl) ?: return null
+    // Skip the response entry of the requested directory itself.
+    if (url == baseUrl.trimEnd('/') + "/") return null
     val name = displayName?.takeIf { it.isNotBlank() }
       ?: decode(href).trimEnd('/').substringAfterLast('/').ifEmpty { return null }
     return WebDavResource(
@@ -105,18 +107,6 @@ internal object MultiStatusParser {
 
   private fun XmlPullParser.localName(): String {
     return name.substringAfter(':')
-  }
-
-  private fun XmlPullParser.textUntilEndTag(): String {
-    val builder = StringBuilder()
-    while (true) {
-      val event = next()
-      when (event) {
-        XmlPullParser.TEXT -> builder.append(text)
-        XmlPullParser.END_TAG, XmlPullParser.END_DOCUMENT -> break
-      }
-    }
-    return builder.toString()
   }
 
   private fun decode(value: String): String {

@@ -111,6 +111,8 @@ class WebDavClientTest {
     val result = client.probe(newServer(), "secret", url = server.url("/dav").toString())
 
     assertTrue(result is WebDavProbeResult.Success && result.rangeSupported)
+    val propfindRequest = server.takeRequest()
+    assertEquals(expected = "PROPFIND", actual = propfindRequest.method)
     val rangeRequest = server.takeRequest()
     assertEquals(expected = "bytes=0-0", actual = rangeRequest.headers["Range"])
   }
