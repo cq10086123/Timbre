@@ -153,7 +153,6 @@ class WebDavClientTest {
     assertTrue(digestHeader != null)
     assertTrue(digestHeader.contains("username=\"user\""))
     assertTrue(digestHeader.contains("nonce=\"$nonce\""))
-
   }
 
   @Test

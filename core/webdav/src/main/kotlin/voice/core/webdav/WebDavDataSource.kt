@@ -191,7 +191,10 @@ internal class WebDavDataSource(
     }.orEmpty()
   }
 
-  private fun skipFully(stream: InputStream, bytes: Long) {
+  private fun skipFully(
+    stream: InputStream,
+    bytes: Long,
+  ) {
     var remaining = bytes
     while (remaining > 0) {
       val skipped = stream.skip(remaining)

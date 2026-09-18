@@ -25,7 +25,10 @@ internal class WebDavDigestAuthenticator(
   private val random = SecureRandom()
   private val nonceCount = AtomicInteger()
 
-  override fun authenticate(route: Route?, response: Response): okhttp3.Request? {
+  override fun authenticate(
+    route: Route?,
+    response: Response,
+  ): okhttp3.Request? {
     if (responseCount(response) >= MAX_ATTEMPTS) return null
 
     val challenge = response.headers.values("WWW-Authenticate")
@@ -111,13 +114,19 @@ internal class WebDavDigestAuthenticator(
     return bytes.joinToString(separator = "") { "%02x".format(it.toInt() and 0xff) }
   }
 
-  private fun hashHex(value: String, algorithm: String): String {
+  private fun hashHex(
+    value: String,
+    algorithm: String,
+  ): String {
     return MessageDigest.getInstance(algorithm)
       .digest(value.toByteArray(Charsets.UTF_8))
       .joinToString(separator = "") { "%02x".format(it.toInt() and 0xff) }
   }
 
-  private fun parameter(name: String, value: String): String {
+  private fun parameter(
+    name: String,
+    value: String,
+  ): String {
     return "$name=\"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\""
   }
 
@@ -142,9 +151,13 @@ internal class WebDavDigestAuthenticator(
         buildString {
           while (index < input.length) {
             val char = input[index++]
-            if (char == '\\' && index < input.length) append(input[index++])
-            else if (char == '"') break
-            else append(char)
+            if (char == '\\' && index < input.length) {
+              append(input[index++])
+            } else if (char == '"') {
+              break
+            } else {
+              append(char)
+            }
           }
         }
       } else {

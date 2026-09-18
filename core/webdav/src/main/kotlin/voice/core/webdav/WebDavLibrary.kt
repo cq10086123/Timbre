@@ -190,7 +190,11 @@ public class WebDavLibrary internal constructor(
   }
 }
 
-private fun rewriteUrlPrefix(value: String, oldPrefix: String, newPrefix: String): String {
+private fun rewriteUrlPrefix(
+  value: String,
+  oldPrefix: String,
+  newPrefix: String,
+): String {
   val old = oldPrefix.trimEnd('/')
   val new = newPrefix.trimEnd('/')
   return when {
