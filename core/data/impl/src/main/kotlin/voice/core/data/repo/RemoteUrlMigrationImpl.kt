@@ -3,13 +3,13 @@ package voice.core.data.repo
 import android.content.ContentValues
 import android.database.sqlite.SQLiteDatabase
 import androidx.room.RoomDatabase
+import androidx.sqlite.db.SupportSQLiteDatabase
 import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.ContributesBinding
-import voice.core.data.repo.internals.transaction
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
-import androidx.sqlite.db.SupportSQLiteDatabase
+import voice.core.data.repo.internals.transaction
 
 /**
  * Performs the address-change migration against the same Room database used by
@@ -24,7 +24,10 @@ public class RemoteUrlMigrationImpl(
 
   private val json = Json
 
-  override suspend fun migrate(oldPrefix: String, newPrefix: String) {
+  override suspend fun migrate(
+    oldPrefix: String,
+    newPrefix: String,
+  ) {
     val old = normalizePrefix(oldPrefix)
     val new = normalizePrefix(newPrefix)
     require(isHttpPrefix(old) && isHttpPrefix(new)) {
@@ -163,7 +166,11 @@ public class RemoteUrlMigrationImpl(
     }
   }
 
-  private fun rewriteChapterList(value: String, old: String, new: String): String {
+  private fun rewriteChapterList(
+    value: String,
+    old: String,
+    new: String,
+  ): String {
     val chapterIds = runCatching {
       json.decodeFromString(ListSerializer(String.serializer()), value)
     }.getOrNull() ?: return value
@@ -172,7 +179,11 @@ public class RemoteUrlMigrationImpl(
     return json.encodeToString(ListSerializer(String.serializer()), rewritten)
   }
 
-  private fun rewrite(value: String, old: String, new: String): String {
+  private fun rewrite(
+    value: String,
+    old: String,
+    new: String,
+  ): String {
     if (!isHttpPrefix(value)) return value
     return when {
       value == old -> new
