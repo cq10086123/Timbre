@@ -84,7 +84,7 @@ internal class WebDavDocumentFile(
  */
 @ContributesIntoSet(AppScope::class)
 @Inject
-internal class WebDavSchemeHandler(
+public class WebDavSchemeHandler internal constructor(
   private val client: WebDavClient,
   private val resolver: WebDavCredentialResolver,
 ) : DocumentFileSchemeHandler {

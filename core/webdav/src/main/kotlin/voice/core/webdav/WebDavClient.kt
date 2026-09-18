@@ -190,7 +190,7 @@ public class WebDavClient {
     clientFor(server).await(request).use { response ->
       when (response.code) {
         207 -> {
-          val body = response.body?.string() ?: throw WebDavException.Http(response.code, url)
+          val body = response.body.string()
           MultiStatusParser.parse(StringReader(body), baseUrl = url, rootUrl = rootUrl(url))
         }
         401, 403 -> throw WebDavException.Auth(url)

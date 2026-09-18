@@ -182,7 +182,11 @@ internal class PrefetchScheduler(
       .setUri(Uri.parse(url))
       .setLength(C.LENGTH_UNSET.toLong())
       .build()
-    return CacheWriter(cacheDataSource, dataSpec, null).cache()
+    val writer = CacheWriter(cacheDataSource, dataSpec, /* temporaryBuffer= */ null, /* progressListener= */ null)
+    // skips already cached ranges on its own and returns without a result
+    // value, so the total is read back from the cache afterwards
+    writer.cache()
+    return cache.getCachedBytes(url, 0L, C.LENGTH_UNSET.toLong())
   }
 
   private fun isMeteredNetwork(): Boolean {

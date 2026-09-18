@@ -1,6 +1,8 @@
 package voice.core.webdav
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
 import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
@@ -8,8 +10,6 @@ import org.junit.After
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
-import kotlin.test.assertEquals
-import kotlin.test.assertTrue
 
 @RunWith(AndroidJUnit4::class)
 class WebDavClientTest {
@@ -44,7 +44,7 @@ class WebDavClientTest {
     server.enqueue(
       MockResponse.Builder()
         .code(207)
-        .setBody(propfindBody())
+        .body(propfindBody())
         .build(),
     )
     val serverConfig = newServer()
@@ -66,7 +66,7 @@ class WebDavClientTest {
     server.enqueue(
       MockResponse.Builder()
         .code(207)
-        .setBody(propfindBody())
+        .body(propfindBody())
         .build(),
     )
     val serverConfig = newServer()
@@ -97,13 +97,13 @@ class WebDavClientTest {
     server.enqueue(
       MockResponse.Builder()
         .code(207)
-        .setBody(propfindBody())
+        .body(propfindBody())
         .build(),
     )
     server.enqueue(
       MockResponse.Builder()
         .code(206)
-        .setBody("x")
+        .body("x")
         .build(),
     )
 
