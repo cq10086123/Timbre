@@ -172,7 +172,7 @@
 | OGG / OGA / OPUS / FLAC / WAV | ✅ | ✅ 只读头部 | |
 | MKA / MKV(Matroska) | ✅ ExoPlayer 原生支持流式 | ⚠️ 一期不解析远程章节(见已知限制) | 播放正常,章节标记暂缺 |
 
-NAS 端要求:WebDAV 服务支持 `Range` 部分 GET(群晖 WebDAV Server、威联通、Alist/OpenList、Nextcloud、dufs 等主流实现都支持)。首次添加书时做一次探测,不支持则在 UI 明确提示该服务器不适合在线听。
+NAS 端要求:WebDAV 服务支持 `Range` 部分 GET(标准 WebDAV 语义,飞牛 fnOS、群晖、威联通、Alist/OpenList、Nextcloud、dufs 等主流实现都支持,**不绑定任何 NAS 品牌,只要说标准 WebDAV 就能接**)。首次添加书时做一次探测,不支持则在 UI 明确提示该服务器不适合在线听。
 
 ### 4.6 封面
 
@@ -230,7 +230,7 @@ NAS 端要求:WebDAV 服务支持 `Range` 部分 GET(群晖 WebDAV Server、威�
 | 远程 MKA/MKV 章节不解析(现有解析器基于文件描述符,不支持 http) | 章节标记缺失,播放正常 | 一期接受;二期给 jebml 解析器实现一个基于 Range 的 HTTP Seekable 数据源即可补齐 |
 | VBR MP3 无索引时 HTTP 下时长估算不准 | 进度条/总时长略偏 | 播放中自动校正;文档建议 M4B/带索引 MP3 |
 | Basic 认证 + 纯 http 在公网明文暴露密码 | 安全 | UI 提示;建议 HTTPS;密码 Keystore 加密存储;日志脱敏 |
-| Digest 认证的服务器(少数) | 无法登录 | 一期支持 Basic(主流 NAS 均支持);如你的 NAS 需要 Digest,列为高优先级补充 |
+| 非 Basic 认证的服务器(Digest 等,少数) | 无法登录 | 一期支持 Basic(标准 WebDAV 服务端的事实标准);遇到再按 401 响应头补 Digest |
 | NAS 被扫描并发打满 | 卡顿 | 沿用"分析并发=1"+ 目录缓存;播放单流 |
 | 局域网 IP 变动 | 书失联 | 4.9 迁移 + 建议用域名 |
 
@@ -244,7 +244,7 @@ NAS 端要求:WebDAV 服务支持 `Range` 部分 GET(群晖 WebDAV Server、威�
 - **扫描回归**:现有 `ChapterParser`/`MediaScanner` 测试模式不变,用 WebDAV fake 验证展开、增量跳过、删除注册。
 - **迁移测试**:4.9 前缀重写的 Room 迁移单测(沿用 `Migration*Test` 模式)。
 - **UI 测试**:`features/webdav` ViewModel 用 Molecule + Turbine(仓库既有模式)。
-- **真机矩阵**:群晖 / Alist(或你实际用的 NAS)+ 飞行模式断网、切 Wi-Fi/流量、灭屏长播、后台被杀恢复。
+- **真机矩阵**:飞牛 fnOS(或手头任意 WebDAV 服务端)为主 + MockWebServer 回归;飞行模式断网、切 Wi-Fi/流量、灭屏长播、后台被杀恢复。
 
 ---
 
@@ -258,12 +258,12 @@ NAS 端要求:WebDAV 服务支持 `Range` 部分 GET(群晖 WebDAV Server、威�
 5. 错误文案、Range 探测、断网表现打磨
 
 **二期**
-6. `SimpleCache` 播放缓存(可调上限)
+6. `SimpleCache` 播放缓存(可调上限,默认 1GB LRU)
 7. 远程 MKA/MKV 章节解析(HTTP Seekable 数据源)
-8. 服务器地址变更 DB 迁移;仅 Wi-Fi 自动刷新策略细化
+8. 服务器地址变更 DB 迁移(换 IP/域名的保险);仅 Wi-Fi 自动刷新策略细化
 
-**三期(可选)**
-9. 「整本下载到本地」按需离线(明确 opt-in,和"省空间"目标不冲突,给没网的长途场景用)
+**远期可选(暂不排期)**
+9. 「整本下载到本地」按需离线——已确认以"在线 + 播放缓存"为准,此项仅在将来有明确需求时再评估
 
 **涉及文件清单(概览)**:`settings.gradle.kts`(+2 模块)、`gradle/libs.versions.toml`(+mockwebserver 测试依赖)、`core/webdav/*`(新)、`features/webdav/*`(新)、`core/playback/di/PlaybackModule.kt`、`core/scanner` 的 `MediaAnalyzer/Mp4BoxInput/CoverExtractor`(注入点)、`core/data/impl/.../AudiobookFoldersImpl.kt`、`core/documentfile`(工厂分发)、`features/settings`(入口)、`features/folderPicker`(添加入口)、`navigation`、`core/strings`、`PRIVACY.md`/`README.md`。
 
@@ -279,9 +279,12 @@ NAS 端要求:WebDAV 服务支持 `Range` 部分 GET(群晖 WebDAV Server、威�
 | 引入 sardine-android | 要加 JitPack 仓库与传递依赖;需求面窄,手写 200 行零依赖更符合仓库现状 |
 | 先整本下载再播 | 最稳但与"省空间"目标相反;降级为三期可选的离线功能 |
 
-## 10. 待确认问题
+## 10. 决议(已确认)
 
-1. 你的 NAS / WebDAV 服务端是什么?(群晖、威联通、Alist/OpenList、Nextcloud、其他)——决定要不要尽早支持 Digest 认证与自签名证书细节。
-2. 主要藏书格式是否以 M4B/MP3 为主?是否有大量 MKV?
-3. 是否需要「整本离线下载」(三期),还是"在线 + 播放缓存"就够了?
-4. NAS 地址是固定域名(DDNS)还是会变动的局域网 IP?
+| 问题 | 结论 |
+|---|---|
+| 服务端绑定 | **不绑定任何 NAS 品牌**,按标准 WebDAV 协议实现(Basic 认证 + Range);用户自行填地址/账号/密码 |
+| 离线能力 | **在线 + 播放缓存(LRU 可调上限)即可**,不做整本下载(保留为远期可选) |
+| 地址形态 | 用户自行配置(域名或 IP 皆可);地址变更的 DB 迁移作为保险保留在二期 |
+| 认证 | Basic 预置认证;密码 Keystore 加密存储;支持自签名证书开关 |
+
