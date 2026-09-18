@@ -202,7 +202,10 @@ class WebDavRemoteBookSourcesTest {
         """
         <d:response>
           <d:href>$href</d:href>
-          <d:propstat><d:prop><d:getcontentlength>42</d:getcontentlength><d:getlastmodified>Wed, 01 Jan 2025 10:00:00 GMT</d:getlastmodified></d:prop></d:propstat>
+          <d:propstat><d:prop>
+            <d:getcontentlength>42</d:getcontentlength>
+            <d:getlastmodified>Wed, 01 Jan 2025 10:00:00 GMT</d:getlastmodified>
+          </d:prop></d:propstat>
         </d:response>
         """.trimIndent()
       }
