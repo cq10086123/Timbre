@@ -2,6 +2,7 @@ package voice.core.webdav
 
 import android.app.Application
 import android.net.Uri
+import androidx.core.net.toUri
 import androidx.media3.common.C
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
@@ -114,7 +115,7 @@ internal class WebDavDataSource(
       .newCall(request)
       .execute()
     response = opened
-    remoteUri = Uri.parse(opened.request.url.toString())
+    remoteUri = opened.request.url.toString().toUri()
     if (!opened.isSuccessful) {
       opened.close()
       response = null
