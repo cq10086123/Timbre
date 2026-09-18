@@ -190,31 +190,34 @@ class WebDavRemoteBookSourcesTest {
   }
 
   private fun multiStatusBody(vararg hrefs: String): String {
-    val responses = hrefs.joinToString(separator = "\n") { href ->
-      if (href.endsWith("/")) {
-        """
-        <d:response>
-          <d:href>$href</d:href>
-          <d:propstat><d:prop><d:resourcetype><d:collection/></d:resourcetype></d:prop></d:propstat>
-        </d:response>
-        """.trimIndent()
-      } else {
-        """
-        <d:response>
-          <d:href>$href</d:href>
-          <d:propstat><d:prop>
-            <d:getcontentlength>42</d:getcontentlength>
-            <d:getlastmodified>Wed, 01 Jan 2025 10:00:00 GMT</d:getlastmodified>
-          </d:prop></d:propstat>
-        </d:response>
-        """.trimIndent()
-      }
+    // the parts are joined explicitly: an interpolated block would make the
+    // common indent of the raw string collapse to zero, leaving whitespace in
+    // front of the xml declaration, which the parser rejects
+    val responses = hrefs.joinToString(separator = "\n", transform = ::responseEntry)
+    return buildString {
+      append("<?xml version=\"1.0\"?>\n")
+      append("<d:multistatus xmlns:d=\"DAV:\">\n")
+      append(responses)
+      append("\n</d:multistatus>")
     }
-    return """
-    <?xml version="1.0"?>
-    <d:multistatus xmlns:d="DAV:">
-    $responses
-    </d:multistatus>
-    """.trimIndent()
+  }
+
+  private fun responseEntry(href: String): String {
+    val propstat = if (href.endsWith("/")) {
+      "  <d:propstat><d:prop><d:resourcetype><d:collection/></d:resourcetype></d:prop></d:propstat>"
+    } else {
+      listOf(
+        "  <d:propstat><d:prop>",
+        "    <d:getcontentlength>42</d:getcontentlength>",
+        "    <d:getlastmodified>Wed, 01 Jan 2025 10:00:00 GMT</d:getlastmodified>",
+        "  </d:prop></d:propstat>",
+      ).joinToString(separator = "\n")
+    }
+    return listOf(
+      "<d:response>",
+      "  <d:href>$href</d:href>",
+      propstat,
+      "</d:response>",
+    ).joinToString(separator = "\n")
   }
 }
