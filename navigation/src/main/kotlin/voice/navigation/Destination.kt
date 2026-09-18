@@ -91,4 +91,19 @@ sealed interface Destination {
   data class AddContent(val origin: Origin) : Compose {
     override val trackingName: String = "AddContent"
   }
+
+  @Serializable
+  data object WebDavServers : Compose {
+    override val trackingName: String get() = "WebDavServers"
+  }
+
+  @Serializable
+  data class WebDavBrowse(val serverId: String) : Compose {
+    override val trackingName: String = "WebDavBrowse"
+  }
+
+  @Serializable
+  data object WebDavCache : Compose {
+    override val trackingName: String get() = "WebDavCache"
+  }
 }

@@ -1,18 +1,18 @@
 package voice.core.scanner.mp4
 
-import android.content.Context
 import android.net.Uri
 import dev.zacsweers.metro.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import voice.core.logging.api.Logger
+import voice.core.webdav.WebDavDataSourceFactory
 
 @Inject
 internal class Mp4ChapterExtractor(
-  private val context: Context,
   private val boxParser: Mp4BoxParser,
   private val chapterTrackProcessor: ChapterTrackProcessor,
+  private val dataSourceFactory: WebDavDataSourceFactory,
 ) {
 
   /**
@@ -24,7 +24,7 @@ internal class Mp4ChapterExtractor(
    * caller can fall back to preparing it with exoplayer.
    */
   suspend fun extract(uri: Uri): Mp4FileMetadata? = withContext(Dispatchers.IO) {
-    Mp4BoxInput.create(context, uri).use { input ->
+    Mp4BoxInput.create(uri, dataSourceFactory.createDataSource()).use { input ->
       try {
         input.open()
         val output = boxParser(input)

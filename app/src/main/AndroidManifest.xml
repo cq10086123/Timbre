@@ -12,6 +12,7 @@
     android:name="com.google.android.gms.permission.AD_ID"
     tools:node="remove" />
 
+  <!-- cleartext is needed for http webdav servers inside the local network -->
   <application
     android:enableOnBackInvokedCallback="true"
     android:name=".di.App"
@@ -21,6 +22,7 @@
     android:localeConfig="@xml/locales_config"
     android:supportsRtl="true"
     android:theme="@style/AppTheme"
+    android:usesCleartextTraffic="true"
     tools:ignore="GoogleAppIndexingWarning,UnusedAttribute">
 
     <meta-data
