@@ -24,7 +24,7 @@ import java.io.File
  */
 @SingleIn(AppScope::class)
 @Inject
-internal class WebDavPlaybackCache(
+public class WebDavPlaybackCache internal constructor(
   private val context: Application,
   @WebDavCacheSettingsStore private val settingsStore: DataStore<WebDavCacheSettings>,
   private val classifier: WebDavSpanClassifier,
@@ -49,7 +49,7 @@ internal class WebDavPlaybackCache(
       .onEach { settings ->
         val previous = maxBytes
         maxBytes = settings.maxBytes
-        if (settings.maxBytes in 1 until previous) {
+        if (settings.maxBytes > 0 && settings.maxBytes < previous) {
           // the limit was lowered: shrink immediately instead of waiting for
           // the next write
           simpleCache?.let { evictor.evictIfNeeded(it) }
@@ -63,13 +63,13 @@ internal class WebDavPlaybackCache(
    * cached, local playback passes straight through. Returns [upstream]
    * unchanged when caching is disabled.
    */
-  fun dataSourceFactory(upstream: DataSource.Factory): DataSource.Factory {
+  public fun dataSourceFactory(upstream: DataSource.Factory): DataSource.Factory {
     return DataSource.Factory {
       WebDavCachingDataSource(upstream) { cacheOrNull() }
     }
   }
 
-  fun cacheOrNull(): SimpleCache? {
+  public fun cacheOrNull(): SimpleCache? {
     synchronized(lock) {
       simpleCache?.let { return it }
       if (maxBytes <= 0L) return null
@@ -89,11 +89,11 @@ internal class WebDavPlaybackCache(
   }
 
   /** Total size of the cached data in bytes. */
-  fun cachedBytes(): Long {
+  public fun cachedBytes(): Long {
     return simpleCache?.cacheSpace ?: 0L
   }
 
-  suspend fun clear() {
+  public suspend fun clear() {
     val cache = simpleCache ?: return
     for (key in cache.keys) {
       cache.removeResource(key)
@@ -101,7 +101,7 @@ internal class WebDavPlaybackCache(
   }
 
   /** Removes all cached resources whose url starts with [prefix]. */
-  fun removeByPrefix(prefix: String) {
+  public fun removeByPrefix(prefix: String) {
     val cache = simpleCache ?: return
     val normalized = prefix.trimEnd('/')
     for (key in cache.keys) {
@@ -111,8 +111,30 @@ internal class WebDavPlaybackCache(
     }
   }
 
-  fun settings(): DataStore<WebDavCacheSettings> {
+  public fun settings(): DataStore<WebDavCacheSettings> {
     return settingsStore
+  }
+
+  /** The book at [url] is the one currently playing. */
+  public fun markActiveBook(url: String?) {
+    classifier.markActiveBook(url)
+  }
+
+  /** [url] was prefetched for the book at [bookUrl] without being played yet. */
+  public fun markSpeculative(
+    url: String,
+    bookUrl: String,
+  ) {
+    classifier.markSpeculative(url, bookUrl)
+  }
+
+  /** [url] was read by actual playback, so it is no longer speculative. */
+  public fun markConsumed(url: String) {
+    classifier.markConsumed(url)
+  }
+
+  public fun forgetBook(bookUrl: String) {
+    classifier.forgetBook(bookUrl)
   }
 
   private companion object {

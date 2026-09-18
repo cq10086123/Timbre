@@ -1,12 +1,12 @@
 package voice.core.webdav
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
-import org.junit.runner.RunWith
 import java.io.StringReader
 import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertTrue
+import kotlinx.coroutines.test.runTest
+import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class MultiStatusParserTest {

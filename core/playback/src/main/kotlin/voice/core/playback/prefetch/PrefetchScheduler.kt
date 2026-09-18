@@ -35,7 +35,6 @@ import voice.core.playback.playstate.PlayStateManager
 import voice.core.webdav.WebDavCacheSettings
 import voice.core.webdav.WebDavDataSourceFactory
 import voice.core.webdav.WebDavPlaybackCache
-import voice.core.webdav.WebDavSpanClassifier
 
 /**
  * Prefetches the chapters after the current one of the current book into the
@@ -49,7 +48,6 @@ internal class PrefetchScheduler(
   private val webDavDataSourceFactory: WebDavDataSourceFactory,
   private val bookRepository: BookRepository,
   private val playStateManager: PlayStateManager,
-  private val classifier: WebDavSpanClassifier,
   private val playbackIoGate: PlaybackIoGate,
   private val context: Application,
   @CurrentBookStore private val currentBookStore: DataStore<BookId?>,
@@ -65,12 +63,12 @@ internal class PrefetchScheduler(
     scope.launch {
       currentBookStore.data.collectLatest { bookId ->
         if (bookId == null) {
-          classifier.markActiveBook(null)
+          playbackCache.markActiveBook(null)
           return@collectLatest
         }
         // mark the active book even when it is a local one, so prefetched data
         // of webdav books left halfway is recognized as inactive
-        classifier.markActiveBook(bookId.toUri().toString())
+        playbackCache.markActiveBook(bookId.toUri().toString())
         val book = bookRepository.get(bookId) ?: return@collectLatest
         if (book.chapters.isEmpty()) return@collectLatest
         if (!isWebDavUrl(book.id.toUri().toString())) return@collectLatest
@@ -93,7 +91,7 @@ internal class PrefetchScheduler(
       val currentUrl = book.chapters.firstOrNull { it.id == content.currentChapter }
         ?.id?.toUri()?.toString()
       if (currentUrl != null && currentUrl != lastChapterUrl) {
-        classifier.markConsumed(currentUrl)
+        playbackCache.markConsumed(currentUrl)
         lastChapterUrl = currentUrl
       }
 
@@ -147,7 +145,7 @@ internal class PrefetchScheduler(
         continue
       }
 
-      classifier.markSpeculative(url, book.id.toUri().toString())
+      playbackCache.markSpeculative(url, book.id.toUri().toString())
       // the import pauses while the player buffers and so does the prefetch:
       // the nas bandwidth belongs to the playback first
       playbackIoGate.whilePlaybackLoads { }
@@ -182,9 +180,9 @@ internal class PrefetchScheduler(
       .build()
     val dataSpec = DataSpec.Builder()
       .setUri(Uri.parse(url))
-      .setLength(C.LENGTH_UNSET)
+      .setLength(C.LENGTH_UNSET.toLong())
       .build()
-    return CacheWriter(cacheDataSource, dataSpec, null, null).cache()
+    return CacheWriter(cacheDataSource, dataSpec, null).cache()
   }
 
   private fun isMeteredNetwork(): Boolean {

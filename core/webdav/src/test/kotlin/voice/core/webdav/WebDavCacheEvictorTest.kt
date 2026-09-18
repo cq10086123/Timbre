@@ -1,8 +1,8 @@
 package voice.core.webdav
 
 import androidx.media3.datasource.cache.CacheSpan
-import org.junit.Assert.assertEquals
-import org.junit.Test
+import kotlin.test.Test
+import kotlin.test.assertEquals
 
 class WebDavCacheEvictorTest {
 
