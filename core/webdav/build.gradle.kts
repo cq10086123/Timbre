@@ -18,12 +18,5 @@ dependencies {
   implementation(libs.datastore)
   implementation(libs.media3.datasource)
 
-  testImplementation(libs.junit)
   testImplementation(libs.mockwebserver)
-  testImplementation(libs.coroutines.test)
-  testImplementation(libs.kotlin.testJunit)
-  testImplementation(libs.androidX.test.runner)
-  testImplementation(libs.androidX.test.core)
-  testImplementation(libs.androidX.test.junit)
-  testImplementation(libs.robolectric)
 }
