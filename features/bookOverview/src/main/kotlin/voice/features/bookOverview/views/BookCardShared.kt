@@ -57,13 +57,14 @@ internal fun BookCard(
       if (bookId.toUri().scheme.equals("http", ignoreCase = true) ||
         bookId.toUri().scheme.equals("https", ignoreCase = true)
       ) {
+        val remoteLabel = stringResource(StringsR.string.webdav_title)
         Surface(
           modifier = Modifier
             .align(Alignment.TopEnd)
             .padding(8.dp)
             .size(28.dp)
             .semantics {
-              contentDescription = stringResource(StringsR.string.webdav_title)
+              contentDescription = remoteLabel
             },
           shape = CircleShape,
           color = MaterialTheme.colorScheme.primaryContainer,
