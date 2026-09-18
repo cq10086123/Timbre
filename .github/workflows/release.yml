@@ -7,8 +7,9 @@ on:
         description: '版本名 versionName，如 1.0.0'
         required: true
       versionCode:
-        description: '版本号 versionCode（整数，每次发布必须递增），如 1'
-        required: true
+        description: '版本号 versionCode（整数，可留空：留空则自动取上次发布 +1）'
+        required: false
+        default: ''
 
 concurrency:
   group: release
@@ -24,6 +25,28 @@ jobs:
       - uses: actions/checkout@v7
 
       - uses: ./.github/actions/build_setup
+
+      - name: 解析 versionCode（留空则自动取上次发布 +1）
+        id: ver
+        env:
+          INPUT_CODE: ${{ inputs.versionCode }}
+        run: |
+          LAST=$(sed -n 's/.*"versionCode": *\([0-9][0-9]*\).*/\1/p' update.json 2>/dev/null | tail -n 1)
+          LAST=${LAST:-0}
+          if [ -n "$INPUT_CODE" ]; then
+            CODE="$INPUT_CODE"
+          else
+            CODE=$((LAST + 1))
+            echo "未填 versionCode，依据 update.json（上次=$LAST）自动使用 $CODE"
+          fi
+          if [ "$CODE" -lt "$LAST" ]; then
+            echo "::error::versionCode=$CODE 低于已发布的 $LAST（见 update.json），会造成降级，请填写更大的值"
+            exit 1
+          fi
+          if [ "$CODE" -eq "$LAST" ]; then
+            echo "::warning::versionCode=$CODE 与上次发布相同，建议递增"
+          fi
+          echo "versionCode=$CODE" >> "$GITHUB_OUTPUT"
 
       - name: 写入签名配置
         env:
@@ -44,7 +67,7 @@ jobs:
         run: |
           ./gradlew assembleFreeRelease \
             -Pvoice.versionName="${{ inputs.versionName }}" \
-            -Pvoice.versionCode="${{ inputs.versionCode }}"
+            -Pvoice.versionCode="${{ steps.ver.outputs.versionCode }}"
           test -f app/build/outputs/apk/free/release/app-free-release.apk
 
       - name: 上传 APK 到构建产物
@@ -70,7 +93,7 @@ jobs:
           cat > update.json <<EOF
           {
             "versionName": "${{ inputs.versionName }}",
-            "versionCode": ${{ inputs.versionCode }},
+            "versionCode": ${{ steps.ver.outputs.versionCode }},
             "releaseUrl": "https://github.com/cq10086123/Timbre/releases/latest"
           }
           EOF
