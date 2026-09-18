@@ -182,7 +182,8 @@ public class PrefetchScheduler(
       .setUri(Uri.parse(url))
       .setLength(C.LENGTH_UNSET.toLong())
       .build()
-    val writer = CacheWriter(cacheDataSource, dataSpec, /* temporaryBuffer= */ null, /* progressListener= */ null)
+    // temporaryBuffer and progressListener are unused
+    val writer = CacheWriter(cacheDataSource, dataSpec, null, null)
     // skips already cached ranges on its own and returns without a result
     // value, so the total is read back from the cache afterwards
     writer.cache()
