@@ -73,10 +73,8 @@ class BookIdTest {
     val fromRegistration = BookId(Uri.parse("https://nas.example.com/dav/Book"))
     assertEquals(expected = fromRegistration, actual = fromListing)
     assertEquals(expected = "https://nas.example.com/dav/Book", actual = fromListing.value)
-    assertNotEquals(
-      expected = fromListing,
-      actual = BookId(Uri.parse("https://nas.example.com/dav/Other")),
-    )
+    // the first parameter of assertNotEquals is called "illegal", so it is passed positionally
+    assertNotEquals(fromListing, BookId(Uri.parse("https://nas.example.com/dav/Other")))
   }
 
   @Test
