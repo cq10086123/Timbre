@@ -274,4 +274,49 @@
     <string name="update.dialog.confirm">Update now</string>
     <!-- Shown in the version row of the settings when a newer version was published. -->
     <string name="settings.about.app_version.update_available">Update to %1$s available</string>
+
+    <!-- WebDAV -->
+    <string name="webdav_title">WebDAV</string>
+    <string name="webdav_settings_summary">Stream audiobooks from your NAS without using phone storage</string>
+    <string name="webdav_server_add">Add server</string>
+    <string name="webdav_server_edit">Edit server</string>
+    <string name="webdav_server_name">Name</string>
+    <string name="webdav_server_url">Server address (https://…)</string>
+    <string name="webdav_server_username">Username</string>
+    <string name="webdav_server_password">Password</string>
+    <string name="webdav_server_password_keep">Password (leave empty to keep)</string>
+    <string name="webdav_server_trust_all">Trust all certificates</string>
+    <string name="webdav_server_trust_all_summary">For self-signed certificates. Only enable on trusted networks.</string>
+    <string name="webdav_server_delete">Delete server</string>
+    <string name="webdav_delete_server_message">Removes the server and its book registrations. Files on your NAS are not touched.</string>
+    <string name="webdav_delete">Delete</string>
+    <string name="webdav_test_connection">Test connection</string>
+    <string name="webdav_test_ok">Connection successful, streaming supported</string>
+    <string name="webdav_test_range_missing">Connected, but the server does not support range requests. Streaming will not work reliably.</string>
+    <string name="webdav_test_auth_failed">Authentication failed. Check username and password.</string>
+    <string name="webdav_test_cert_failed">Certificate error. Enable "Trust all certificates" for self-signed certificates.</string>
+    <string name="webdav_test_network_failed">Could not reach the server. Check the network and the address.</string>
+    <string name="webdav_test_invalid_address">Invalid address. It must start with http:// or https://</string>
+    <string name="webdav_save">Save</string>
+    <string name="webdav_empty">No servers yet. Add your NAS to stream audiobooks without using phone storage.</string>
+    <string name="webdav_error">Something went wrong</string>
+    <string name="webdav_browse">Browse and add books</string>
+    <string name="webdav_browse_up">Up</string>
+    <string name="webdav_add_as_book">Add folder as book</string>
+    <string name="webdav_add_as_library_root">Add subfolders as books</string>
+    <string name="webdav_http_hint">Tip: without HTTPS the password travels unencrypted.</string>
+    <string name="folder_add_type_webdav">WebDAV</string>
+    <string name="webdav_cache_title">Playback cache</string>
+    <string name="webdav_cache_settings_summary">Cache limit and prefetching</string>
+    <string name="webdav_cache_usage">Cached: %1$s of %2$s</string>
+    <string name="webdav_cache_clear">Clear cache</string>
+    <string name="webdav_cache_clear_confirm">Deletes all cached audio. Streamed data will be downloaded again when needed.</string>
+    <string name="webdav_cache_max">Cache limit</string>
+    <string name="webdav_cache_max_off">Off</string>
+    <string name="webdav_cache_prefetch">Prefetch upcoming chapters</string>
+    <string name="webdav_cache_prefetch_fill">Whole book</string>
+    <string name="webdav_cache_prefetch_20">20 chapters</string>
+    <string name="webdav_cache_prefetch_5">5 chapters</string>
+    <string name="webdav_cache_prefetch_off">Off</string>
+    <string name="webdav_cache_metered">Prefetch on metered networks</string>
 </resources>

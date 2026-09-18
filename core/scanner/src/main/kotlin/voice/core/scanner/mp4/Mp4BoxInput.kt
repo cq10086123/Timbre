@@ -1,11 +1,9 @@
 package voice.core.scanner.mp4
 
-import android.content.Context
 import android.net.Uri
 import androidx.media3.common.C
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
-import androidx.media3.datasource.DefaultDataSource
 import voice.core.logging.api.Logger
 import java.io.Closeable
 import java.io.IOException
@@ -105,10 +103,10 @@ internal class Mp4BoxInput(
     private const val SEEK_THRESHOLD = 256 * 1024L
 
     fun create(
-      context: Context,
       uri: Uri,
+      dataSource: DataSource,
     ): Mp4BoxInput {
-      return Mp4BoxInput(uri, DefaultDataSource.Factory(context).createDataSource())
+      return Mp4BoxInput(uri, dataSource)
     }
   }
 }

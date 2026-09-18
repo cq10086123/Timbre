@@ -17,6 +17,7 @@ import kotlinx.coroutines.launch
 import voice.core.data.BookId
 import voice.core.data.folders.AudiobookFolders
 import voice.core.data.folders.FolderType
+import voice.core.data.folders.RemoteBookSources
 import voice.core.data.repo.BookRepository
 import voice.core.documentfile.CachedDocumentFile
 import voice.core.logging.api.Logger
@@ -28,6 +29,7 @@ import kotlin.time.measureTime
 public class MediaScanTrigger
 internal constructor(
   private val audiobookFolders: AudiobookFolders,
+  private val remoteBookSources: RemoteBookSources,
   private val scanner: MediaScanner,
   private val coverScanner: CoverScanner,
   private val bookRepo: BookRepository,
@@ -96,11 +98,22 @@ internal constructor(
         }
         measureTime {
           audiobookFolders.migrateLegacyFolders()
-          val folders: Map<FolderType, List<CachedDocumentFile>> = audiobookFolders.all()
+          val localFolders: Map<FolderType, List<CachedDocumentFile>> = audiobookFolders.all()
             .first()
             .mapValues { (_, documentFilesWithUri) ->
               documentFilesWithUri.map { it.documentFile }
             }
+          // remote books (e.g. webdav) join the scan so they stay active and
+          // are (re)scanned alongside the local ones
+          val remoteBooks = remoteBookSources.books().first().map { it.documentFile }
+          val folders: Map<FolderType, List<CachedDocumentFile>> = if (remoteBooks.isEmpty()) {
+            localFolders
+          } else {
+            localFolders + (
+              FolderType.SingleFolder to
+                (localFolders[FolderType.SingleFolder].orEmpty() + remoteBooks)
+              )
+          }
           scanner.scan(folders)
         }.also {
           Logger.i("scan took $it")

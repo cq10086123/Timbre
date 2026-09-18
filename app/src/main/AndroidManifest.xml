@@ -21,6 +21,8 @@
     android:localeConfig="@xml/locales_config"
     android:supportsRtl="true"
     android:theme="@style/AppTheme"
+    <!-- cleartext is needed for http webdav servers inside the local network -->
+    android:usesCleartextTraffic="true"
     tools:ignore="GoogleAppIndexingWarning,UnusedAttribute">
 
     <meta-data

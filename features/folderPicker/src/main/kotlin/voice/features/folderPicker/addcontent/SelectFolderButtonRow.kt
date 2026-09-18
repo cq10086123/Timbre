@@ -19,7 +19,10 @@ import voice.core.ui.icons.VoiceIcons
 import voice.features.folderPicker.folderPicker.FileTypeSelection
 
 @Composable
-internal fun SelectFolderButtonRow(onAdd: (FileTypeSelection, Uri) -> Unit) {
+internal fun SelectFolderButtonRow(
+  onAdd: (FileTypeSelection, Uri) -> Unit,
+  onWebDav: (() -> Unit)?,
+) {
   Row(
     Modifier.fillMaxWidth(),
     horizontalArrangement = Arrangement.Center,
@@ -61,5 +64,13 @@ internal fun SelectFolderButtonRow(onAdd: (FileTypeSelection, Uri) -> Unit) {
         }
       },
     )
+    if (onWebDav != null) {
+      Spacer(modifier = Modifier.size(8.dp))
+      SelectFolderButton(
+        icon = VoiceIcons.Language,
+        text = stringResource(id = R.string.folder_add_type_webdav),
+        onClick = onWebDav,
+      )
+    }
   }
 }

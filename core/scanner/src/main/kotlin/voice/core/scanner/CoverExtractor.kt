@@ -4,7 +4,9 @@ import android.content.Context
 import android.net.Uri
 import androidx.media3.common.FileTypes
 import androidx.media3.common.MediaItem
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.TrackGroupArray
+import androidx.media3.extractor.DefaultExtractorsFactory
 import androidx.media3.extractor.metadata.flac.PictureFrame
 import androidx.media3.extractor.metadata.id3.ApicFrame
 import androidx.media3.inspector.MetadataRetriever
@@ -15,13 +17,17 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.guava.await
 import voice.core.logging.api.Logger
 import voice.core.scanner.matroska.MatroskaCoverExtractor
+import voice.core.webdav.WebDavDataSourceFactory
 import java.io.File
 
 @Inject
 internal class CoverExtractor(
   private val context: Context,
   private val matroskaCoverExtractor: MatroskaCoverExtractor,
+  dataSourceFactory: WebDavDataSourceFactory,
 ) {
+
+  private val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory, DefaultExtractorsFactory())
 
   suspend fun extractCover(
     input: Uri,
@@ -72,6 +78,7 @@ internal class CoverExtractor(
   private suspend fun retrieveMetadata(uri: Uri): TrackGroupArray? {
     return try {
       MetadataRetriever.Builder(context, MediaItem.fromUri(uri))
+        .setMediaSourceFactory(mediaSourceFactory)
         .build()
         .retrieveTrackGroups()
         .await()

@@ -24,6 +24,7 @@ import voice.core.scanner.mp4.visitor.MdhdVisitor
 import voice.core.scanner.mp4.visitor.StcoVisitor
 import voice.core.scanner.mp4.visitor.StscVisitor
 import voice.core.scanner.mp4.visitor.SttsVisitor
+import voice.core.webdav.testWebDavDataSourceFactory
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -41,7 +42,6 @@ internal class MediaAnalyzerTest {
   private val analyzer = MediaAnalyzer(
     context = ApplicationProvider.getApplicationContext(),
     mp4ChapterExtractor = Mp4ChapterExtractor(
-      context = ApplicationProvider.getApplicationContext(),
       boxParser = Mp4BoxParser(
         stscVisitor = StscVisitor(),
         mdhdVisitor = MdhdVisitor(),
@@ -54,10 +54,12 @@ internal class MediaAnalyzerTest {
         keysVisitor = KeysVisitor(),
       ),
       chapterTrackProcessor = ChapterTrackProcessor(),
+      dataSourceFactory = testWebDavDataSourceFactory(ApplicationProvider.getApplicationContext()),
     ),
     matroskaExtractorFactory = MatroskaMetaDataExtractor.Factory(
       context = ApplicationProvider.getApplicationContext(),
     ),
+    dataSourceFactory = testWebDavDataSourceFactory(ApplicationProvider.getApplicationContext()),
   )
   private val auphonicChapters = listOf(
     MarkData(startMs = 0L, name = "Intro"),

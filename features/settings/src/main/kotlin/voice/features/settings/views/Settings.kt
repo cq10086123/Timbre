@@ -108,6 +108,22 @@ private fun Settings(
         }
       }
       item {
+        ListItem(
+          modifier = Modifier.clickable { listener.openWebDav() },
+          leadingContent = {
+            Icon(
+              imageVector = VoiceIcons.Language,
+              contentDescription = stringResource(StringsR.string.webdav_title),
+            )
+          },
+          supportingContent = {
+            Text(stringResource(StringsR.string.webdav_settings_summary))
+          },
+        ) {
+          Text(stringResource(StringsR.string.webdav_title))
+        }
+      }
+      item {
         ThemeModeRow(viewState.themeMode, listener::onThemeModeRowClick)
       }
       if (viewState.showThemeColorSchemePref) {

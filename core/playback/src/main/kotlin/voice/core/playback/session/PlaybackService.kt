@@ -11,6 +11,7 @@ import voice.core.logging.api.Logger
 import voice.core.playback.di.PlaybackGraph
 import voice.core.playback.player.VoicePlayer
 import voice.core.playback.playstate.PositionUpdater
+import voice.core.playback.prefetch.PrefetchScheduler
 
 class PlaybackService : MediaLibraryService() {
 
@@ -29,6 +30,9 @@ class PlaybackService : MediaLibraryService() {
   @Inject
   lateinit var voiceNotificationProvider: VoiceMediaNotificationProvider
 
+  @Inject
+  lateinit var prefetchScheduler: PrefetchScheduler
+
   override fun onCreate() {
     super.onCreate()
     rootGraphAs<PlaybackGraph.Provider>()
@@ -36,6 +40,7 @@ class PlaybackService : MediaLibraryService() {
       .create(this)
       .inject(this)
     setMediaNotificationProvider(voiceNotificationProvider)
+    prefetchScheduler.start()
   }
 
   private fun release() {

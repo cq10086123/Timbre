@@ -30,6 +30,7 @@ import voice.core.logging.api.Logger
 import voice.core.scanner.matroska.MatroskaMetaDataExtractor
 import voice.core.scanner.matroska.MatroskaParseException
 import voice.core.scanner.mp4.Mp4ChapterExtractor
+import voice.core.webdav.WebDavDataSourceFactory
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.microseconds
 import kotlin.time.Duration.Companion.milliseconds
@@ -39,6 +40,7 @@ internal class MediaAnalyzer(
   private val context: Context,
   private val mp4ChapterExtractor: Mp4ChapterExtractor,
   private val matroskaExtractorFactory: MatroskaMetaDataExtractor.Factory,
+  dataSourceFactory: WebDavDataSourceFactory,
 ) {
 
   // we use a custom MediaSourceFactory because the default one for the
@@ -46,7 +48,7 @@ internal class MediaAnalyzer(
   // retriever would use on its own: reading the mp4 sample table is expensive
   // and not needed to get the duration, the tags and the chapter marks.
   private val mediaSourceFactory = DefaultMediaSourceFactory(
-    context,
+    dataSourceFactory,
     DefaultExtractorsFactory()
       .setConstantBitrateSeekingEnabled(true)
       .setMp4ExtractorFlags(Mp4Extractor.FLAG_READ_SEF_DATA or Mp4Extractor.FLAG_OMIT_TRACK_SAMPLE_TABLE)

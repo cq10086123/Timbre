@@ -44,6 +44,10 @@ fun AddContent(origin: Origin) {
     onAdd = { folderType, uri ->
       viewModel.add(uri, folderType)
     },
+    onWebDav = when (origin) {
+      Origin.Default -> viewModel::openWebDav
+      Origin.Onboarding -> null
+    },
   )
 }
 

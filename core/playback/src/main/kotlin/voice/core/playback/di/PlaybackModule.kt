@@ -5,7 +5,6 @@ import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionParameters
-import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.MediaSource
@@ -33,6 +32,8 @@ import voice.core.playback.playstate.PositionUpdater
 import voice.core.playback.session.BookPlaylistSynchronizer
 import voice.core.playback.session.LibrarySessionCallback
 import voice.core.playback.session.PlaybackService
+import voice.core.webdav.WebDavDataSourceFactory
+import voice.core.webdav.WebDavPlaybackCache
 import voice.core.strings.R as StringsR
 
 @ContributesTo(PlaybackScope::class)
@@ -40,11 +41,13 @@ interface PlaybackModule {
 
   @Provides
   @SingleIn(PlaybackScope::class)
-  fun mediaSourceFactory(context: Context): MediaSource.Factory {
-    val dataSourceFactory = DefaultDataSource.Factory(context)
+  fun mediaSourceFactory(
+    webDavPlaybackCache: WebDavPlaybackCache,
+    webDavDataSourceFactory: WebDavDataSourceFactory,
+  ): MediaSource.Factory {
     val extractorsFactory = DefaultExtractorsFactory()
       .setConstantBitrateSeekingEnabled(true)
-    return DefaultMediaSourceFactory(dataSourceFactory, extractorsFactory)
+    return DefaultMediaSourceFactory(webDavPlaybackCache.dataSourceFactory(webDavDataSourceFactory), extractorsFactory)
   }
 
   @Provides
@@ -70,7 +73,9 @@ interface PlaybackModule {
     return ExoPlayer.Builder(context, onlyAudioRenderersFactory, mediaSourceFactory)
       .setAudioAttributes(audioAttributes, true)
       .setHandleAudioBecomingNoisy(true)
-      .setWakeMode(C.WAKE_MODE_LOCAL)
+      // streaming from webdav needs the network to stay alive while the
+      // player holds a buffer, local playback is unaffected by the network wake lock
+      .setWakeMode(C.WAKE_MODE_NETWORK)
       .build()
       .also { player ->
         if (media3AudioOffloadFeatureFlag.get()) {

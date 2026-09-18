@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import voice.core.analytics.api.Analytics
 import voice.core.data.BookId
+import voice.core.data.folders.RemoteBookSources
 import voice.core.documentfile.CachedDocumentFile
 import voice.core.documentfile.CachedDocumentFileFactory
 import voice.core.logging.api.Logger
@@ -34,6 +35,7 @@ internal constructor(
   private val cachedDocumentFileFactory: CachedDocumentFileFactory,
   private val analytics: Analytics,
   private val persistedUriPermissions: PersistedUriPermissions,
+  private val remoteBookSources: RemoteBookSources,
 ) : AudiobookFolders {
 
   public override fun all(): Flow<Map<FolderType, List<DocumentFileWithUri>>> {
@@ -135,6 +137,9 @@ internal constructor(
   }
 
   override suspend fun removeBookRegistration(bookId: BookId) {
+    // remote registrations (e.g. webdav) are resolved by their own source store
+    if (remoteBookSources.removeBookRegistration(bookId)) return
+
     val bookDocumentId = runCatching {
       DocumentsContract.getDocumentId(bookId.toUri())
     }.getOrNull() ?: return
@@ -232,6 +237,6 @@ internal constructor(
   public override suspend fun hasAnyFolders(): Boolean {
     return FolderType.entries.any {
       dataStore(it).data.first().isNotEmpty()
-    }
+    } || remoteBookSources.hasAnyBooks()
   }
 }

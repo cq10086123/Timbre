@@ -192,6 +192,10 @@ class SettingsViewModel(
     navigator.goTo(Destination.FolderPicker)
   }
 
+  override fun openWebDav() {
+    navigator.goTo(Destination.WebDavServers)
+  }
+
   override fun setAutoSleepTimer(checked: Boolean) {
     mainScope.launch {
       sleepTimerPreferenceStore.updateData { currentPrefs ->

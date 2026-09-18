@@ -30,6 +30,7 @@ internal fun SelectFolder(
   onAdd: (FileTypeSelection, Uri) -> Unit,
   origin: Origin,
   modifier: Modifier = Modifier,
+  onWebDav: (() -> Unit)? = null,
 ) {
   Scaffold(
     modifier = modifier,
@@ -70,7 +71,7 @@ internal fun SelectFolder(
             style = MaterialTheme.typography.bodyLarge,
           )
           Spacer(modifier = Modifier.size(24.dp))
-          SelectFolderButtonRow(onAdd)
+          SelectFolderButtonRow(onAdd, onWebDav)
         }
       }
     },
