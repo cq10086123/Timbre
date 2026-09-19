@@ -107,8 +107,8 @@
     <string name="library.import.error.unreachable">Could not read this book. Check the connection and try again.</string>
     <!-- Shown on the card of a book while its chapters are being analyzed. The quantity is the total chapter count. -->
     <plurals name="library.import.progress">
-        <item quantity="one">Importing… %1$d / %2$d chapter</item>
-        <item quantity="other">Importing… %1$d / %2$d chapters</item>
+        <item quantity="one">Importing %1$d/%2$d chapter</item>
+        <item quantity="other">Importing %1$d/%2$d chapters</item>
     </plurals>
     <!-- Shown on the card of a book that was discovered by the scan but whose chapter count isn't known yet. -->
     <string name="library.import.preparing">Importing… reading files</string>
