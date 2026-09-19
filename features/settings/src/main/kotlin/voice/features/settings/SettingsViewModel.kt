@@ -34,7 +34,6 @@ import voice.core.ui.GridCount
 import voice.core.update.UpdateNotifier
 import voice.navigation.Destination
 import voice.navigation.Navigator
-import voice.navigation.Origin
 import java.time.LocalTime
 
 @Inject
@@ -199,7 +198,7 @@ class SettingsViewModel(
   }
 
   override fun openWebDav() {
-    navigator.goTo(Destination.WebDavServers(Origin.Default))
+    navigator.goTo(Destination.WebDavServers)
   }
 
   override fun setAutoRefreshWifi(checked: Boolean) {
