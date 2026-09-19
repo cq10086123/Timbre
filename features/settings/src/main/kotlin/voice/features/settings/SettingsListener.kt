@@ -25,6 +25,7 @@ interface SettingsListener {
   fun openFolderPicker()
   fun openWebDav()
   fun setAutoRefreshWifi(checked: Boolean)
+  fun setBtSkipToChapter(checked: Boolean)
   fun onAppVersionClick()
 
   fun openDeveloperMenu()
@@ -41,6 +42,7 @@ interface SettingsListener {
       override fun onSeekAmountRowClick() {}
       override fun autoRewindAmountChang(seconds: Int) {}
       override fun onAutoRewindRowClick() {}
+      override fun setBtSkipToChapter(checked: Boolean) {}
       override fun dismissDialog() {}
       override fun openProjectRepository() {}
       override fun openSupportVoice() {}

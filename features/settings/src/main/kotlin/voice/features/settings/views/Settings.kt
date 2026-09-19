@@ -198,6 +198,29 @@ private fun Settings(
       }
 
       item {
+        ListItem(
+          modifier = Modifier.clickable { listener.setBtSkipToChapter(!viewState.btSkipToChapter) },
+          leadingContent = {
+            Icon(
+              imageVector = VoiceIcons.FastRewind,
+              contentDescription = stringResource(StringsR.string.settings_playback_bt_skip_chapter_title),
+            )
+          },
+          supportingContent = {
+            Text(stringResource(StringsR.string.settings_playback_bt_skip_chapter_summary))
+          },
+          trailingContent = {
+            Switch(
+              checked = viewState.btSkipToChapter,
+              onCheckedChange = listener::setBtSkipToChapter,
+            )
+          },
+        ) {
+          Text(stringResource(StringsR.string.settings_playback_bt_skip_chapter_title))
+        }
+      }
+
+      item {
         AutoSleepTimerCard(viewState.autoSleepTimer, listener)
       }
 

@@ -91,6 +91,16 @@ public interface StoreModule {
 
   @Provides
   @SingleIn(AppScope::class)
+  @BtSkipToChapterStore
+  private fun btSkipToChapter(factory: VoiceDataStoreFactory): DataStore<Boolean> {
+    return factory.boolean(
+      fileName = "btSkipToChapter",
+      defaultValue = true,
+    )
+  }
+
+  @Provides
+  @SingleIn(AppScope::class)
   @SeekTimeStore
   private fun seekTime(
     factory: VoiceDataStoreFactory,

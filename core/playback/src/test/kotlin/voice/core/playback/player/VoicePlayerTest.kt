@@ -105,6 +105,9 @@ class VoicePlayerTest {
       every { data } returns flowOf(bookId)
     },
     seekTimeStore = seekTimeStore,
+    btSkipToChapterStore = mockk {
+      every { data } returns flowOf(false)
+    },
     autoRewindAmountStore = autoRewindAmountStore,
     scope = scope,
     mediaItemProvider = mediaItemProvider,
