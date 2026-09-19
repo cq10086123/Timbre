@@ -34,7 +34,6 @@ import java.time.Instant
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
-import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.minutes
 import kotlin.uuid.Uuid
@@ -70,7 +69,10 @@ class RemoteCoverFinderTest {
 
     val result = finder.findAndSaveCover(remoteBook())
 
-    assertEquals(expected = true, actual = result)
+    assertEquals(
+      expected = RemoteCoverLookup.Applied(marker("$bookUrl/cover.jpg")),
+      actual = result,
+    )
     val coverSlot = slot<File>()
     coVerify(exactly = 1) { coverSaver.setBookCover(capture(coverSlot), any()) }
     assertTrue(coverSlot.captured.exists())
@@ -84,10 +86,35 @@ class RemoteCoverFinderTest {
 
     val result = finder.findAndSaveCover(remoteBook())
 
-    assertEquals(expected = true, actual = result)
+    assertEquals(
+      expected = RemoteCoverLookup.Applied(marker("$bookUrl/cover.jpg")),
+      actual = result,
+    )
     val coverSlot = slot<File>()
     coVerify(exactly = 1) { coverSaver.setBookCover(capture(coverSlot), any()) }
     assertContentEquals(expected = imageBytes, actual = coverSlot.captured.readBytes())
+  }
+
+  @Test
+  fun prefersTheConventionalCoverName() = runTest {
+    givenFolderWithImages("poster.jpg", "artwork.jpg", "back.jpg")
+
+    val result = finder.findAndSaveCover(remoteBook())
+
+    assertEquals(
+      expected = RemoteCoverLookup.Applied(marker("$bookUrl/artwork.jpg")),
+      actual = result,
+    )
+  }
+
+  @Test
+  fun picksTheSamePictureOnEveryLookup() = runTest {
+    givenFolderWithImages("b.jpg", "a.jpg")
+
+    val first = finder.findAndSaveCover(remoteBook())
+    val second = finder.findAndSaveCover(remoteBook())
+
+    assertEquals(expected = first, actual = second)
   }
 
   @Test
@@ -100,7 +127,7 @@ class RemoteCoverFinderTest {
 
     val result = finder.findAndSaveCover(remoteBook())
 
-    assertEquals(expected = false, actual = result)
+    assertEquals(expected = RemoteCoverLookup.NoPictureInFolder, actual = result)
     coVerify(exactly = 0) { coverSaver.setBookCover(any(), any()) }
   }
 
@@ -111,7 +138,7 @@ class RemoteCoverFinderTest {
 
     val result = finder.findAndSaveCover(remoteBook(id))
 
-    assertEquals(expected = false, actual = result)
+    assertEquals(expected = RemoteCoverLookup.NoPictureInFolder, actual = result)
   }
 
   @Test
@@ -124,7 +151,39 @@ class RemoteCoverFinderTest {
 
     val result = finder.findAndSaveCover(remoteBook())
 
-    assertNull(result)
+    assertEquals(expected = RemoteCoverLookup.Inconclusive, actual = result)
+  }
+
+  @Test
+  fun anUnreachableResourceIsInconclusive() = runTest {
+    // the real WebDavDocumentFile reports an unreadable folder as
+    // isDirectory=false with the error set, which must not count as the
+    // definitive "not a folder" of a single audio file book
+    files[bookUrl] = FakeCachedDocumentFile(
+      uri = bookUrl.toUri(),
+      isDirectory = false,
+      error = IOException("server down"),
+    )
+
+    val result = finder.findAndSaveCover(remoteBook())
+
+    assertEquals(expected = RemoteCoverLookup.Inconclusive, actual = result)
+  }
+
+  @Test
+  fun aFailedListingIsInconclusive() = runTest {
+    // WebDavDocumentFile.children reports a failed listing as an empty
+    // folder with the error set; that must not end up as "no picture"
+    files[bookUrl] = FakeCachedDocumentFile(
+      uri = bookUrl.toUri(),
+      isDirectory = true,
+      children = emptyList(),
+      error = IOException("listing failed"),
+    )
+
+    val result = finder.findAndSaveCover(remoteBook())
+
+    assertEquals(expected = RemoteCoverLookup.Inconclusive, actual = result)
   }
 
   @Test
@@ -134,7 +193,7 @@ class RemoteCoverFinderTest {
 
     val result = finder.findAndSaveCover(remoteBook())
 
-    assertNull(result)
+    assertEquals(expected = RemoteCoverLookup.Inconclusive, actual = result)
   }
 
   @Test
@@ -151,7 +210,41 @@ class RemoteCoverFinderTest {
 
     val result = finder.findAndSaveCover(remoteBook())
 
-    assertNull(result)
+    assertEquals(expected = RemoteCoverLookup.Inconclusive, actual = result)
+  }
+
+  @Test
+  fun theUnchangedPictureIsNotDownloadedAgain() = runTest {
+    files[bookUrl] = FakeCachedDocumentFile(
+      uri = bookUrl.toUri(),
+      isDirectory = true,
+      children = listOf(fakeFile("$bookUrl/cover.jpg", imageBytes)),
+    )
+    val applied = marker("$bookUrl/cover.jpg")
+
+    val result = finder.findAndSaveCover(remoteBook(), alreadyApplied = applied)
+
+    assertEquals(expected = RemoteCoverLookup.Applied(applied), actual = result)
+    coVerify(exactly = 0) { coverSaver.setBookCover(any(), any()) }
+  }
+
+  @Test
+  fun aReplacedPictureIsAppliedAgain() = runTest {
+    givenFolderWithImages("cover.jpg")
+    val staleMarker = "https://nas.local/books/one/cover.jpg|${imageBytes.size + 1}|0"
+
+    val result = finder.findAndSaveCover(remoteBook(), alreadyApplied = staleMarker)
+
+    assertEquals(
+      expected = RemoteCoverLookup.Applied(marker("$bookUrl/cover.jpg")),
+      actual = result,
+    )
+    coVerify(exactly = 1) { coverSaver.setBookCover(any(), any()) }
+  }
+
+  private fun marker(fileUrl: String): String {
+    val bytes = downloads.getValue(fileUrl)
+    return "$fileUrl|${bytes?.size ?: 0}|0"
   }
 
   private fun givenFolderWithImages(vararg imageNames: String) {

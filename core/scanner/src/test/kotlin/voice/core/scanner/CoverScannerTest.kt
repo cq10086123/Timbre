@@ -7,6 +7,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import io.mockk.Runs
 import io.mockk.coEvery
 import io.mockk.coVerify
+import io.mockk.coVerifySequence
 import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
@@ -33,9 +34,10 @@ class CoverScannerTest {
   private val tmp = Files.createTempDirectory("coverScanner").toFile()
 
   private val coverSaver = mockk<CoverSaver> {
-    coEvery { save(any(), any()) } just Runs
+    coEvery { save(any(), any(), any()) } just Runs
     coEvery { newBookCoverFile() } returns File(tmp, "cover-${Uuid.random()}.png")
     coEvery { setBookCover(any(), any()) } just Runs
+    every { hasUserChosenCover(any()) } returns false
   }
   private val coverExtractor = mockk<CoverExtractor> {
     coEvery { extractCover(any(), any()) } returns false
@@ -57,9 +59,9 @@ class CoverScannerTest {
   )
 
   @Test
-  fun remoteFolderLookupRunsOncePerBook() {
+  fun anAppliedFolderPictureSparesTheEmbeddedArtwork() {
     val remoteCoverFinder = mockk<RemoteCoverFinder> {
-      coEvery { findAndSaveCover(any()) } returns true
+      coEvery { findAndSaveCover(any(), any()) } returns RemoteCoverLookup.Applied("marker")
     }
     val scanner = coverScanner(remoteCoverFinder)
     val book = remoteBook()
@@ -69,29 +71,31 @@ class CoverScannerTest {
       scanner.scan(listOf(book))
     }
 
-    coVerify(exactly = 1) { remoteCoverFinder.findAndSaveCoverIgnoringResult(book) }
+    // the folder lookup runs on every scan so a picture added to the folder
+    // later still wins, and the embedded artwork is never extracted
+    coVerify(exactly = 2) { remoteCoverFinder.findAndSaveCoverIgnoringResult(book, any()) }
+    coVerify(exactly = 0) { coverExtractor.extractCoverIgnoringResult(any<Uri>(), any<File>()) }
   }
 
   @Test
-  fun remoteFolderWithoutPicturesIsOnlyListedOnce() {
+  fun aFolderWithoutPicturesFallsBackToTheEmbeddedArtwork() {
     val remoteCoverFinder = mockk<RemoteCoverFinder> {
-      coEvery { findAndSaveCover(any()) } returns false
+      coEvery { findAndSaveCover(any(), any()) } returns RemoteCoverLookup.NoPictureInFolder
     }
     val scanner = coverScanner(remoteCoverFinder)
     val book = remoteBook()
 
     runBlocking {
       scanner.scan(listOf(book))
-      scanner.scan(listOf(book))
     }
 
-    coVerify(exactly = 1) { remoteCoverFinder.findAndSaveCoverIgnoringResult(book) }
+    coVerify(exactly = 1) { coverExtractor.extractCoverIgnoringResult(any<Uri>(), any<File>()) }
   }
 
   @Test
-  fun unreachableRemoteFolderIsRetriedOnTheNextScan() {
+  fun anInconclusiveLookupIsRetriedOnTheNextScan() {
     val remoteCoverFinder = mockk<RemoteCoverFinder> {
-      coEvery { findAndSaveCover(any()) } returns null
+      coEvery { findAndSaveCover(any(), any()) } returns RemoteCoverLookup.Inconclusive
     }
     val scanner = coverScanner(remoteCoverFinder)
     val book = remoteBook()
@@ -101,7 +105,37 @@ class CoverScannerTest {
       scanner.scan(listOf(book))
     }
 
-    coVerify(exactly = 2) { remoteCoverFinder.findAndSaveCoverIgnoringResult(book) }
+    coVerify(exactly = 2) { remoteCoverFinder.findAndSaveCoverIgnoringResult(book, any()) }
+  }
+
+  @Test
+  fun theAppliedPictureMarkerIsReusedAndClearedWithTheFolderAnswer() {
+    val cover = File(tmp, "stored-cover.png").apply { writeBytes(byteArrayOf(1, 2, 3, 4)) }
+    val book = remoteBook(cover = cover)
+    val appliedMarker = "https://nas.local/books/one/cover.jpg|100|200"
+    val remoteCoverFinder = mockk<RemoteCoverFinder> {
+      coEvery { findAndSaveCover(any(), any()) } returnsMany listOf(
+        RemoteCoverLookup.Applied(appliedMarker),
+        RemoteCoverLookup.Inconclusive,
+        RemoteCoverLookup.NoPictureInFolder,
+        RemoteCoverLookup.Applied(appliedMarker),
+      )
+    }
+    val scanner = coverScanner(remoteCoverFinder)
+
+    runBlocking {
+      repeat(4) { scanner.scan(listOf(book)) }
+    }
+
+    coVerifySequence {
+      // no marker yet, the lookup starts without a hint
+      remoteCoverFinder.findAndSaveCoverIgnoringResult(book, null)
+      // the applied marker is kept across an inconclusive lookup...
+      remoteCoverFinder.findAndSaveCoverIgnoringResult(book, appliedMarker)
+      // ...and only a definitive "no picture" clears it
+      remoteCoverFinder.findAndSaveCoverIgnoringResult(book, appliedMarker)
+      remoteCoverFinder.findAndSaveCoverIgnoringResult(book, null)
+    }
   }
 
   @Test
@@ -114,15 +148,37 @@ class CoverScannerTest {
       scanner.scan(listOf(book))
     }
 
-    coVerify(exactly = 0) { remoteCoverFinder.findAndSaveCoverIgnoringResult(any()) }
+    coVerify(exactly = 0) { remoteCoverFinder.findAndSaveCoverIgnoringResult(any(), any()) }
     coVerify(exactly = 1) { coverExtractor.extractCoverIgnoringResult(any<Uri>(), any<File>()) }
   }
 
-  private fun remoteBook(): Book = book(id = "https://nas.local/books/one")
+  @Test
+  fun aUserChosenCoverIsNeverReplacedByTheFolderPicture() {
+    every { coverSaver.hasUserChosenCover(any()) } returns true
+    val remoteCoverFinder = mockk<RemoteCoverFinder> {
+      coEvery { findAndSaveCover(any(), any()) } returns RemoteCoverLookup.Applied("marker")
+    }
+    val scanner = coverScanner(remoteCoverFinder)
+    val book = remoteBook()
+
+    runBlocking {
+      scanner.scan(listOf(book))
+      scanner.scan(listOf(book))
+    }
+
+    coVerify(exactly = 0) { remoteCoverFinder.findAndSaveCoverIgnoringResult(any(), any()) }
+    coVerify(exactly = 0) { coverExtractor.extractCoverIgnoringResult(any<Uri>(), any<File>()) }
+    coVerify(exactly = 0) { coverSaver.setBookCover(any(), any()) }
+  }
+
+  private fun remoteBook(cover: File? = null): Book = book(id = "https://nas.local/books/one", cover = cover)
 
   private fun localBook(): Book = book(id = "content://books/local")
 
-  private fun book(id: String): Book {
+  private fun book(
+    id: String,
+    cover: File? = null,
+  ): Book {
     val chapters = listOf(
       Chapter(
         id = ChapterId("$id/1.mp3"),
@@ -141,7 +197,7 @@ class CoverScannerTest {
         playbackSpeed = 1F,
         addedAt = Instant.EPOCH,
         chapters = chapters.map { it.id },
-        cover = null,
+        cover = cover,
         currentChapter = chapters.first().id,
         isActive = true,
         lastPlayedAt = Instant.EPOCH,
@@ -160,7 +216,10 @@ class CoverScannerTest {
   // the checker treats the finder's result as must-use; mockk verification
   // lambdas are Unit-typed, so verification goes through this wrapper
   @IgnorableReturnValue
-  private suspend fun RemoteCoverFinder.findAndSaveCoverIgnoringResult(book: Book): Boolean? = findAndSaveCover(book)
+  private suspend fun RemoteCoverFinder.findAndSaveCoverIgnoringResult(
+    book: Book,
+    alreadyApplied: String?,
+  ): RemoteCoverLookup = findAndSaveCover(book, alreadyApplied)
 
   @IgnorableReturnValue
   private suspend fun CoverExtractor.extractCoverIgnoringResult(
