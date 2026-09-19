@@ -4,12 +4,8 @@ on:
   push:
     branches: [ main ]
     paths:
-      - 'docs/**'
-      - mkdocs.yml
-      - CONTRIBUTING.md
-      - PRIVACY.md
-      - LICENSE.md
-      - Pipfile
+      - 'docs-site/**'
+      - '.github/workflows/deploy_pages.yml'
   workflow_dispatch:
     inputs:
       deploy:
@@ -31,17 +27,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
-        with:
-          python-version: '3.x'
-      - run: pip install pipenv
-      - run: pipenv install
-      # the site serves the root privacy policy, kept in sync at build time
-      - run: cp PRIVACY.md docs/privacy.md
-      - run: pipenv run mkdocs build --strict
+      # the site is a single self-contained static page: no build step needed
       - uses: actions/upload-pages-artifact@v5
         with:
-          path: site/
+          path: docs-site/
 
   deploy:
     if: github.event_name == 'push' || inputs.deploy != 'false'
