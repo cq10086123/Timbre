@@ -11,6 +11,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import io.mockk.Runs
 import io.mockk.coEvery
 import io.mockk.coVerify
+import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
 import io.mockk.slot
@@ -55,7 +56,11 @@ class RemoteCoverFinderTest {
 
   private val finder = RemoteCoverFinder(
     fileFactory = FakeFactory(files),
-    dataSourceFactory = FakeDataSourceFactory(downloads),
+    // WebDavDataSourceFactory is a final class with an internal constructor,
+    // so the test mocks it and stubs the unmarked data source instead.
+    dataSourceFactory = mockk {
+      every { createUnmarkedDataSource() } returns FakeDataSource(downloads)
+    },
     coverSaver = coverSaver,
   )
 
@@ -69,7 +74,7 @@ class RemoteCoverFinderTest {
     val coverSlot = slot<File>()
     coVerify(exactly = 1) { coverSaver.setBookCover(capture(coverSlot), any()) }
     assertTrue(coverSlot.captured.exists())
-    assertContentEquals(expected = IMAGE_BYTES, actual = coverSlot.captured.readBytes())
+    assertContentEquals(expected = imageBytes, actual = coverSlot.captured.readBytes())
   }
 
   @Test
@@ -82,7 +87,7 @@ class RemoteCoverFinderTest {
     assertEquals(expected = true, actual = result)
     val coverSlot = slot<File>()
     coVerify(exactly = 1) { coverSaver.setBookCover(capture(coverSlot), any()) }
-    assertContentEquals(expected = IMAGE_BYTES, actual = coverSlot.captured.readBytes())
+    assertContentEquals(expected = imageBytes, actual = coverSlot.captured.readBytes())
   }
 
   @Test
@@ -90,7 +95,7 @@ class RemoteCoverFinderTest {
     files[bookUrl] = FakeCachedDocumentFile(
       uri = bookUrl.toUri(),
       isDirectory = true,
-      children = listOf(fakeFile("$bookUrl/1.mp3", IMAGE_BYTES)),
+      children = listOf(fakeFile("$bookUrl/1.mp3", imageBytes)),
     )
 
     val result = finder.findAndSaveCover(remoteBook())
@@ -139,6 +144,10 @@ class RemoteCoverFinderTest {
       isDirectory = true,
       children = listOf(fakeFile("$bookUrl/cover.jpg", "<html>not an image</html>".toByteArray())),
     )
+    // robolectric's bitmap shadow decodes any existing file, so the error
+    // page is simulated with an empty response body instead: download()
+    // then fails on the size check and the answer stays inconclusive
+    downloads["$bookUrl/cover.jpg"] = ByteArray(0)
 
     val result = finder.findAndSaveCover(remoteBook())
 
@@ -150,7 +159,7 @@ class RemoteCoverFinderTest {
       uri = bookUrl.toUri(),
       isDirectory = true,
       children = imageNames.map { name ->
-        fakeFile("$bookUrl/$name", IMAGE_BYTES)
+        fakeFile("$bookUrl/$name", imageBytes)
       },
     )
   }
@@ -158,15 +167,20 @@ class RemoteCoverFinderTest {
   private fun fakeFile(
     url: String,
     bytes: ByteArray,
-  ): CachedDocumentFile = FakeCachedDocumentFile(
-    uri = url.toUri(),
-    isDirectory = false,
-    name = url.substringAfterLast('/'),
-    childrenBytes = bytes,
-  )
+  ): CachedDocumentFile {
+    // the finder downloads through the data source, so the fake
+    // data source has to serve the same bytes as the document file
+    downloads[url] = bytes
+    return FakeCachedDocumentFile(
+      uri = url.toUri(),
+      isDirectory = false,
+      name = url.substringAfterLast('/'),
+      childrenBytes = bytes,
+    )
+  }
 
   // a real png so the decode check of the finder accepts it
-  private val IMAGE_BYTES: ByteArray by lazy {
+  private val imageBytes: ByteArray by lazy {
     val bitmap = Bitmap.createBitmap(2, 2, Bitmap.Config.ARGB_8888)
     val output = ByteArrayOutputStream()
     bitmap.compress(Bitmap.CompressFormat.PNG, 100, output)
@@ -208,28 +222,18 @@ class RemoteCoverFinderTest {
     )
   }
 
-  private class FakeFactory(
-    private val files: Map<String, FakeCachedDocumentFile>,
-  ) : CachedDocumentFileFactory {
+  private class FakeFactory(private val files: Map<String, FakeCachedDocumentFile>) : CachedDocumentFileFactory {
 
     override fun create(uri: Uri): CachedDocumentFile {
       return files.getValue(uri.toString())
     }
   }
 
-  private class FakeDataSourceFactory(
-    private val downloads: Map<String, ByteArray?>,
-  ) : DataSource.Factory {
-
-    override fun createDataSource(): DataSource = FakeDataSource(downloads)
-  }
-
-  private class FakeDataSource(
-    private val downloads: Map<String, ByteArray?>,
-  ) : DataSource {
+  private class FakeDataSource(private val downloads: Map<String, ByteArray?>) : DataSource {
 
     private var data: ByteArray? = null
     private var position = 0
+    private var openedUri: Uri? = null
 
     override fun addTransferListener(transferListener: TransferListener) {}
 
@@ -237,8 +241,11 @@ class RemoteCoverFinderTest {
       val bytes = downloads[dataSpec.uri.toString()] ?: throw IOException("Could not open ${dataSpec.uri}")
       data = bytes
       position = 0
+      openedUri = dataSpec.uri
       return bytes.size.toLong()
     }
+
+    override fun getUri(): Uri? = openedUri
 
     override fun read(
       target: ByteArray,

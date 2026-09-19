@@ -28,10 +28,13 @@ class ChapterRangesTest {
     assertEquals(1, ranges.first().firstNumber)
     assertEquals(1653, ranges.last().lastNumber)
     assertEquals(1651, ranges.last().firstNumber)
-    ranges.zipWithNext { previous, next ->
-      assertEquals(previous.lastNumber + 1, next.firstNumber)
-      assertEquals(previous.startIndex + previous.lastNumber - previous.firstNumber + 1, next.startIndex)
-    }
+    val contiguous =
+      ranges.zipWithNext { previous, next ->
+        assertEquals(previous.lastNumber + 1, next.firstNumber)
+        assertEquals(previous.startIndex + previous.lastNumber - previous.firstNumber + 1, next.startIndex)
+        true
+      }
+    assertTrue(contiguous.all { it })
   }
 
   @Test

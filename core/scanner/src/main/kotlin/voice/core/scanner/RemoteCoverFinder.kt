@@ -42,7 +42,7 @@ internal class RemoteCoverFinder(
     if (!folder.isDirectory) return@withContext false
 
     val candidates = folder.children
-      .filter { it.isFile && it.name.isSupportedImageFileName() }
+      .filter { it.isFile && it.name?.isSupportedImageFileName() == true }
       .shuffled()
     if (candidates.isEmpty()) return@withContext false
 
@@ -74,8 +74,9 @@ internal class RemoteCoverFinder(
     outputFile: File,
   ): Boolean {
     // the unmarked variant keeps the cover download out of the playback cache
-    // statistics
-    dataSourceFactory.createUnmarkedDataSource().use { dataSource ->
+    // statistics; DataSource is not Closeable, so close it manually
+    val dataSource = dataSourceFactory.createUnmarkedDataSource()
+    try {
       dataSource.open(DataSpec(uri))
       outputFile.outputStream().use { output ->
         val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
@@ -85,6 +86,8 @@ internal class RemoteCoverFinder(
           output.write(buffer, 0, read)
         }
       }
+    } finally {
+      dataSource.close()
     }
     return outputFile.length() > 0
   }

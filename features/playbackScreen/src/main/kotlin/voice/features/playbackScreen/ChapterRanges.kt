@@ -20,7 +20,10 @@ private const val LARGE_BOOK_RANGE_SIZE = 100
  * Splits the flat chapter list into blocks of consecutive numbers, e.g. "601 - 650".
  * Tapping such a block scrolls the list to the first item of the block.
  */
-internal fun chapterRanges(itemCount: Int, activeItemIndex: Int): List<RangeViewState> {
+internal fun chapterRanges(
+  itemCount: Int,
+  activeItemIndex: Int,
+): List<RangeViewState> {
   if (itemCount < MIN_ITEMS_FOR_RANGES) return emptyList()
   val rangeSize = if (itemCount > LARGE_BOOK_ITEM_COUNT) LARGE_BOOK_RANGE_SIZE else DEFAULT_RANGE_SIZE
   return buildList {

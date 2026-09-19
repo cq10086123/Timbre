@@ -2,6 +2,7 @@ package voice.core.scanner
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.net.Uri
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import io.mockk.Runs
 import io.mockk.coEvery
@@ -68,7 +69,7 @@ class CoverScannerTest {
       scanner.scan(listOf(book))
     }
 
-    coVerify(exactly = 1) { remoteCoverFinder.findAndSaveCover(book) }
+    coVerify(exactly = 1) { remoteCoverFinder.findAndSaveCoverIgnoringResult(book) }
   }
 
   @Test
@@ -84,7 +85,7 @@ class CoverScannerTest {
       scanner.scan(listOf(book))
     }
 
-    coVerify(exactly = 1) { remoteCoverFinder.findAndSaveCover(book) }
+    coVerify(exactly = 1) { remoteCoverFinder.findAndSaveCoverIgnoringResult(book) }
   }
 
   @Test
@@ -100,7 +101,7 @@ class CoverScannerTest {
       scanner.scan(listOf(book))
     }
 
-    coVerify(exactly = 2) { remoteCoverFinder.findAndSaveCover(book) }
+    coVerify(exactly = 2) { remoteCoverFinder.findAndSaveCoverIgnoringResult(book) }
   }
 
   @Test
@@ -113,8 +114,8 @@ class CoverScannerTest {
       scanner.scan(listOf(book))
     }
 
-    coVerify(exactly = 0) { remoteCoverFinder.findAndSaveCover(any()) }
-    coVerify(exactly = 1) { coverExtractor.extractCover(any(), any()) }
+    coVerify(exactly = 0) { remoteCoverFinder.findAndSaveCoverIgnoringResult(any()) }
+    coVerify(exactly = 1) { coverExtractor.extractCoverIgnoringResult(any<Uri>(), any<File>()) }
   }
 
   private fun remoteBook(): Book = book(id = "https://nas.local/books/one")
@@ -155,4 +156,15 @@ class CoverScannerTest {
       chapters = chapters,
     )
   }
+
+  // the checker treats the finder's result as must-use; mockk verification
+  // lambdas are Unit-typed, so verification goes through this wrapper
+  @IgnorableReturnValue
+  private suspend fun RemoteCoverFinder.findAndSaveCoverIgnoringResult(book: Book): Boolean? = findAndSaveCover(book)
+
+  @IgnorableReturnValue
+  private suspend fun CoverExtractor.extractCoverIgnoringResult(
+    input: Uri,
+    outputFile: File,
+  ): Boolean = extractCover(input, outputFile)
 }

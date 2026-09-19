@@ -460,7 +460,10 @@ private fun chapter(): Chapter {
   )
 }
 
-private fun largeBook(chapterCount: Int, currentChapterIndex: Int): Book {
+private fun largeBook(
+  chapterCount: Int,
+  currentChapterIndex: Int,
+): Book {
   val chapters = List(chapterCount) { index ->
     Chapter(
       id = ChapterId("http://chapter-$index"),
