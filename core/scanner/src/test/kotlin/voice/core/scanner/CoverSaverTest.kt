@@ -22,11 +22,17 @@ class CoverSaverTest {
 
   private val tmp = Files.createTempDirectory("coverSaver").toFile()
 
+  // get/updateBook are stubbed outside the mockk builder block: inside it,
+  // the scope's own members shadow the mock's suspend methods
+  private val repo = mockk<BookRepository>()
+
+  init {
+    coEvery { repo.get(any()) } answers { null }
+    coEvery { repo.updateBook(any(), any()) } just Runs
+  }
+
   private val coverSaver = CoverSaver(
-    repo = mockk<BookRepository> {
-      coEvery { get(any()) } returns null
-      coEvery { updateBook(any(), any()) } just Runs
-    },
+    repo = repo,
     context = mockk<Context> {
       every { filesDir } returns tmp
     },

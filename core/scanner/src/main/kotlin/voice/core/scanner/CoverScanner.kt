@@ -73,15 +73,17 @@ internal class CoverScanner(
   }
 
   private suspend fun findCoverForBook(book: Book) {
+    // A cover chosen by the user beats everything and is never replaced -
+    // not by the remote folder picture, nor by embedded artwork, and it
+    // must not trigger a placeholder redraw either.
+    if (coverSaver.hasUserChosenCover(book.id)) return
     // a picture in the remote folder of e.g. a WebDAV book wins over the
     // embedded artwork, like it does for local books. The folder is listed on
     // every scan - the chapter scan walks it anyway - so a picture added to
     // the folder later still replaces the embedded artwork, and an
     // unreachable server is asked again instead of being remembered as
     // "no picture". Only the download of an unchanged picture is skipped.
-    // A cover chosen by the user beats everything and is never replaced.
     if (book.id.toUri().scheme in REMOTE_SCHEMES &&
-      !coverSaver.hasUserChosenCover(book.id) &&
       findAndSaveRemoteFolderCover(book)
     ) {
       return

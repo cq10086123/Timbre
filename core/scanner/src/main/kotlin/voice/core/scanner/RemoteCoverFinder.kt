@@ -89,7 +89,7 @@ internal class RemoteCoverFinder(
       // flicker between scans. Conventional cover names win, the rest counts
       // in alphabetically.
       .sortedWith(
-        compareByDescending<CachedDocumentFile> { it.name.orEmpty().coverNamePriority() }
+        compareBy<CachedDocumentFile> { it.name.orEmpty().coverNamePriority() }
           .thenComparator { left, right ->
             left.name.orEmpty().lowercase().compareTo(right.name.orEmpty().lowercase())
           },
@@ -155,7 +155,7 @@ internal class RemoteCoverFinder(
   }
 
   private fun CachedDocumentFile.marker(): String {
-    return "${uri}|$length|$lastModified"
+    return "$uri|$length|$lastModified"
   }
 
   private fun CachedDocumentFile.matchesMarker(marker: String): Boolean {
