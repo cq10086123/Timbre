@@ -12,10 +12,11 @@
 </div>
 
 <p align="center">
-  <img alt="书库界面" width="24%" src="docs/screenshots/shelf-cn.png" />
-  <img alt="播放界面" width="24%" src="docs/screenshots/player-cn.png" />
-  <img alt="WebDAV 服务器" width="24%" src="docs/screenshots/webdav-servers-cn.png" />
-  <img alt="WebDAV 浏览导入" width="24%" src="docs/screenshots/webdav-browse-cn.png" />
+  <img alt="首次导入" width="19%" src="docs/screenshots/onboarding-cn.png" />
+  <img alt="书库界面" width="19%" src="docs/screenshots/shelf-cn.png" />
+  <img alt="播放界面" width="19%" src="docs/screenshots/player-cn.png" />
+  <img alt="WebDAV 服务器" width="19%" src="docs/screenshots/webdav-servers-cn.png" />
+  <img alt="WebDAV 浏览导入" width="19%" src="docs/screenshots/webdav-browse-cn.png" />
 </p>
 
 ---
