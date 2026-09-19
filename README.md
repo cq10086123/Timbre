@@ -29,10 +29,13 @@ Turn your local audiobook files into a calm, focused listening library.
 No account, no ads, no forced cloud sync — your library stays on your device.
 
 <p align="center">
-  <img alt="书库界面" width="30%" src="fastlane/metadata/android/en-US/images/phoneScreenshots/1_en-US.png" />
-  <img alt="播放界面" width="30%" src="fastlane/metadata/android/en-US/images/phoneScreenshots/2_en-US.png" />
-  <img alt="睡眠定时" width="30%" src="fastlane/metadata/android/en-US/images/phoneScreenshots/3_en-US.png" />
+  <img alt="书库界面" width="24%" src="docs/screenshots/shelf-cn.png" />
+  <img alt="播放界面" width="24%" src="docs/screenshots/player-cn.png" />
+  <img alt="WebDAV 服务器" width="24%" src="docs/screenshots/webdav-servers-cn.png" />
+  <img alt="WebDAV 浏览导入" width="24%" src="docs/screenshots/webdav-browse-cn.png" />
 </p>
+
+<p align="center"><sub>书库 · 播放 · WebDAV 服务器 · WebDAV 浏览导入（全部真机截图）</sub></p>
 
 ## ✨ 功能特性 | Features
 
@@ -47,6 +50,23 @@ No account, no ads, no forced cloud sync — your library stays on your device.
   Episodes are sorted naturally ("Episode 2" precedes "Episode 10"; full-width and Chinese numerals supported)
 - 按「正在听 / 未开始 / 已完成」自动分组，网格 / 列表视图切换，支持搜索
   Auto-grouped into Current / Not Started / Finished, grid or list view, with search
+
+**☁️ WebDAV 远程书库 WebDAV library**
+- **把 NAS 变成书架**：添加 WebDAV 服务器（HTTP/HTTPS，支持 Basic / Digest 认证），
+  浏览目录后一键导入——整个库（子文件夹各成一本）或单个文件夹作为一本书
+  **Turn your NAS into a bookshelf**: add a WebDAV server (HTTP/HTTPS, Basic / Digest auth),
+  browse and import the whole library (one book per subfolder) or a single folder as one book
+- **封面自动就位**：文件夹里的 `cover.jpg / artwork.png` 等约定名图片优先于音频内嵌图；
+  你手动设置的封面拥有最高优先级，永远不会被覆盖
+  **Automatic covers**: conventional files like `cover.jpg / artwork.png` beat embedded artwork;
+  a manually chosen cover always wins and is never replaced
+- **边下边听**：播放边缓存，章节自动预取，缓存上限可调；WLAN 下自动刷新书库
+  **Stream with cache**: playback caches as it goes, chapters are prefetched, cache size is adjustable,
+  and the library refreshes automatically on Wi-Fi
+- **体验与本地一致**：断点续播、自然排序、封面查找全部适用于远程书
+  **First-class remote**: resume, natural ordering and cover lookup work exactly like local books
+- **错误看得见**：密码失效（如卸载重装后）会明确提示重新输入，不再"莫名失败"
+  **Visible errors**: an invalid stored password (e.g. after a reinstall) is called out explicitly
 
 **🎧 为听书而生 Built for listening**
 - **断点续播**：永远记住你的位置 Resume exactly where you left off
@@ -113,6 +133,7 @@ EOF
 | 语言 Language | 完整简体中文 + 英文 | 社区翻译（中文不完整）|
 | 统计/遥测 Analytics | 完全移除 Completely removed | 仅 play 商店版含 Firebase |
 | 捐赠入口 Donation | 无 None | Ko-fi |
+| WebDAV 远程书库 | 内置 Built-in | 无 None |
 | 品牌 Branding | 独立图标与名称 | 上游品牌 |
 
 ## 🤝 反馈与贡献 | Feedback
