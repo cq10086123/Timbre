@@ -315,6 +315,10 @@
     <string name="webdav_save">Save</string>
     <string name="webdav_empty">No servers yet. Add your NAS to stream audiobooks without using phone storage.</string>
     <string name="webdav_error">Something went wrong</string>
+    <!-- The stored password could not be used, e.g. after a reinstall. -->
+    <string name="webdav_error_auth">Authentication failed. If the app was reinstalled, edit the server and re-enter the password.</string>
+    <!-- Badge under a server whose stored password cannot be decrypted. -->
+    <string name="webdav_password_reentry">Re-enter the password</string>
     <string name="webdav_browse">Browse and add books</string>
     <string name="webdav_browse_up">Up</string>
     <string name="webdav_add_as_book">Add folder as book</string>

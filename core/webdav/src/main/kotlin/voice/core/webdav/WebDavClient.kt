@@ -317,5 +317,6 @@ public class WebDavClient {
 
   private companion object {
     const val LISTING_TTL_MS = 30_000L
+    const val LISTING_CACHE_MAX_ENTRIES = 256
   }
 }

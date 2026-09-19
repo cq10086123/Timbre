@@ -130,6 +130,9 @@ public class WebDavLibrary internal constructor(
     return client.probe(probeServer, password, normalized)
   }
 
+  /** Servers whose password needs to be re-entered (see [WebDavCredentialResolver.undecryptableServerIds]). */
+  public fun undecryptableServerIds(): Set<String> = resolver.undecryptableServerIds()
+
   public suspend fun list(
     serverId: String,
     url: String,

@@ -140,6 +140,13 @@ private fun WebDavServersView(
             Column {
               Text(server.name)
               Text(server.baseUrl)
+              if (server.id in viewState.needsPasswordReEntry) {
+                Text(
+                  text = stringResource(StringsR.string.webdav_password_reentry),
+                  style = MaterialTheme.typography.bodySmall,
+                  color = MaterialTheme.colorScheme.error,
+                )
+              }
             }
           }
         }

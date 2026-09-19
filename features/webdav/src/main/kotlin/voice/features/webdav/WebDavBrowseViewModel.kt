@@ -13,18 +13,29 @@ import voice.core.common.DispatcherProvider
 import voice.core.common.MainScope
 import voice.core.scanner.MediaScanTrigger
 import voice.core.webdav.WebDavBookSource
+import voice.core.webdav.WebDavException
 import voice.core.webdav.WebDavLibrary
 import voice.core.webdav.WebDavResource
 import voice.navigation.Destination
 import voice.navigation.Navigator
 import voice.navigation.Origin
 
+/** Why the browse screen shows an error. */
+enum class WebDavBrowseError {
+  /** The credentials did not work - e.g. the stored password cannot be
+   *  decrypted after a reinstall, or the password changed on the server. */
+  Auth,
+
+  /** Anything else (server unreachable, malformed response, ...). */
+  Generic,
+}
+
 data class WebDavBrowseViewState(
   val serverName: String,
   val path: String,
   val entries: List<WebDavEntry>,
   val loading: Boolean,
-  val error: Boolean,
+  val error: WebDavBrowseError?,
 ) {
   data class WebDavEntry(
     val url: String,
@@ -53,7 +64,7 @@ class WebDavBrowseViewModel(
       path = "",
       entries = emptyList(),
       loading = true,
-      error = false,
+      error = null,
     ),
   )
 
@@ -67,7 +78,7 @@ class WebDavBrowseViewModel(
     scope.launch {
       val server = webDavLibrary.server(serverId)
       if (server == null) {
-        state.update { it.copy(error = true, loading = false) }
+        state.update { it.copy(error = WebDavBrowseError.Generic, loading = false) }
         return@launch
       }
       state.update { it.copy(serverName = server.name) }
@@ -77,7 +88,7 @@ class WebDavBrowseViewModel(
 
   fun load(url: String) {
     scope.launch {
-      state.update { it.copy(loading = true, error = false) }
+      state.update { it.copy(loading = true, error = null) }
       try {
         val entries = webDavLibrary.list(serverId, url)
           .sortedWith(compareByDescending<WebDavResource> { it.isDirectory }.thenBy { it.name.lowercase() })
@@ -90,8 +101,10 @@ class WebDavBrowseViewModel(
             loading = false,
           )
         }
+      } catch (e: WebDavException.Auth) {
+        state.update { it.copy(loading = false, error = WebDavBrowseError.Auth) }
       } catch (_: Exception) {
-        state.update { it.copy(loading = false, error = true) }
+        state.update { it.copy(loading = false, error = WebDavBrowseError.Generic) }
       }
     }
   }

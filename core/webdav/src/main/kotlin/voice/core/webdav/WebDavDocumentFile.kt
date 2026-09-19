@@ -1,6 +1,7 @@
 package voice.core.webdav
 
 import android.net.Uri
+import androidx.annotation.WorkerThread
 import androidx.core.net.toUri
 import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.ContributesIntoSet
@@ -11,6 +12,7 @@ import voice.core.documentfile.CachedDocumentFile
 import voice.core.documentfile.DocumentFileSchemeHandler
 import voice.core.logging.api.Logger
 
+@WorkerThread
 internal class WebDavDocumentFile(
   private val client: WebDavClient,
   private val resolver: WebDavCredentialResolver,
