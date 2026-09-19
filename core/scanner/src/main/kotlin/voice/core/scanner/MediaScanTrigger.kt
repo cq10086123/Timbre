@@ -124,12 +124,15 @@ internal constructor(
           Logger.i("warming up the book cache took $it")
         }
         // covers must not wait for the import: the shelf should show the real
-        // folder picture while chapters are still being parsed. The import
-        // stores a book's row as soon as its first chapter batch lands (the
-        // row is what the cover application needs), so a cover pass runs
-        // alongside the import and picks every book up the moment it exists.
-        // One final pass after the import catches the last finishers; an
+        // folder picture while chapters are still being parsed. The order is
+        // deterministic: 1. books already in the library get their covers
+        // BEFORE any audio work starts. 2. the import runs, and while it
+        // parses, a cover pass repeats every few seconds - the import stores
+        // a book's row as soon as its first chapter batch lands, so a newly
+        // imported book is covered within moments of appearing, never last.
+        // 3. one final pass after the import catches the last finishers; an
         // already applied picture is skipped by its marker.
+        coverScanner.scan(bookRepo.all())
         measureTime {
           audiobookFolders.migrateLegacyFolders()
           val localFolders: Map<FolderType, List<CachedDocumentFile>> = audiobookFolders.all()
