@@ -13,8 +13,24 @@ import voice.core.logging.api.Logger
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import java.security.MessageDigest
 import kotlin.math.max
 import kotlin.uuid.Uuid
+
+/**
+ * Marker file for [bookId] inside [parent]. Shared by the stores that
+ * remember per-book cover facts (user-chosen covers, applied remote folder
+ * pictures).
+ */
+internal fun coverMarkerFile(
+  parent: File,
+  bookId: BookId,
+): File {
+  val digest = MessageDigest.getInstance("SHA-1")
+    .digest(bookId.value.toByteArray())
+    .joinToString("") { "%02x".format(it) }
+  return File(parent, digest)
+}
 
 @Inject
 public class CoverSaver
@@ -23,9 +39,17 @@ internal constructor(
   private val context: Context,
 ) {
 
+  // remembers the books whose cover was chosen manually (edit cover, cover
+  // from the internet), so the scan never replaces them with an automatically
+  // found one
+  private val userCoverMarkerDir: File by lazy {
+    File(context.filesDir, "bookCoversUserChosen").also { it.mkdirs() }
+  }
+
   public suspend fun save(
     bookId: BookId,
     cover: Bitmap,
+    fromUser: Boolean = false,
   ) {
     val newCover = newBookCoverFile()
 
@@ -59,6 +83,15 @@ internal constructor(
     }
 
     setBookCover(newCover, bookId)
+    if (fromUser) {
+      runCatching { coverMarkerFile(userCoverMarkerDir, bookId).createNewFile() }
+        .onFailure { Logger.w(it, "Could not write the user cover marker for $bookId") }
+    }
+  }
+
+  /** Whether [bookId]'s current cover was chosen manually (never auto-replaced). */
+  public fun hasUserChosenCover(bookId: BookId): Boolean {
+    return coverMarkerFile(userCoverMarkerDir, bookId).exists()
   }
 
   internal suspend fun newBookCoverFile(): File {

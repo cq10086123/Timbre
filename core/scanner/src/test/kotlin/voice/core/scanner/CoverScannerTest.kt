@@ -34,9 +34,10 @@ class CoverScannerTest {
   private val tmp = Files.createTempDirectory("coverScanner").toFile()
 
   private val coverSaver = mockk<CoverSaver> {
-    coEvery { save(any(), any()) } just Runs
+    coEvery { save(any(), any(), any()) } just Runs
     coEvery { newBookCoverFile() } returns File(tmp, "cover-${Uuid.random()}.png")
     coEvery { setBookCover(any(), any()) } just Runs
+    every { hasUserChosenCover(any()) } returns false
   }
   private val coverExtractor = mockk<CoverExtractor> {
     coEvery { extractCover(any(), any()) } returns false
@@ -149,6 +150,25 @@ class CoverScannerTest {
 
     coVerify(exactly = 0) { remoteCoverFinder.findAndSaveCoverIgnoringResult(any(), any()) }
     coVerify(exactly = 1) { coverExtractor.extractCoverIgnoringResult(any<Uri>(), any<File>()) }
+  }
+
+  @Test
+  fun aUserChosenCoverIsNeverReplacedByTheFolderPicture() {
+    every { coverSaver.hasUserChosenCover(any()) } returns true
+    val remoteCoverFinder = mockk<RemoteCoverFinder> {
+      coEvery { findAndSaveCover(any(), any()) } returns RemoteCoverLookup.Applied("marker")
+    }
+    val scanner = coverScanner(remoteCoverFinder)
+    val book = remoteBook()
+
+    runBlocking {
+      scanner.scan(listOf(book))
+      scanner.scan(listOf(book))
+    }
+
+    coVerify(exactly = 0) { remoteCoverFinder.findAndSaveCoverIgnoringResult(any(), any()) }
+    coVerify(exactly = 0) { coverExtractor.extractCoverIgnoringResult(any<Uri>(), any<File>()) }
+    coVerify(exactly = 0) { coverSaver.setBookCover(any(), any()) }
   }
 
   private fun remoteBook(cover: File? = null): Book = book(id = "https://nas.local/books/one", cover = cover)

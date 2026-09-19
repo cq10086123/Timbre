@@ -79,7 +79,11 @@ internal class CoverScanner(
     // the folder later still replaces the embedded artwork, and an
     // unreachable server is asked again instead of being remembered as
     // "no picture". Only the download of an unchanged picture is skipped.
-    if (book.id.toUri().scheme in REMOTE_SCHEMES && findAndSaveRemoteFolderCover(book)) {
+    // A cover chosen by the user beats everything and is never replaced.
+    if (book.id.toUri().scheme in REMOTE_SCHEMES &&
+      !coverSaver.hasUserChosenCover(book.id) &&
+      findAndSaveRemoteFolderCover(book)
+    ) {
       return
     }
 
@@ -169,10 +173,7 @@ internal class CoverScanner(
   }
 
   private fun remoteAppliedPictureMarkerFile(book: Book): File {
-    val digest = MessageDigest.getInstance("SHA-1")
-      .digest(book.id.value.toByteArray())
-      .joinToString("") { "%02x".format(it) }
-    return File(remoteAppliedPictureMarkerDir, digest)
+    return coverMarkerFile(remoteAppliedPictureMarkerDir, book.id)
   }
 
   private suspend fun generateCover(book: Book) {

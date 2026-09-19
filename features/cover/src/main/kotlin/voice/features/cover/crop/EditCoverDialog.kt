@@ -124,7 +124,7 @@ fun EditCoverDialog(
 
               if (bitmap != null) {
                 rootGraphAs<EditCoverComponent>()
-                  .coverSaver.save(bookId, bitmap)
+                  .coverSaver.save(bookId, bitmap, fromUser = true)
               }
               onDismiss()
             }

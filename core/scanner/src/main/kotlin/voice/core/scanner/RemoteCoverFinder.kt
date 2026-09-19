@@ -96,7 +96,10 @@ internal class RemoteCoverFinder(
       )
     if (pictures.isEmpty()) return@withContext RemoteCoverLookup.NoPictureInFolder
 
-    var failed = false
+    // Every candidate is either applied (returned below) or fails to
+    // download/decode. The folder itself was readable, so a failed download
+    // is a transient problem: the book is worth another look on the next
+    // scan, and the answer must not be remembered.
     for (candidate in pictures) {
       if (alreadyApplied != null && candidate.matchesMarker(alreadyApplied)) {
         // the folder still offers the picture that is already the cover
@@ -115,11 +118,8 @@ internal class RemoteCoverFinder(
         coverSaver.setBookCover(coverFile, book.id)
         return@withContext RemoteCoverLookup.Applied(candidate.marker())
       }
-      failed = true
       coverFile.delete()
     }
-    // the folder itself was readable, so a failed download is a transient
-    // problem: the book is worth another look on the next scan
     RemoteCoverLookup.Inconclusive
   }
 
