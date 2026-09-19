@@ -16,6 +16,7 @@ import voice.core.data.BookContent
 import voice.core.data.BookId
 import voice.core.data.repo.BookRepository
 import voice.core.data.store.AutoRewindAmountStore
+import voice.core.data.store.BtSkipToChapterStore
 import voice.core.data.store.CurrentBookStore
 import voice.core.data.store.SeekTimeStore
 import voice.core.logging.api.Logger
@@ -43,6 +44,8 @@ class VoicePlayer(
   private val currentBookStoreId: DataStore<BookId?>,
   @SeekTimeStore
   private val seekTimeStore: DataStore<Int>,
+  @BtSkipToChapterStore
+  private val btSkipToChapterStore: DataStore<Boolean>,
   @AutoRewindAmountStore
   private val autoRewindAmountStore: DataStore<Int>,
   private val mediaItemProvider: MediaItemProvider,
@@ -51,6 +54,17 @@ class VoicePlayer(
   private val sleepTimer: SleepTimer,
   private val analytics: Analytics,
 ) : ForwardingPlayer(player) {
+
+  // 蓝牙/锁屏的上一集/下一集行为：true=切换章节，false=快退/快进。
+  // 在 init 里收集一次缓存，避免在媒体按键回调里阻塞读 DataStore。
+  @Volatile
+  private var btSkipToChapter: Boolean = true
+
+  init {
+    scope.launch {
+      btSkipToChapterStore.data.collect { btSkipToChapter = it }
+    }
+  }
 
   private val endOfChapterSleepTimerListener = object : Player.Listener {
     override fun onPositionDiscontinuity(
@@ -135,19 +149,35 @@ class VoicePlayer(
   }
 
   override fun seekToPreviousMediaItem() {
-    seekBack()
+    if (btSkipToChapter) {
+      super.seekToPreviousMediaItem()
+    } else {
+      seekBack()
+    }
   }
 
   override fun seekToNextMediaItem() {
-    seekForward()
+    if (btSkipToChapter) {
+      super.seekToNextMediaItem()
+    } else {
+      seekForward()
+    }
   }
 
   override fun seekToPrevious() {
-    seekBack()
+    if (btSkipToChapter) {
+      super.seekToPrevious()
+    } else {
+      seekBack()
+    }
   }
 
   override fun seekToNext() {
-    seekForward()
+    if (btSkipToChapter) {
+      super.seekToNext()
+    } else {
+      seekForward()
+    }
   }
 
   override fun seekBack() {

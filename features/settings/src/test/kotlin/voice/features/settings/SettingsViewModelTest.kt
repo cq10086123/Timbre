@@ -11,6 +11,7 @@ import io.mockk.mockk
 import io.mockk.verify
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.updateAndGet
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
@@ -74,6 +75,9 @@ class SettingsViewModelTest {
     kioskModeFeatureFlag = kioskModeFeatureFlag,
     developerMenuUnlockedStore = developerMenuUnlockedStore,
     autoRefreshWifiStore = autoRefreshWifiStore,
+    btSkipToChapterStore = mockk {
+      every { data } returns flowOf(true)
+    },
     dynamicColorAvailability = dynamicColorAvailability,
     updateNotifier = mockk {
       every { update } returns MutableStateFlow(null)

@@ -87,6 +87,8 @@
     <string name="settings.library.use_grid.title">使用网格布局</string>
     <string name="settings.playback.auto_rewind.title">自动回退</string>
     <string name="settings.playback.seek_time.title">跳过时间</string>
+    <string name="settings.playback.bt_skip_chapter.title">蓝牙上一集/下一集切换章节</string>
+    <string name="settings.playback.bt_skip_chapter.summary">开启后，蓝牙与锁屏的上一集/下一集按钮切换到上/下一章；关闭则为快退/快进</string>
     <string name="shortcut.play_current.short_label">播放当前有声书</string>
     <string name="sleep_timer.action.open">睡眠定时器</string>
 

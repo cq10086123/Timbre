@@ -20,6 +20,7 @@ import voice.core.data.ThemeMode
 import voice.core.data.sleeptimer.SleepTimerPreference
 import voice.core.data.store.AnalyticsConsentStore
 import voice.core.data.store.AutoRewindAmountStore
+import voice.core.data.store.BtSkipToChapterStore
 import voice.core.data.store.DeveloperMenuUnlockedStore
 import voice.core.data.store.GridModeStore
 import voice.core.data.store.SeekTimeStore
@@ -62,6 +63,8 @@ class SettingsViewModel(
   private val developerMenuUnlockedStore: DataStore<Boolean>,
   @WebDavAutoRefreshWifiStore
   private val autoRefreshWifiStore: DataStore<Boolean>,
+  @BtSkipToChapterStore
+  private val btSkipToChapterStore: DataStore<Boolean>,
   private val dynamicColorAvailability: DynamicColorAvailability,
   private val updateNotifier: UpdateNotifier,
   dispatcherProvider: DispatcherProvider,
@@ -89,6 +92,7 @@ class SettingsViewModel(
     }
     val showDeveloperMenu by remember { developerMenuUnlockedStore.data }.collectAsState(initial = false)
     val autoRefreshWifi by remember { autoRefreshWifiStore.data }.collectAsState(initial = true)
+    val btSkipToChapter by remember { btSkipToChapterStore.data }.collectAsState(initial = true)
     val showThemeColorSchemePref = remember {
       dynamicColorAvailability.isSupported()
     }
@@ -115,6 +119,7 @@ class SettingsViewModel(
       showAnalyticSetting = appInfoProvider.analyticsIncluded,
       showDeveloperMenu = showDeveloperMenu,
       autoRefreshWifi = autoRefreshWifi,
+      btSkipToChapter = btSkipToChapter,
       showSupportDevelopment = appInfoProvider.supportDevelopmentIncluded,
       kioskMode = kioskMode,
     )
@@ -205,6 +210,12 @@ class SettingsViewModel(
   override fun setAutoRefreshWifi(checked: Boolean) {
     mainScope.launch {
       autoRefreshWifiStore.updateData { checked }
+    }
+  }
+
+  override fun setBtSkipToChapter(checked: Boolean) {
+    mainScope.launch {
+      btSkipToChapterStore.updateData { checked }
     }
   }
 
