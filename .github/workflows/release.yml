@@ -104,5 +104,13 @@ jobs:
             echo "update.json unchanged"
           else
             git commit -m "Publish update.json for v${{ inputs.versionName }}"
-            git push origin HEAD:main
+            for attempt in 1 2 3; do
+            if git pull --rebase origin main && git push origin HEAD:main; then
+              exit 0
+            fi
+            echo "push attempt $attempt failed, retrying"
+            sleep 5
+          done
+          echo "::error::Could not push update.json to main after 3 attempts"
+          exit 1
           fi
