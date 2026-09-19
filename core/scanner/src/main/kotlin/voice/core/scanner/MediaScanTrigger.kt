@@ -122,6 +122,14 @@ internal constructor(
         }.also {
           Logger.i("warming up the book cache took $it")
         }
+        // the cover lookup is much cheaper than the chapter import, and the
+        // shelf should show the real folder picture while the audio is still
+        // being parsed - so existing books get their covers FIRST. Books the
+        // import adds on the way are covered afterwards (an already applied
+        // picture is skipped by its marker, so that pass stays cheap).
+        val booksBeforeScan = bookRepo.all()
+        val bookIdsBeforeScan = booksBeforeScan.map { it.id }.toSet()
+        coverScanner.scan(booksBeforeScan)
         measureTime {
           audiobookFolders.migrateLegacyFolders()
           val localFolders: Map<FolderType, List<CachedDocumentFile>> = audiobookFolders.all()
@@ -148,6 +156,7 @@ internal constructor(
                 (localFolders[FolderType.SingleFolder].orEmpty() + remoteBooks)
               )
           }
+          // the cover lookup ran above, before the import
           scanner.scan(folders)
         }.also {
           Logger.i("scan took $it")
@@ -156,7 +165,10 @@ internal constructor(
         // progress so the cards show their normal look while it runs
         scanProgressReporter.finish()
         val books = bookRepo.all()
-        coverScanner.scan(books)
+        val importedNow = books.filter { it.id !in bookIdsBeforeScan }
+        if (importedNow.isNotEmpty()) {
+          coverScanner.scan(importedNow)
+        }
       } finally {
         if (scanGeneration.get() == generation) {
           scanProgressReporter.finish()

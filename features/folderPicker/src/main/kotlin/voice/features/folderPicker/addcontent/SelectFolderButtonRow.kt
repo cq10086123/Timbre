@@ -4,11 +4,13 @@ import android.content.ActivityNotFoundException
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -24,7 +26,11 @@ internal fun SelectFolderButtonRow(
   onWebDav: (() -> Unit)?,
 ) {
   Row(
-    Modifier.fillMaxWidth(),
+    Modifier
+      .fillMaxWidth()
+      // the row is wider than narrow screens once WebDAV joins: scroll
+      // instead of letting the last button's label wrap mid-word
+      .horizontalScroll(rememberScrollState()),
     horizontalArrangement = Arrangement.Center,
   ) {
     val openDocumentLauncher = rememberLauncherForActivityResult(
