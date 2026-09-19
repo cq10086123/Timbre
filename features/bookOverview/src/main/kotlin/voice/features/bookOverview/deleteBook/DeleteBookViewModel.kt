@@ -11,6 +11,7 @@ import voice.core.common.DispatcherProvider
 import voice.core.common.MainScope
 import voice.core.data.BookId
 import voice.core.data.folders.AudiobookFolders
+import voice.core.data.repo.BookRepository
 import voice.core.data.toUri
 import voice.core.logging.api.Logger
 import voice.core.scanner.MediaScanTrigger
@@ -24,6 +25,7 @@ class DeleteBookViewModel(
   private val application: Application,
   private val audiobookFolders: AudiobookFolders,
   private val mediaScanTrigger: MediaScanTrigger,
+  private val bookRepository: BookRepository,
   dispatcherProvider: DispatcherProvider,
 ) : BottomSheetItemViewModel {
 
@@ -81,6 +83,7 @@ class DeleteBookViewModel(
         // on the device. The registration has to go in both cases, otherwise
         // the next scan would put the book back on the shelf.
         audiobookFolders.removeBookRegistration(state.id)
+        bookRepository.updateBook(state.id) { it.copy(isActive = false) }
         mediaScanTrigger.scan(restartIfScanning = true)
       }
     }

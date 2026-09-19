@@ -144,14 +144,27 @@ public class WebDavLibrary internal constructor(
     displayName: String,
     mode: WebDavBookSource.Mode,
   ) {
+    val normalizedUrl = normalizeRemoteUrl(url)
     sourcesStore.updateData { sources ->
+      val updatedSources = sources.map { existing ->
+        if (existing.serverId == serverId && existing.mode == WebDavBookSource.Mode.LibraryRoot) {
+          val newExcluded = existing.excludedUrls.filterNot { normalizeRemoteUrl(it) == normalizedUrl }
+          if (existing.url == normalizedUrl && mode == WebDavBookSource.Mode.LibraryRoot) {
+            existing.copy(excludedUrls = emptyList())
+          } else {
+            existing.copy(excludedUrls = newExcluded)
+          }
+        } else {
+          existing
+        }
+      }
       val source = WebDavBookSource(
         serverId = serverId,
-        url = normalizeRemoteUrl(url),
+        url = normalizedUrl,
         displayName = displayName,
         mode = mode,
       )
-      sources.filterNot { it.url == source.url && it.serverId == source.serverId } + source
+      updatedSources.filterNot { it.url == source.url && it.serverId == source.serverId } + source
     }
   }
 

@@ -42,6 +42,12 @@ public data class WebDavBookSource(
    * not deactivate already imported books just because one request failed.
    */
   val lastExpandedUrls: List<String> = emptyList(),
+  /**
+   * Book urls that were explicitly removed from the shelf by the user. An
+   * expansion of a library root skips these urls so a deleted book does not
+   * return on the next scan.
+   */
+  val excludedUrls: List<String> = emptyList(),
 ) {
   public enum class Mode {
     /** The registered url itself is one book. */
