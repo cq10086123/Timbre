@@ -73,8 +73,17 @@ public fun WebDavServer.matches(uri: android.net.Uri): Boolean {
   val base = baseUrl.toUri()
   if (!uri.scheme.equals(base.scheme, ignoreCase = true)) return false
   if (!uri.host.equals(base.host, ignoreCase = true)) return false
-  if (base.port != -1 && uri.port != base.port) return false
+  if (base.effectivePort() != uri.effectivePort()) return false
   val basePath = base.path?.trimEnd('/') ?: ""
   val uriPath = uri.path ?: return false
   return uriPath == basePath || uriPath.startsWith("$basePath/")
+}
+
+private fun Uri.effectivePort(): Int {
+  if (port != -1) return port
+  return when (scheme?.lowercase()) {
+    "http" -> 80
+    "https" -> 443
+    else -> -1
+  }
 }

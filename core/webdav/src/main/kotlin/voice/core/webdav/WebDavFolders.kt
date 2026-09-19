@@ -26,6 +26,7 @@ public class WebDavRemoteBookSources internal constructor(
   @WebDavBookSourcesStore private val sourcesStore: DataStore<List<WebDavBookSource>>,
   private val client: WebDavClient,
   private val resolver: WebDavCredentialResolver,
+  private val playbackCache: WebDavPlaybackCache? = null,
 ) : RemoteBookSources {
 
   public override fun books(): Flow<List<DocumentFileWithUri>> {
@@ -39,12 +40,54 @@ public class WebDavRemoteBookSources internal constructor(
   public override suspend fun removeBookRegistration(bookId: BookId): Boolean {
     val uri = bookId.toUri()
     if (uri.scheme !in setOf("http", "https")) return false
-    val normalized = normalizeRemoteUrl(uri.toString())
-    val matching = sourcesStore.data.first()
-      .filter { normalizeRemoteUrl(it.url) == normalized }
-    if (matching.isEmpty()) return false
-    sourcesStore.updateData { sources -> sources.filterNot { it in matching } }
-    return true
+    val targetUrl = normalizeRemoteUrl(uri.toString())
+
+    playbackCache?.let { cache ->
+      runCatching { cache.removeByPrefix(targetUrl) }
+        .onFailure { Logger.w(it, "Could not clear playback cache for $targetUrl") }
+    }
+
+    val before = sourcesStore.data.first()
+    sourcesStore.updateData { sources ->
+      sources.mapNotNull { source ->
+        val sourceUrl = normalizeRemoteUrl(source.url)
+        val matchesSourceUrl = sourceUrl == targetUrl
+
+        when {
+          matchesSourceUrl -> {
+            // Removing the registered source itself
+            null
+          }
+          source.mode == WebDavBookSource.Mode.LibraryRoot && isCoveredByLibraryRoot(source, targetUrl) -> {
+            val updatedLastExpanded = source.lastExpandedUrls.filterNot { normalizeRemoteUrl(it) == targetUrl }
+            val excludedSet = source.excludedUrls.map { normalizeRemoteUrl(it) }.toSet()
+            val updatedExcluded = if (targetUrl in excludedSet) {
+              source.excludedUrls
+            } else {
+              source.excludedUrls + targetUrl
+            }
+            source.copy(
+              lastExpandedUrls = updatedLastExpanded,
+              excludedUrls = updatedExcluded,
+            )
+          }
+          else -> source
+        }
+      }
+    }
+    // Whether any registration was actually affected: callers (e.g.
+    // AudiobookFoldersImpl) fall back to local folder removal when this
+    // returns false, so an untouched store must report false.
+    return sourcesStore.data.first() != before
+  }
+
+  private fun isCoveredByLibraryRoot(
+    source: WebDavBookSource,
+    targetUrl: String,
+  ): Boolean {
+    val sourceUrl = normalizeRemoteUrl(source.url)
+    if (targetUrl == sourceUrl || targetUrl.startsWith("$sourceUrl/")) return true
+    return source.lastExpandedUrls.any { normalizeRemoteUrl(it) == targetUrl }
   }
 
   public override suspend fun hasAnyBooks(): Boolean {
@@ -52,8 +95,15 @@ public class WebDavRemoteBookSources internal constructor(
   }
 
   private suspend fun expand(source: WebDavBookSource): List<DocumentFileWithUri> = withContext(Dispatchers.IO) {
+    val excludedSet = source.excludedUrls.map { normalizeRemoteUrl(it) }.toSet()
     when (source.mode) {
-      WebDavBookSource.Mode.SingleBook -> listOf(documentFileWithUri(source.url))
+      WebDavBookSource.Mode.SingleBook -> {
+        if (normalizeRemoteUrl(source.url) in excludedSet) {
+          emptyList()
+        } else {
+          listOf(documentFileWithUri(source.url))
+        }
+      }
       WebDavBookSource.Mode.LibraryRoot -> expandLibraryRoot(source)
     }
   }
@@ -62,9 +112,12 @@ public class WebDavRemoteBookSources internal constructor(
     val resolved = resolver.byId(source.serverId)
       // the server was deleted: the registration is gone with it
       ?: return emptyList()
+    val excludedSet = source.excludedUrls.map { normalizeRemoteUrl(it) }.toSet()
     return try {
       val books = client.list(resolved.server, resolved.password, source.url)
         .mapNotNull { child ->
+          val childUrl = normalizeRemoteUrl(child.url)
+          if (childUrl in excludedSet) return@mapNotNull null
           val documentFile = documentFile(child.url, child)
           when {
             child.isDirectory -> documentFileWithUri(child.url, child)
@@ -83,7 +136,9 @@ public class WebDavRemoteBookSources internal constructor(
       // just because a single request failed.
       Logger.w(e, "Could not expand webdav library root ${source.url}")
       val urls = source.lastExpandedUrls.ifEmpty { listOf(source.url) }
-      urls.map { url -> documentFileWithUri(url) }
+      urls
+        .filterNot { normalizeRemoteUrl(it) in excludedSet }
+        .map { url -> documentFileWithUri(url) }
     }
   }
 
@@ -97,12 +152,14 @@ public class WebDavRemoteBookSources internal constructor(
     source: WebDavBookSource,
     urls: List<String>,
   ) {
-    if (source.lastExpandedUrls == urls) return
+    val excludedSet = source.excludedUrls.map { normalizeRemoteUrl(it) }.toSet()
+    val filteredUrls = urls.filterNot { normalizeRemoteUrl(it) in excludedSet }
+    if (source.lastExpandedUrls == filteredUrls) return
     try {
       sourcesStore.updateData { sources ->
         sources.map { stored ->
           if (stored.serverId == source.serverId && stored.url == source.url) {
-            stored.copy(lastExpandedUrls = urls)
+            stored.copy(lastExpandedUrls = filteredUrls)
           } else {
             stored
           }

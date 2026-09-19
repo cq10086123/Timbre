@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import voice.core.common.DispatcherProvider
 import voice.core.common.MainScope
+import voice.core.scanner.MediaScanTrigger
 import voice.core.webdav.WebDavLibrary
 import voice.core.webdav.WebDavProbeResult
 import voice.core.webdav.WebDavServer
@@ -46,6 +47,7 @@ data class WebDavServersViewState(
 @Inject
 class WebDavServersViewModel(
   private val webDavLibrary: WebDavLibrary,
+  private val mediaScanTrigger: MediaScanTrigger,
   dispatcherProvider: DispatcherProvider,
   private val navigator: Navigator,
 ) {
@@ -111,6 +113,7 @@ class WebDavServersViewModel(
     deleteCandidate.value = null
     scope.launch {
       webDavLibrary.deleteServer(candidate.id)
+      mediaScanTrigger.scan(restartIfScanning = true)
     }
   }
 
@@ -149,6 +152,7 @@ class WebDavServersViewModel(
           trustAllCertificates = current.trustAllCertificates,
           existingId = current.existingId,
         )
+        mediaScanTrigger.scan(restartIfScanning = true)
         null
       } catch (_: IllegalArgumentException) {
         if (current.password.isBlank() && current.existingId == null) {

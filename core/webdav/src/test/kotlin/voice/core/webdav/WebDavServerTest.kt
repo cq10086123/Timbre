@@ -29,6 +29,20 @@ class WebDavServerTest {
   }
 
   @Test
+  fun matchesDefaultAndExplicitPorts() {
+    val server = WebDavServer(
+      id = "1",
+      name = "nas",
+      baseUrl = "https://nas.example.com:443/dav",
+      username = "user",
+      encryptedPassword = "",
+    )
+
+    assertTrue(server.matches(Uri.parse("https://nas.example.com/dav/book/01.mp3")))
+    assertTrue(server.matches(Uri.parse("https://nas.example.com:443/dav/book/01.mp3")))
+  }
+
+  @Test
   fun matchesServersWithoutPath() {
     val server = WebDavServer(
       id = "1",

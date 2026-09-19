@@ -140,6 +140,49 @@ class WebDavRemoteBookSourcesTest {
   }
 
   @Test
+  fun `removing a child book from a library root registration excludes it from future expansions`() = runTest {
+    server.enqueue(multiStatus("/dav/", "/dav/book1/", "/dav/book2/"))
+    val sources = MemoryDataStore(listOf(libraryRootSource()))
+    val rootUrl = libraryRootUrl()
+    val remoteBookSources = remoteBookSources(sources)
+
+    val initialBooks = remoteBookSources.books().first()
+    assertEquals(expected = 2, actual = initialBooks.size)
+
+    val removed = remoteBookSources.removeBookRegistration(BookId(Uri.parse("$rootUrl/book1")))
+    assertTrue(removed)
+
+    server.enqueue(multiStatus("/dav/", "/dav/book1/", "/dav/book2/"))
+    val updatedBooks = remoteBookSources.books().first()
+    assertEquals(
+      expected = listOf("$rootUrl/book2/"),
+      actual = updatedBooks.map { it.uri.toString() },
+    )
+  }
+
+  @Test
+  fun `failing listing excludes previously removed child books from fallback`() = runTest {
+    server.enqueue(multiStatus("/dav/", "/dav/book1/", "/dav/book2/"))
+    val sources = MemoryDataStore(listOf(libraryRootSource()))
+    val rootUrl = libraryRootUrl()
+    val remoteBookSources = remoteBookSources(sources)
+
+    remoteBookSources.books().first()
+
+    val removed =
+      remoteBookSources.removeBookRegistration(BookId(Uri.parse("$rootUrl/book1")))
+    assertEquals(expected = true, actual = removed)
+
+    server.enqueue(MockResponse.Builder().code(503).build())
+    val rescannedBooks = remoteBookSources.books().first()
+
+    assertEquals(
+      expected = listOf("$rootUrl/book2/"),
+      actual = rescannedBooks.map { it.uri.toString() },
+    )
+  }
+
+  @Test
   fun `removing an unknown book keeps the registration`() = runTest {
     val sources = MemoryDataStore(listOf(libraryRootSource()))
     val remoteBookSources = remoteBookSources(sources)
