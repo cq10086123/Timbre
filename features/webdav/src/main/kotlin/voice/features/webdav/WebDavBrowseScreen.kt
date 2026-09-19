@@ -30,6 +30,7 @@ import voice.core.common.rootGraphAs
 import voice.core.ui.icons.VoiceIcons
 import voice.navigation.Destination
 import voice.navigation.NavEntryProvider
+import voice.navigation.Origin
 import voice.core.strings.R as StringsR
 
 @ContributesTo(AppScope::class)
@@ -44,17 +45,20 @@ interface WebDavBrowseProvider {
   @IntoSet
   fun webDavBrowseNavEntryProvider(): NavEntryProvider<*> = NavEntryProvider<Destination.WebDavBrowse> { key ->
     NavEntry(key) {
-      WebDavBrowseScreen(serverId = key.serverId)
+      WebDavBrowseScreen(serverId = key.serverId, origin = key.origin)
     }
   }
 }
 
 @Composable
-fun WebDavBrowseScreen(serverId: String) {
-  val viewModel = retain(serverId) {
+fun WebDavBrowseScreen(
+  serverId: String,
+  origin: Origin,
+) {
+  val viewModel = retain(serverId, origin.name) {
     rootGraphAs<WebDavBrowseGraph>()
       .webDavBrowseViewModelFactory
-      .create(serverId)
+      .create(serverId, origin)
   }
   val viewState = viewModel.viewState()
   WebDavBrowseView(

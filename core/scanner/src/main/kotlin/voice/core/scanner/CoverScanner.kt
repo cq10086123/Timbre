@@ -37,10 +37,17 @@ internal class CoverScanner(
     File(context.filesDir, "bookCoversNoArt").also { it.mkdirs() }
   }
 
-  // remembers remote books whose folder was already searched for pictures, so
-  // the scan does not list a possibly far away directory over and over
-  private val remoteFolderCheckedMarkerDir: File by lazy {
-    File(context.filesDir, "bookCoversRemoteFolderChecked").also { it.mkdirs() }
+  // remembers which picture of a remote book folder is already the cover
+  // (url, size and last modified of it), so an unchanged picture is not
+  // downloaded and rewritten on every scan
+  private val remoteAppliedPictureMarkerDir: File by lazy {
+    File(context.filesDir, "bookCoversRemoteAppliedPicture").also { dir ->
+      dir.mkdirs()
+      // markers of the previous "checked once" approach are obsolete. They
+      // turned a single failed folder read into a permanent "no picture",
+      // which pinned books to their embedded artwork.
+      File(context.filesDir, "bookCoversRemoteFolderChecked").deleteRecursively()
+    }
   }
 
   suspend fun scan(books: List<Book>) {
@@ -67,10 +74,11 @@ internal class CoverScanner(
 
   private suspend fun findCoverForBook(book: Book) {
     // a picture in the remote folder of e.g. a WebDAV book wins over the
-    // embedded artwork, like it does for local books. Listing that folder
-    // costs a network round trip, so the lookup runs once per book: the
-    // marker stores the definitive answer, an unreachable server is asked
-    // again on the next scan.
+    // embedded artwork, like it does for local books. The folder is listed on
+    // every scan - the chapter scan walks it anyway - so a picture added to
+    // the folder later still replaces the embedded artwork, and an
+    // unreachable server is asked again instead of being remembered as
+    // "no picture". Only the download of an unchanged picture is skipped.
     if (book.id.toUri().scheme in REMOTE_SCHEMES && findAndSaveRemoteFolderCover(book)) {
       return
     }
@@ -123,30 +131,48 @@ internal class CoverScanner(
   }
 
   private suspend fun findAndSaveRemoteFolderCover(book: Book): Boolean {
-    val marker = remoteFolderCheckedMarkerFile(book)
-    if (marker.exists()) {
-      return false
+    val marker = remoteAppliedPictureMarkerFile(book)
+    val alreadyApplied = runCatching { marker.takeIf { it.exists() }?.readText() }
+      .getOrNull()
+      ?.takeIf { it.isNotBlank() }
+      // without a stored cover file there is nothing to keep, no matter what
+      // the marker says
+      ?.takeIf { book.content.cover?.exists() == true }
+    val lookup = try {
+      remoteCoverFinder.findAndSaveCover(book, alreadyApplied)
+    } catch (e: kotlinx.coroutines.CancellationException) {
+      throw e
+    } catch (e: Exception) {
+      Logger.w(e, "Error while looking up the remote folder cover of ${book.id}")
+      RemoteCoverLookup.Inconclusive
     }
-    val found = remoteCoverFinder.findAndSaveCover(book)
-    if (found == null) {
-      // the folder could not be read, look again on the next scan
-      return false
+    return when (lookup) {
+      is RemoteCoverLookup.Applied -> {
+        runCatching { marker.writeText(lookup.appliedMarker) }
+          .onFailure { Logger.w(it, "Could not write the applied cover marker for ${book.id}") }
+        // the book has a real cover now, drop a stale no-cover marker
+        runCatching { markerFile(book).delete() }
+          .onFailure { Logger.w(it, "Could not delete the no-cover marker for ${book.id}") }
+        true
+      }
+      RemoteCoverLookup.NoPictureInFolder -> {
+        runCatching { marker.delete() }
+          .onFailure { Logger.w(it, "Could not delete the applied cover marker for ${book.id}") }
+        false
+      }
+      RemoteCoverLookup.Inconclusive -> {
+        // keep a previously applied marker: the picture did not change just
+        // because one request failed
+        false
+      }
     }
-    runCatching { marker.createNewFile() }
-      .onFailure { Logger.w(it, "Could not write the remote folder cover marker for ${book.id}") }
-    if (found) {
-      // the book has a real cover now, drop a stale no-cover marker
-      runCatching { markerFile(book).delete() }
-        .onFailure { Logger.w(it, "Could not delete the no-cover marker for ${book.id}") }
-    }
-    return found
   }
 
-  private fun remoteFolderCheckedMarkerFile(book: Book): File {
+  private fun remoteAppliedPictureMarkerFile(book: Book): File {
     val digest = MessageDigest.getInstance("SHA-1")
       .digest(book.id.value.toByteArray())
       .joinToString("") { "%02x".format(it) }
-    return File(remoteFolderCheckedMarkerDir, digest)
+    return File(remoteAppliedPictureMarkerDir, digest)
   }
 
   private suspend fun generateCover(book: Book) {

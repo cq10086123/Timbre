@@ -17,6 +17,7 @@ import voice.core.webdav.WebDavLibrary
 import voice.core.webdav.WebDavResource
 import voice.navigation.Destination
 import voice.navigation.Navigator
+import voice.navigation.Origin
 
 data class WebDavBrowseViewState(
   val serverName: String,
@@ -40,6 +41,8 @@ class WebDavBrowseViewModel(
   private val navigator: Navigator,
   @Assisted
   private val serverId: String,
+  @Assisted
+  private val origin: Origin,
 ) {
 
   private val scope = MainScope(dispatcherProvider)
@@ -128,7 +131,14 @@ class WebDavBrowseViewModel(
         mode = mode,
       )
       mediaScanTrigger.scan(restartIfScanning = true)
-      navigator.setRoot(Destination.BookOverview)
+      // an import during onboarding has to finish the onboarding flow (which
+      // marks it completed), otherwise the next app start would show it again
+      navigator.setRoot(
+        when (origin) {
+          Origin.Default -> Destination.BookOverview
+          Origin.Onboarding -> Destination.OnboardingCompletion
+        },
+      )
     }
   }
 
@@ -138,6 +148,9 @@ class WebDavBrowseViewModel(
 
   @AssistedFactory
   interface Factory {
-    fun create(serverId: String): WebDavBrowseViewModel
+    fun create(
+      serverId: String,
+      origin: Origin,
+    ): WebDavBrowseViewModel
   }
 }

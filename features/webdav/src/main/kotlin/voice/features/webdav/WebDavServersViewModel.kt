@@ -3,7 +3,9 @@ package voice.features.webdav
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import dev.zacsweers.metro.Inject
+import dev.zacsweers.metro.Assisted
+import dev.zacsweers.metro.AssistedFactory
+import dev.zacsweers.metro.AssistedInject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -15,6 +17,7 @@ import voice.core.webdav.WebDavProbeResult
 import voice.core.webdav.WebDavServer
 import voice.navigation.Destination
 import voice.navigation.Navigator
+import voice.navigation.Origin
 
 enum class WebDavTestOutcome {
   Success,
@@ -44,12 +47,14 @@ data class WebDavServersViewState(
   val deleteCandidate: WebDavServer?,
 )
 
-@Inject
+@AssistedInject
 class WebDavServersViewModel(
   private val webDavLibrary: WebDavLibrary,
   private val mediaScanTrigger: MediaScanTrigger,
   dispatcherProvider: DispatcherProvider,
   private val navigator: Navigator,
+  @Assisted
+  private val origin: Origin,
 ) {
 
   private val scope = MainScope(dispatcherProvider)
@@ -172,7 +177,7 @@ class WebDavServersViewModel(
   }
 
   fun browse(server: WebDavServer) {
-    navigator.goTo(Destination.WebDavBrowse(server.id))
+    navigator.goTo(Destination.WebDavBrowse(server.id, origin))
   }
 
   fun openCacheSettings() {
@@ -181,5 +186,10 @@ class WebDavServersViewModel(
 
   fun back() {
     navigator.goBack()
+  }
+
+  @AssistedFactory
+  interface Factory {
+    fun create(origin: Origin): WebDavServersViewModel
   }
 }
