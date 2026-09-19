@@ -356,6 +356,61 @@ class MediaScannerTest {
     assertEquals(expected = 1, actual = scannedBooks.size)
   }
 
+  @Test
+  fun positionSurvivesTheCurrentChapterBeingRemoved() = test {
+    val folder = folder("book")
+    val chapter1 = audioFile(parent = folder, "1.mp3")
+    val chapter2 = audioFile(parent = folder, "2.mp3")
+    val chapter3 = audioFile(parent = folder, "3.mp3")
+
+    scan(FolderType.SingleFolder, folder)
+
+    val bookId = BookId(folder.toUri())
+    bookContentRepo.put(
+      bookContentRepo.get(bookId)!!.copy(
+        currentChapter = ChapterId(chapter2.toUri()),
+        positionInChapter = 500L,
+      ),
+    )
+
+    // the episode the user was listening to disappeared on the server
+    chapter2.delete()
+    scan(FolderType.SingleFolder, folder)
+
+    val content = bookContentRepo.get(bookId)!!
+    assertEquals(
+      expected = listOf(chapter1, chapter3).map { ChapterId(it.toUri()) },
+      actual = content.chapters,
+    )
+    // the chapter at the same index takes over instead of falling back to the
+    // first one, and the position within the chapter survives
+    assertEquals(expected = ChapterId(chapter3.toUri()), actual = content.currentChapter)
+    assertEquals(expected = 500L, actual = content.positionInChapter)
+  }
+
+  @Test
+  fun unchangedChaptersAreNotReanalyzedOnRescan() = test {
+    val folder = folder("book")
+    val chapter1 = audioFile(parent = folder, "1.mp3")
+    val chapter2 = audioFile(parent = folder, "2.mp3")
+
+    scan(FolderType.SingleFolder, folder)
+    assertEquals(expected = 2, actual = analyzeCalls)
+
+    // a new episode was added to the book on the server
+    val chapter3 = audioFile(parent = folder, "3.mp3")
+    scan(FolderType.SingleFolder, folder)
+
+    // only the new file was analyzed, the known ones came from the cache
+    assertEquals(expected = 3, actual = analyzeCalls)
+    assertBookContents(
+      BookContentView(
+        folder,
+        chapters = listOf(chapter1, chapter2, chapter3),
+      ),
+    )
+  }
+
   private fun test(test: suspend TestEnvironment.() -> Unit) {
     runTest {
       TestEnvironment().use { test(it) }

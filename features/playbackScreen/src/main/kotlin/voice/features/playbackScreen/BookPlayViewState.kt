@@ -53,13 +53,23 @@ internal sealed interface BookPlayDialogViewState {
     val skipOutroSeconds: Long,
   ) : BookPlayDialogViewState
 
-  data class SelectChapterDialog(val items: List<ItemViewState>) : BookPlayDialogViewState {
+  data class SelectChapterDialog(
+    val items: List<ItemViewState>,
+    val ranges: List<RangeViewState> = emptyList(),
+  ) : BookPlayDialogViewState {
 
     data class ItemViewState(
       val number: Int,
       val name: String,
       val active: Boolean,
       val time: String,
+    )
+
+    data class RangeViewState(
+      val firstNumber: Int,
+      val lastNumber: Int,
+      val startIndex: Int,
+      val containsCurrent: Boolean,
     )
   }
 

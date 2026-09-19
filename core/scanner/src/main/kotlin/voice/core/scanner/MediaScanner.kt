@@ -156,12 +156,18 @@ internal class MediaScanner(
         return
       }
     }
-    val currentChapter = if (currentChapterGone) chapterIds.first() else content.currentChapter
-    val positionInChapter = if (currentChapterGone) 0 else content.positionInChapter
+    // The chapter the user was listening to is no longer part of the book: it
+    // was deleted remotely, or the files were renamed in bulk. Falling back to
+    // the first chapter would throw away the position in a book with hundreds
+    // of episodes, so the chapter at the same index takes over - with a rename
+    // that is the same episode, and the position survives as well.
+    val previousIndex = content.chapters.indexOf(content.currentChapter)
+    val fallbackIndex = previousIndex.coerceIn(0, chapterIds.lastIndex)
+    val currentChapter = if (currentChapterGone) chapterIds[fallbackIndex] else content.currentChapter
     val updated = content.copy(
       chapters = chapterIds,
       currentChapter = currentChapter,
-      positionInChapter = positionInChapter,
+      positionInChapter = content.positionInChapter,
       isActive = true,
     )
     if (content != updated) {

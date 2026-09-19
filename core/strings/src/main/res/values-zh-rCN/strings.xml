@@ -73,6 +73,7 @@
     <string name="playback.battery_optimization.rationale">由于您的电源限制，可能会发生播放中断。</string>
     <string name="playback.chapter.next">下一节</string>
     <string name="playback.chapter.previous">上一节</string>
+    <string name="playback.chapter.select.total">共%1$d集</string>
     <string name="playback.option.skip_intro">跳过片头</string>
     <string name="playback.option.skip_intro_outro">跳过片头片尾</string>
     <string name="playback.option.skip_outro">跳过片尾</string>
