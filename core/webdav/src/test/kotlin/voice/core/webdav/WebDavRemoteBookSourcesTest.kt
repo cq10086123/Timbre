@@ -169,7 +169,9 @@ class WebDavRemoteBookSourcesTest {
 
     remoteBookSources.books().first()
 
-    remoteBookSources.removeBookRegistration(BookId(Uri.parse("$rootUrl/book1")))
+    val removed =
+      remoteBookSources.removeBookRegistration(BookId(Uri.parse("$rootUrl/book1")))
+    assertEquals(expected = true, actual = removed)
 
     server.enqueue(MockResponse.Builder().code(503).build())
     val rescannedBooks = remoteBookSources.books().first()

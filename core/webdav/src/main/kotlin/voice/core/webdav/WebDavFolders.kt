@@ -47,6 +47,7 @@ public class WebDavRemoteBookSources internal constructor(
         .onFailure { Logger.w(it, "Could not clear playback cache for $targetUrl") }
     }
 
+    val before = sourcesStore.data.first()
     sourcesStore.updateData { sources ->
       sources.mapNotNull { source ->
         val sourceUrl = normalizeRemoteUrl(source.url)
@@ -74,7 +75,10 @@ public class WebDavRemoteBookSources internal constructor(
         }
       }
     }
-    return true
+    // Whether any registration was actually affected: callers (e.g.
+    // AudiobookFoldersImpl) fall back to local folder removal when this
+    // returns false, so an untouched store must report false.
+    return sourcesStore.data.first() != before
   }
 
   private fun isCoveredByLibraryRoot(
