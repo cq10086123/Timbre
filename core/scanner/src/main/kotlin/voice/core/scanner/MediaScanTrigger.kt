@@ -13,6 +13,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -122,14 +123,13 @@ internal constructor(
         }.also {
           Logger.i("warming up the book cache took $it")
         }
-        // the cover lookup is much cheaper than the chapter import, and the
-        // shelf should show the real folder picture while the audio is still
-        // being parsed - so existing books get their covers FIRST. Books the
-        // import adds on the way are covered afterwards (an already applied
-        // picture is skipped by its marker, so that pass stays cheap).
-        val booksBeforeScan = bookRepo.all()
-        val bookIdsBeforeScan = booksBeforeScan.map { it.id }.toSet()
-        coverScanner.scan(booksBeforeScan)
+        // covers must not wait for the import: the shelf should show the real
+        // folder picture while chapters are still being parsed. The import
+        // stores a book's row as soon as its first chapter batch lands (the
+        // row is what the cover application needs), so a cover pass runs
+        // alongside the import and picks every book up the moment it exists.
+        // One final pass after the import catches the last finishers; an
+        // already applied picture is skipped by its marker.
         measureTime {
           audiobookFolders.migrateLegacyFolders()
           val localFolders: Map<FolderType, List<CachedDocumentFile>> = audiobookFolders.all()
@@ -156,19 +156,19 @@ internal constructor(
                 (localFolders[FolderType.SingleFolder].orEmpty() + remoteBooks)
               )
           }
-          // the cover lookup ran above, before the import
-          scanner.scan(folders)
+          val importJob = launch { scanner.scan(folders) }
+          while (importJob.isActive) {
+            coverScanner.scan(bookRepo.all())
+            delay(COVER_LOOKUP_POLL_MILLIS)
+          }
+          importJob.join()
         }.also {
           Logger.i("scan took $it")
         }
         // determinate chapter progress is done; the cover lookup has no
         // progress so the cards show their normal look while it runs
         scanProgressReporter.finish()
-        val books = bookRepo.all()
-        val importedNow = books.filter { it.id !in bookIdsBeforeScan }
-        if (importedNow.isNotEmpty()) {
-          coverScanner.scan(importedNow)
-        }
+        coverScanner.scan(bookRepo.all())
       } finally {
         if (scanGeneration.get() == generation) {
           scanProgressReporter.finish()
@@ -194,3 +194,6 @@ internal constructor(
 }
 
 private const val MIN_SCAN_INTERVAL_MS = 10 * 60 * 1000L
+
+// how often a cover lookup runs while an import is still parsing chapters
+private const val COVER_LOOKUP_POLL_MILLIS = 3000L
