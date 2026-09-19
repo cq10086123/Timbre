@@ -170,6 +170,8 @@
     <string name="playback.chapter.next">Next track</string>
     <!-- Content description for moving to the previous chapter or track. -->
     <string name="playback.chapter.previous">Previous track</string>
+    <!-- Header of the chapter selection sheet showing the total amount of chapters. Tapping it toggles the chapter range grid. -->
+    <string name="playback.chapter.select.total">%1$d chapters in total</string>
     <!-- Menu and dialog title for skipping the intro of every chapter of the current book. -->
     <string name="playback.option.skip_intro">Skip intro</string>
     <!-- Menu title for the dialog that sets both the intro and the outro skip. -->

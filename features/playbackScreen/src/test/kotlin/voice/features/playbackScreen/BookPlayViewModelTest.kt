@@ -112,6 +112,31 @@ class BookPlayViewModelTest {
     kioskModeFeatureFlag = MemoryFeatureFlag(false),
   )
 
+  private fun viewModelFor(book: Book): BookPlayViewModel = BookPlayViewModel(
+    bookRepository = mockk {
+      coEvery { get(book.id) } returns book
+      every { flow(book.id) } returns MutableStateFlow(book)
+    },
+    currentBookResolver = mockk {
+      coEvery { book(book.id) } returns book
+    },
+    player = mockk {
+      every { pauseIfCurrentBookDifferentFrom(book.id) } just Runs
+    },
+    sleepTimer = sleepTimer,
+    playStateManager = playStateManager,
+    currentBookStoreId = MemoryDataStore(null),
+    navigator = mockk(),
+    bookmarkRepository = mockk(),
+    volumeGainFormatter = mockk(),
+    batteryOptimization = mockk(),
+    sleepTimerPreferenceStore = sleepTimerDataStore,
+    bookId = book.id,
+    dispatcherProvider = DispatcherProvider(scope.coroutineContext, scope.coroutineContext, scope.coroutineContext),
+    experimentalPlaybackPersistenceFeatureFlag = MemoryFeatureFlag(false),
+    kioskModeFeatureFlag = MemoryFeatureFlag(false),
+  )
+
   @Test
   fun sleepTimerValueChanging() = scope.runTest {
     fun assertDialogSleepTime(expected: Int) {
@@ -217,6 +242,33 @@ class BookPlayViewModelTest {
       ),
       actual = dialogState.items,
     )
+
+    assertEquals(expected = emptyList(), actual = dialogState.ranges)
+  }
+
+  @Test
+  fun onCurrentChapterClickAddsRangesForLargeBooks() = scope.runTest {
+    val largeBook = largeBook(chapterCount = 120, currentChapterIndex = 101)
+    val largeBookViewModel = viewModelFor(largeBook)
+
+    largeBookViewModel.onCurrentChapterClick()
+    yield()
+
+    val dialogState = assertIs<BookPlayDialogViewState.SelectChapterDialog>(largeBookViewModel.dialogState.value)
+    assertEquals(expected = 3, actual = dialogState.ranges.size)
+
+    val (first, second, third) = dialogState.ranges
+    assertEquals(expected = 1, actual = first.firstNumber)
+    assertEquals(expected = 50, actual = first.lastNumber)
+    assertEquals(expected = 0, actual = first.startIndex)
+    assertEquals(expected = false, actual = first.containsCurrent)
+    assertEquals(expected = 51, actual = second.firstNumber)
+    assertEquals(expected = 100, actual = second.lastNumber)
+    assertEquals(expected = false, actual = second.containsCurrent)
+    assertEquals(expected = 101, actual = third.firstNumber)
+    assertEquals(expected = 120, actual = third.lastNumber)
+    assertEquals(expected = 100, actual = third.startIndex)
+    assertEquals(expected = true, actual = third.containsCurrent)
   }
 
   @Test
@@ -405,5 +457,40 @@ private fun chapter(): Chapter {
     ),
     name = "name",
     fileSize = 0,
+  )
+}
+
+private fun largeBook(chapterCount: Int, currentChapterIndex: Int): Book {
+  val chapters = List(chapterCount) { index ->
+    Chapter(
+      id = ChapterId("http://chapter-$index"),
+      duration = 5.minutes.inWholeMilliseconds,
+      fileLastModified = Instant.EPOCH,
+      markData = listOf(MarkData(startMs = 0L, name = "Chapter ${index + 1}")),
+      name = "name",
+      fileSize = 0,
+    )
+  }
+  return Book(
+    content = BookContent(
+      author = Uuid.random().toString(),
+      name = "LargeBook",
+      positionInChapter = 1.minutes.inWholeMilliseconds,
+      playbackSpeed = 1F,
+      addedAt = Instant.EPOCH,
+      chapters = chapters.map { it.id },
+      cover = null,
+      currentChapter = chapters[currentChapterIndex].id,
+      isActive = true,
+      lastPlayedAt = Instant.EPOCH,
+      skipSilence = false,
+      id = BookId(Uuid.random().toString()),
+      gain = 0F,
+      genre = null,
+      narrator = null,
+      series = null,
+      part = null,
+    ),
+    chapters = chapters,
   )
 }

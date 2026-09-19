@@ -288,21 +288,26 @@ class BookPlayViewModel(
       // for every entry is too slow for books with hundreds of chapters.
       var previousMarks = 0
       var previousDuration = 0L
+      val items = book.chapters.flatMap { chapter ->
+        val firstMarkNumber = previousMarks + 1
+        val chapterStart = previousDuration
+        previousMarks += chapter.chapterMarks.count()
+        previousDuration += chapter.duration
+        chapter.chapterMarks.mapIndexed { markIndex, chapterMark ->
+          BookPlayDialogViewState.SelectChapterDialog.ItemViewState(
+            number = firstMarkNumber + markIndex,
+            name = chapterMark.name ?: "",
+            active = chapterMark == book.currentMark && chapter == book.currentChapter,
+            time = formatTime(chapterStart + chapterMark.startMs),
+          )
+        }
+      }
       dialogState.value = BookPlayDialogViewState.SelectChapterDialog(
-        items = book.chapters.flatMap { chapter ->
-          val firstMarkNumber = previousMarks + 1
-          val chapterStart = previousDuration
-          previousMarks += chapter.chapterMarks.count()
-          previousDuration += chapter.duration
-          chapter.chapterMarks.mapIndexed { markIndex, chapterMark ->
-            BookPlayDialogViewState.SelectChapterDialog.ItemViewState(
-              number = firstMarkNumber + markIndex,
-              name = chapterMark.name ?: "",
-              active = chapterMark == book.currentMark && chapter == book.currentChapter,
-              time = formatTime(chapterStart + chapterMark.startMs),
-            )
-          }
-        },
+        items = items,
+        ranges = chapterRanges(
+          itemCount = items.size,
+          activeItemIndex = items.indexOfFirst { it.active },
+        ),
       )
     }
   }
