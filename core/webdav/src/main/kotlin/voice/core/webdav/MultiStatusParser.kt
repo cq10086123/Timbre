@@ -22,6 +22,7 @@ internal object MultiStatusParser {
     reader: Reader,
     baseUrl: String,
     rootUrl: String,
+    skipSelf: Boolean = true,
   ): List<WebDavResource> {
     val parser = XmlPullParserFactory.newInstance().newPullParser()
     parser.setInput(reader)
@@ -55,7 +56,7 @@ internal object MultiStatusParser {
         XmlPullParser.END_TAG -> if (parser.localName() == "response" && inResponse) {
           inResponse = false
           href?.let { nonNullHref ->
-            buildResource(nonNullHref, baseUrl, rootUrl, displayName, isCollection, contentLength, lastModified)
+            buildResource(nonNullHref, baseUrl, rootUrl, displayName, isCollection, contentLength, lastModified, skipSelf)
               ?.let(resources::add)
           }
         }
@@ -73,10 +74,13 @@ internal object MultiStatusParser {
     isCollection: Boolean,
     contentLength: Long,
     lastModified: Long,
+    skipSelf: Boolean,
   ): WebDavResource? {
     val url = hrefToUrl(href, baseUrl, rootUrl) ?: return null
-    // Skip the response entry of the requested directory itself.
-    if (url == baseUrl.trimEnd('/') + "/") return null
+    // Skip the response entry of the requested directory itself. Only for
+    // depth 1 listings: a depth 0 propfind of a collection answers with
+    // exactly that entry, and skipping it would report the folder as gone.
+    if (skipSelf && url == baseUrl.trimEnd('/') + "/") return null
     val name = displayName?.takeIf { it.isNotBlank() }
       ?: decode(href).trimEnd('/').substringAfterLast('/').ifEmpty { return null }
     return WebDavResource(

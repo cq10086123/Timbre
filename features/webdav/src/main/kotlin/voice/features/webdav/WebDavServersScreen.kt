@@ -37,6 +37,7 @@ import voice.core.common.rootGraphAs
 import voice.core.ui.icons.VoiceIcons
 import voice.navigation.Destination
 import voice.navigation.NavEntryProvider
+import voice.navigation.Origin
 import voice.core.strings.R as StringsR
 
 @ContributesTo(AppScope::class)
