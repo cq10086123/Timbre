@@ -233,7 +233,7 @@ internal fun BookImportProgressText(
     text = text,
     style = MaterialTheme.typography.labelMedium,
     color = MaterialTheme.colorScheme.onSurfaceVariant,
-    maxLines = 1,
+    maxLines = 2,
     overflow = TextOverflow.Ellipsis,
     modifier = modifier,
   )
