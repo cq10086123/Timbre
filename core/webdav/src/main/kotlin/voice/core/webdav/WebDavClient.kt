@@ -82,6 +82,22 @@ public class WebDavClient {
   /** Directory listings with a short ttl so a scan walking a tree reuses one request per directory. */
   private val listingCache = ConcurrentHashMap<String, Pair<Long, List<WebDavResource>>>()
 
+  /**
+   * Returns a client configured for one server. A fresh authenticator-bearing
+   * client is cheap (it shares OkHttp's connection pool with the base client)
+   * and keeps credentials scoped to the server that is being accessed.
+   */
+  public fun clientFor(
+    server: WebDavServer,
+    password: String,
+  ): OkHttpClient {
+    val base = if (server.trustAllCertificates) trustAllClient else plainClient
+    return base.newBuilder()
+      .authenticator(WebDavDigestAuthenticator(server.username, password))
+      .build()
+  }
+
+  /** Client without an authentication challenge handler, retained for callers that only need TLS setup. */
   public fun clientFor(server: WebDavServer): OkHttpClient {
     return if (server.trustAllCertificates) trustAllClient else plainClient
   }
@@ -168,7 +184,7 @@ public class WebDavClient {
         .header("Authorization", authHeader(server, password))
         .header("Range", "bytes=0-0")
         .build()
-      clientFor(server).await(request).use { response ->
+      clientFor(server, password).await(request).use { response ->
         response.code == 206 || response.code == 200
       }
     } catch (e: Exception) {
@@ -244,7 +260,7 @@ public class WebDavClient {
       .header("Depth", depth.toString())
       .method("PROPFIND", null)
       .build()
-    clientFor(server).await(request).use { response ->
+    clientFor(server, password).await(request).use { response ->
       when (response.code) {
         207 -> {
           val body = response.body.string()

@@ -17,6 +17,7 @@ data class SettingsViewState(
   val showAnalyticSetting: Boolean,
   val analyticsEnabled: Boolean,
   val showDeveloperMenu: Boolean,
+  val autoRefreshWifi: Boolean,
   val showSupportDevelopment: Boolean,
   val kioskMode: Boolean,
   val updateAvailable: String? = null,
@@ -44,6 +45,7 @@ data class SettingsViewState(
         analyticsEnabled = false,
         showAnalyticSetting = true,
         showDeveloperMenu = true,
+        autoRefreshWifi = true,
         showSupportDevelopment = true,
         kioskMode = false,
       )

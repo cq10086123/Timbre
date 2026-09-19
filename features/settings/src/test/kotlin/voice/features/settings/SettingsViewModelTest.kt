@@ -42,6 +42,7 @@ class SettingsViewModelTest {
   private val sleepTimerPreferenceStore = MemoryDataStore(SleepTimerPreference.Default)
   private val analyticsConsentStore = MemoryDataStore(false)
   private val developerMenuUnlockedStore = MemoryDataStore(false)
+  private val autoRefreshWifiStore = MemoryDataStore(true)
   private val navigator = mockk<Navigator> {
     every { goTo(any()) } just Runs
   }
@@ -72,6 +73,7 @@ class SettingsViewModelTest {
     gridCount = gridCount,
     kioskModeFeatureFlag = kioskModeFeatureFlag,
     developerMenuUnlockedStore = developerMenuUnlockedStore,
+    autoRefreshWifiStore = autoRefreshWifiStore,
     dynamicColorAvailability = dynamicColorAvailability,
     updateNotifier = mockk {
       every { update } returns MutableStateFlow(null)
@@ -88,6 +90,18 @@ class SettingsViewModelTest {
         assertEquals(expected = ThemeMode.FollowSystem, actual = it.themeMode)
         assertEquals(expected = ThemeColorScheme.VoiceBlue, actual = it.themeColorScheme)
       }
+    }
+  }
+
+  @Test
+  fun `automatic shelf refresh preference changes update view state`() = scope.runTest {
+    backgroundScope.launchMolecule(RecompositionMode.Immediate) {
+      viewModel.viewState()
+    }.test {
+      assertEquals(expected = true, actual = awaitItem().autoRefreshWifi)
+
+      viewModel.setAutoRefreshWifi(false)
+      assertEquals(expected = false, actual = awaitItem().autoRefreshWifi)
     }
   }
 

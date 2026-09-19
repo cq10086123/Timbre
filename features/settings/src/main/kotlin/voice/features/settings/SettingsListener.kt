@@ -24,6 +24,7 @@ interface SettingsListener {
   fun toggleAnalytics()
   fun openFolderPicker()
   fun openWebDav()
+  fun setAutoRefreshWifi(checked: Boolean)
   fun onAppVersionClick()
 
   fun openDeveloperMenu()
@@ -49,6 +50,7 @@ interface SettingsListener {
       override fun toggleAnalytics() {}
       override fun openFolderPicker() {}
       override fun openWebDav() {}
+      override fun setAutoRefreshWifi(checked: Boolean) {}
       override fun onAppVersionClick() {}
       override fun openDeveloperMenu() {}
     }

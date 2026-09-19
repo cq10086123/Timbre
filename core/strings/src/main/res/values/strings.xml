@@ -289,6 +289,8 @@
     <!-- WebDAV -->
     <string name="webdav_title">WebDAV</string>
     <string name="webdav_settings_summary">Stream audiobooks from your NAS without using phone storage</string>
+    <string name="settings_library_auto_refresh_wifi_title">Only refresh the shelf automatically on Wi-Fi</string>
+    <string name="settings_library_auto_refresh_wifi_summary">Avoid automatic WebDAV refreshes on mobile data</string>
     <string name="webdav_server_add">Add server</string>
     <string name="webdav_server_edit">Edit server</string>
     <string name="webdav_server_name">Name</string>

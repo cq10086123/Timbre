@@ -52,3 +52,7 @@ public annotation class UpdateDismissedStore
 
 @Qualifier
 public annotation class FeatureFlagOverridesStore
+
+/** Whether automatic library refreshes are restricted to Wi-Fi. */
+@Qualifier
+public annotation class WebDavAutoRefreshWifiStore

@@ -102,13 +102,15 @@ public class WebDavPlaybackCache(
 
   /** Removes all cached resources whose url starts with [prefix]. */
   public fun removeByPrefix(prefix: String) {
-    val cache = simpleCache ?: return
     val normalized = prefix.trimEnd('/')
-    for (key in cache.keys) {
-      if (key.startsWith(normalized)) {
-        cache.removeResource(key)
+    simpleCache?.let { cache ->
+      for (key in cache.keys) {
+        if (key == normalized || key.startsWith("$normalized/")) {
+          cache.removeResource(key)
+        }
       }
     }
+    classifier.forgetByPrefix(normalized)
   }
 
   public fun settings(): DataStore<WebDavCacheSettings> {

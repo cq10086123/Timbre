@@ -26,6 +26,7 @@ import voice.core.data.store.SeekTimeStore
 import voice.core.data.store.SleepTimerPreferenceStore
 import voice.core.data.store.ThemeColorSchemeStore
 import voice.core.data.store.ThemeModeStore
+import voice.core.data.store.WebDavAutoRefreshWifiStore
 import voice.core.featureflag.FeatureFlag
 import voice.core.featureflag.KioskModeFeatureFlagQualifier
 import voice.core.ui.DynamicColorAvailability
@@ -58,6 +59,8 @@ class SettingsViewModel(
   private val kioskModeFeatureFlag: FeatureFlag<Boolean>,
   @DeveloperMenuUnlockedStore
   private val developerMenuUnlockedStore: DataStore<Boolean>,
+  @WebDavAutoRefreshWifiStore
+  private val autoRefreshWifiStore: DataStore<Boolean>,
   private val dynamicColorAvailability: DynamicColorAvailability,
   private val updateNotifier: UpdateNotifier,
   dispatcherProvider: DispatcherProvider,
@@ -84,6 +87,7 @@ class SettingsViewModel(
       kioskModeFeatureFlag.get()
     }
     val showDeveloperMenu by remember { developerMenuUnlockedStore.data }.collectAsState(initial = false)
+    val autoRefreshWifi by remember { autoRefreshWifiStore.data }.collectAsState(initial = true)
     val showThemeColorSchemePref = remember {
       dynamicColorAvailability.isSupported()
     }
@@ -109,6 +113,7 @@ class SettingsViewModel(
       analyticsEnabled = analyticsEnabled,
       showAnalyticSetting = appInfoProvider.analyticsIncluded,
       showDeveloperMenu = showDeveloperMenu,
+      autoRefreshWifi = autoRefreshWifi,
       showSupportDevelopment = appInfoProvider.supportDevelopmentIncluded,
       kioskMode = kioskMode,
     )
@@ -194,6 +199,12 @@ class SettingsViewModel(
 
   override fun openWebDav() {
     navigator.goTo(Destination.WebDavServers)
+  }
+
+  override fun setAutoRefreshWifi(checked: Boolean) {
+    mainScope.launch {
+      autoRefreshWifiStore.updateData { checked }
+    }
   }
 
   override fun setAutoSleepTimer(checked: Boolean) {

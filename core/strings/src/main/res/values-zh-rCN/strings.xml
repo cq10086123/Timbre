@@ -149,6 +149,8 @@
     <!-- WebDAV -->
     <string name="webdav_title">WebDAV</string>
     <string name="webdav_settings_summary">从 NAS 在线听书，不占用手机空间</string>
+    <string name="settings_library_auto_refresh_wifi_title">仅在 Wi-Fi 下自动刷新书架</string>
+    <string name="settings_library_auto_refresh_wifi_summary">避免使用移动数据自动刷新 WebDAV 书架</string>
     <string name="webdav_server_add">添加服务器</string>
     <string name="webdav_server_edit">编辑服务器</string>
     <string name="webdav_server_name">名称</string>

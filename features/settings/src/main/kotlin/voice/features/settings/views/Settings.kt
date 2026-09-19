@@ -124,6 +124,28 @@ private fun Settings(
         }
       }
       item {
+        ListItem(
+          modifier = Modifier.clickable { listener.setAutoRefreshWifi(!viewState.autoRefreshWifi) },
+          leadingContent = {
+            Icon(
+              imageVector = VoiceIcons.Language,
+              contentDescription = stringResource(StringsR.string.settings_library_auto_refresh_wifi_title),
+            )
+          },
+          supportingContent = {
+            Text(stringResource(StringsR.string.settings_library_auto_refresh_wifi_summary))
+          },
+          trailingContent = {
+            Switch(
+              checked = viewState.autoRefreshWifi,
+              onCheckedChange = listener::setAutoRefreshWifi,
+            )
+          },
+        ) {
+          Text(stringResource(StringsR.string.settings_library_auto_refresh_wifi_title))
+        }
+      }
+      item {
         ThemeModeRow(viewState.themeMode, listener::onThemeModeRowClick)
       }
       if (viewState.showThemeColorSchemePref) {

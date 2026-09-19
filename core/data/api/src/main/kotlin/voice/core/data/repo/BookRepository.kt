@@ -34,4 +34,7 @@ public interface BookRepository {
     positionInChapter: Long,
     persist: Boolean,
   )
+
+  /** Refreshes repository caches after remote ids were rewritten in Room. */
+  public suspend fun invalidateCaches()
 }

@@ -196,6 +196,13 @@ public interface StoreModule {
 
   @Provides
   @SingleIn(AppScope::class)
+  @WebDavAutoRefreshWifiStore
+  private fun webDavAutoRefreshWifi(factory: VoiceDataStoreFactory): DataStore<Boolean> {
+    return factory.boolean("webDavAutoRefreshWifi", defaultValue = true)
+  }
+
+  @Provides
+  @SingleIn(AppScope::class)
   @FeatureFlagOverridesStore
   private fun featureFlagOverrides(factory: VoiceDataStoreFactory): DataStore<Map<String, FeatureFlagOverride>> {
     return factory.create(

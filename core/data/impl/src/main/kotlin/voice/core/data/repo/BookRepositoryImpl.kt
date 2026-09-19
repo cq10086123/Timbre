@@ -117,6 +117,15 @@ public class BookRepositoryImpl(
     }
   }
 
+  override suspend fun invalidateCaches() {
+    mutex.withLock {
+      contentRepo.refreshFromDatabase()
+      chapterRepo.invalidateCache()
+      bookCache.clear()
+      warmedUp = false
+    }
+  }
+
   private suspend fun BookContent.book(): Book? {
     warmUp()
     // a single bulk query per unknown chapter instead of one select per chapter
