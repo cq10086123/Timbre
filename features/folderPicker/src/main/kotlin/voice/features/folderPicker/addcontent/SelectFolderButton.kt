@@ -25,6 +25,7 @@ internal fun SelectFolderButton(
       contentDescription = text,
     )
     Spacer(Modifier.size(ButtonDefaults.IconSpacing))
-    Text(text = text)
+    // never wrap: "WebDAV" broken into "WebDA/V" reads like a typo
+    Text(text = text, maxLines = 1, softWrap = false)
   }
 }
