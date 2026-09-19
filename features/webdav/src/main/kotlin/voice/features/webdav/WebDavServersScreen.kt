@@ -37,11 +37,12 @@ import voice.core.common.rootGraphAs
 import voice.core.ui.icons.VoiceIcons
 import voice.navigation.Destination
 import voice.navigation.NavEntryProvider
+import voice.navigation.Origin
 import voice.core.strings.R as StringsR
 
 @ContributesTo(AppScope::class)
 interface WebDavServersGraph {
-  val webDavServersViewModel: WebDavServersViewModel
+  val webDavServersViewModelFactory: WebDavServersViewModel.Factory
 }
 
 @ContributesTo(AppScope::class)
@@ -51,16 +52,17 @@ interface WebDavServersProvider {
   @IntoSet
   fun webDavServersNavEntryProvider(): NavEntryProvider<*> = NavEntryProvider<Destination.WebDavServers> { key ->
     NavEntry(key) {
-      WebDavServersScreen()
+      WebDavServersScreen(origin = key.origin)
     }
   }
 }
 
 @Composable
-fun WebDavServersScreen() {
-  val viewModel = retain<WebDavServersViewModel> {
+fun WebDavServersScreen(origin: Origin) {
+  val viewModel = retain(origin.name) {
     rootGraphAs<WebDavServersGraph>()
-      .webDavServersViewModel
+      .webDavServersViewModelFactory
+      .create(origin)
   }
   val viewState = viewModel.viewState()
   WebDavServersView(

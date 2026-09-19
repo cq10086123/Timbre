@@ -93,12 +93,15 @@ sealed interface Destination {
   }
 
   @Serializable
-  data object WebDavServers : Compose {
+  data class WebDavServers(val origin: Origin) : Compose {
     override val trackingName: String get() = "WebDavServers"
   }
 
   @Serializable
-  data class WebDavBrowse(val serverId: String) : Compose {
+  data class WebDavBrowse(
+    val serverId: String,
+    val origin: Origin,
+  ) : Compose {
     override val trackingName: String = "WebDavBrowse"
   }
 

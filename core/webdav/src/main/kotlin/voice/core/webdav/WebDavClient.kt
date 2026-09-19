@@ -137,10 +137,9 @@ public class WebDavClient {
     password: String,
     url: String,
   ): WebDavResource? {
-    val cached = listingCache[url]
-    if (cached != null && System.currentTimeMillis() - cached.first < LISTING_TTL_MS) {
-      return cached.second.firstOrNull()
-    }
+    // the listing cache holds the CHILDREN of a collection (depth 1, without
+    // the collection itself), so it cannot answer a depth 0 lookup of the
+    // resource itself
     return propfind(server, password, url, depth = 0).firstOrNull()
   }
 
@@ -264,7 +263,12 @@ public class WebDavClient {
       when (response.code) {
         207 -> {
           val body = response.body.string()
-          MultiStatusParser.parse(StringReader(body), baseUrl = url, rootUrl = rootUrl(url))
+          MultiStatusParser.parse(
+            StringReader(body),
+            baseUrl = url,
+            rootUrl = rootUrl(url),
+            skipSelf = depth == 1,
+          )
         }
         401, 403 -> throw WebDavException.Auth(url)
         404 -> throw WebDavException.NotFound(url)
