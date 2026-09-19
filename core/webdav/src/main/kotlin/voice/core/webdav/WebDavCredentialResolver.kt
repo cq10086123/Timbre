@@ -48,6 +48,19 @@ public class WebDavCredentialResolver(
     }
   }
 
+  /**
+   * Servers whose stored password cannot be decrypted, e.g. because the app
+   * was reinstalled and the keystore key is gone. They stay out of
+   * [byUri]/[byId] until the user re-enters the password.
+   */
+  public fun undecryptableServerIds(): Set<String> = synchronized(lock) {
+    val usable = snapshot().mapTo(mutableSetOf()) { it.server.id }
+    runBlocking { serversStore.data.first() }
+      .filter { it.id !in usable }
+      .map { it.id }
+      .toSet()
+  }
+
   private fun snapshot(): List<Resolved> {
     val now = SystemClock.elapsedRealtime()
     val cached = cache

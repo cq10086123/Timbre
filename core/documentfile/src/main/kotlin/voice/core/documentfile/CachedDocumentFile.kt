@@ -1,7 +1,18 @@
 package voice.core.documentfile
 
 import android.net.Uri
+import androidx.annotation.WorkerThread
 
+/**
+ * A file or folder, local or remote.
+ *
+ * For remote implementations (e.g. WebDAV) reading [children], [name],
+ * [isDirectory], [isFile], [length] or [lastModified] performs network
+ * requests and blocks - sometimes for the full connect/read timeout. Every
+ * call site must therefore run on a worker thread; calling these from the
+ * main thread freezes the UI.
+ */
+@WorkerThread
 interface CachedDocumentFile {
   val children: List<CachedDocumentFile>
   val name: String?

@@ -113,10 +113,14 @@ private fun WebDavBrowseView(
           modifier = Modifier.padding(contentPadding).padding(32.dp),
         )
       }
-      viewState.error -> {
+      viewState.error != null -> {
         Text(
           modifier = Modifier.padding(contentPadding).padding(24.dp),
-          text = stringResource(StringsR.string.webdav_error),
+          text = if (viewState.error == WebDavBrowseError.Auth) {
+            stringResource(StringsR.string.webdav_error_auth)
+          } else {
+            stringResource(StringsR.string.webdav_error)
+          },
         )
       }
       else -> {

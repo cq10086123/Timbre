@@ -43,6 +43,7 @@ data class WebDavServerDialog(
 
 data class WebDavServersViewState(
   val servers: List<WebDavServer>,
+  val needsPasswordReEntry: Set<String> = emptySet(),
   val dialog: WebDavServerDialog?,
   val deleteCandidate: WebDavServer?,
 )
@@ -70,6 +71,7 @@ class WebDavServersViewModel(
     val deleteState by deleteCandidate.collectAsState()
     return WebDavServersViewState(
       servers = servers,
+      needsPasswordReEntry = webDavLibrary.undecryptableServerIds(),
       dialog = dialogState,
       deleteCandidate = deleteState,
     )
