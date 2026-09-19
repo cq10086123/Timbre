@@ -52,7 +52,7 @@ class AddContentViewModel(
   }
 
   internal fun openWebDav() {
-    navigator.goTo(Destination.WebDavServers)
+    navigator.goTo(Destination.WebDavServers(origin))
   }
 
   internal fun back() {

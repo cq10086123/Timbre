@@ -44,10 +44,10 @@ fun AddContent(origin: Origin) {
     onAdd = { folderType, uri ->
       viewModel.add(uri, folderType)
     },
-    onWebDav = when (origin) {
-      Origin.Default -> viewModel::openWebDav
-      Origin.Onboarding -> null
-    },
+    // the onboarding import page offers webdav as well: a fresh install has
+    // no settings entry to configure a server yet, so this is the only place
+    // to reach it from
+    onWebDav = viewModel::openWebDav,
   )
 }
 
