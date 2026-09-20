@@ -47,6 +47,7 @@ class DeleteBookViewModel(
     _state.value = DeleteBookViewState(
       id = bookId,
       deleteCheckBoxChecked = false,
+      canDeleteFiles = bookId.toUri().scheme?.lowercase() !in setOf("http", "https"),
       fileToDelete = bookId.toUri().pathSegments
         .let { segments ->
           val result = segments.lastOrNull()?.removePrefix("primary:")
@@ -72,7 +73,11 @@ class DeleteBookViewModel(
     val state = _state.value
     if (state != null) {
       scope.launch {
-        if (state.deleteCheckBoxChecked) {
+        // remote (webdav) books live on the server: there are no local files
+        // to delete, and attempting it would only fail silently. Dropping the
+        // shelf registration is enough; the book can be re-added any time from
+        // the server browser, which also lifts the exclusion.
+        if (state.deleteCheckBoxChecked && state.canDeleteFiles) {
           val documentFile = DocumentFile.fromSingleUri(application, state.id.toUri())
           if (documentFile?.delete() != true) {
             Logger.w("Could not delete the files of ${state.id}")
@@ -94,5 +99,6 @@ class DeleteBookViewModel(
 data class DeleteBookViewState(
   val id: BookId,
   val deleteCheckBoxChecked: Boolean,
+  val canDeleteFiles: Boolean,
   val fileToDelete: String,
 )

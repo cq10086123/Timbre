@@ -65,20 +65,24 @@ internal fun DeleteBookDialog(
         Spacer(modifier = Modifier.heightIn(8.dp))
         Text(viewState.fileToDelete, style = MaterialTheme.typography.bodyLarge)
 
-        Row(
-          verticalAlignment = Alignment.CenterVertically,
-          modifier = Modifier
-            .padding(top = 8.dp)
-            .fillMaxWidth()
-            .clickable {
-              onDeleteCheckBoxCheck(!viewState.deleteCheckBoxChecked)
-            },
-        ) {
-          Checkbox(
-            checked = viewState.deleteCheckBoxChecked,
-            onCheckedChange = onDeleteCheckBoxCheck,
-          )
-          Text(stringResource(id = StringsR.string.book_delete_dialog_confirm_files))
+        // remote books have no local files: offering their deletion would
+        // promise something the app cannot do
+        if (viewState.canDeleteFiles) {
+          Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+              .padding(top = 8.dp)
+              .fillMaxWidth()
+              .clickable {
+                onDeleteCheckBoxCheck(!viewState.deleteCheckBoxChecked)
+              },
+          ) {
+            Checkbox(
+              checked = viewState.deleteCheckBoxChecked,
+              onCheckedChange = onDeleteCheckBoxCheck,
+            )
+            Text(stringResource(id = StringsR.string.book_delete_dialog_confirm_files))
+          }
         }
       }
     },
