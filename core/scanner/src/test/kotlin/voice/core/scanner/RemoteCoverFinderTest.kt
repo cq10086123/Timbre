@@ -121,8 +121,8 @@ class RemoteCoverFinderTest {
   fun noPictureInTheFolderIsADefinitiveAnswer() = runTest {
     files[bookUrl] = FakeCachedDocumentFile(
       uri = bookUrl.toUri(),
-      isDirectory = true,
-      children = listOf(fakeFile("$bookUrl/1.mp3", imageBytes)),
+      directory = true,
+      childFiles = listOf(fakeFile("$bookUrl/1.mp3", imageBytes)),
     )
 
     val result = finder.findAndSaveCover(remoteBook())
@@ -134,7 +134,7 @@ class RemoteCoverFinderTest {
   @Test
   fun aSingleFileHasNoFolderToSearch() = runTest {
     val id = "https://nas.local/books/one.mp3"
-    files[id] = FakeCachedDocumentFile(uri = id.toUri(), isDirectory = false)
+    files[id] = FakeCachedDocumentFile(uri = id.toUri(), directory = false)
 
     val result = finder.findAndSaveCover(remoteBook(id))
 
@@ -145,7 +145,7 @@ class RemoteCoverFinderTest {
   fun anUnreachableFolderIsInconclusive() = runTest {
     files[bookUrl] = FakeCachedDocumentFile(
       uri = bookUrl.toUri(),
-      isDirectory = true,
+      directory = true,
       error = IOException("server down"),
     )
 
@@ -161,7 +161,7 @@ class RemoteCoverFinderTest {
     // definitive "not a folder" of a single audio file book
     files[bookUrl] = FakeCachedDocumentFile(
       uri = bookUrl.toUri(),
-      isDirectory = false,
+      directory = false,
       error = IOException("server down"),
     )
 
@@ -176,8 +176,8 @@ class RemoteCoverFinderTest {
     // folder with the error set; that must not end up as "no picture"
     files[bookUrl] = FakeCachedDocumentFile(
       uri = bookUrl.toUri(),
-      isDirectory = true,
-      children = emptyList(),
+      directory = true,
+      childFiles = emptyList(),
       error = IOException("listing failed"),
     )
 
@@ -200,8 +200,8 @@ class RemoteCoverFinderTest {
   fun garbageInsteadOfAnImageIsInconclusive() = runTest {
     files[bookUrl] = FakeCachedDocumentFile(
       uri = bookUrl.toUri(),
-      isDirectory = true,
-      children = listOf(fakeFile("$bookUrl/cover.jpg", "<html>not an image</html>".toByteArray())),
+      directory = true,
+      childFiles = listOf(fakeFile("$bookUrl/cover.jpg", "<html>not an image</html>".toByteArray())),
     )
     // robolectric's bitmap shadow decodes any existing file, so the error
     // page is simulated with an empty response body instead: download()
@@ -217,8 +217,8 @@ class RemoteCoverFinderTest {
   fun theUnchangedPictureIsNotDownloadedAgain() = runTest {
     files[bookUrl] = FakeCachedDocumentFile(
       uri = bookUrl.toUri(),
-      isDirectory = true,
-      children = listOf(fakeFile("$bookUrl/cover.jpg", imageBytes)),
+      directory = true,
+      childFiles = listOf(fakeFile("$bookUrl/cover.jpg", imageBytes)),
     )
     val applied = marker("$bookUrl/cover.jpg")
 
@@ -250,8 +250,8 @@ class RemoteCoverFinderTest {
   private fun givenFolderWithImages(vararg imageNames: String) {
     files[bookUrl] = FakeCachedDocumentFile(
       uri = bookUrl.toUri(),
-      isDirectory = true,
-      children = imageNames.map { name ->
+      directory = true,
+      childFiles = imageNames.map { name ->
         fakeFile("$bookUrl/$name", imageBytes)
       },
     )
@@ -266,8 +266,8 @@ class RemoteCoverFinderTest {
     downloads[url] = bytes
     return FakeCachedDocumentFile(
       uri = url.toUri(),
-      isDirectory = false,
-      name = url.substringAfterLast('/'),
+      directory = false,
+      fileName = url.substringAfterLast('/'),
       childrenBytes = bytes,
     )
   }
@@ -360,15 +360,18 @@ class RemoteCoverFinderTest {
 
   private class FakeCachedDocumentFile(
     override val uri: Uri,
-    override val isDirectory: Boolean,
-    override val name: String? = uri.lastPathSegment,
-    override val children: List<CachedDocumentFile> = emptyList(),
+    private val directory: Boolean,
+    private val fileName: String? = uri.lastPathSegment,
+    private val childFiles: List<CachedDocumentFile> = emptyList(),
     override val error: Throwable? = null,
     private val childrenBytes: ByteArray? = null,
   ) : CachedDocumentFile {
 
-    override val isFile: Boolean get() = !isDirectory
-    override val length: Long get() = childrenBytes?.size?.toLong() ?: 0L
-    override val lastModified: Long get() = 0L
+    override suspend fun children(): List<CachedDocumentFile> = childFiles
+    override suspend fun name(): String? = fileName
+    override suspend fun isDirectory(): Boolean = directory
+    override suspend fun isFile(): Boolean = !directory
+    override suspend fun length(): Long = childrenBytes?.size?.toLong() ?: 0L
+    override suspend fun lastModified(): Long = 0L
   }
 }

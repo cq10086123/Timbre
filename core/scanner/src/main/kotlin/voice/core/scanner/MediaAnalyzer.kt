@@ -59,7 +59,7 @@ internal class MediaAnalyzer(
   suspend fun analyze(file: CachedDocumentFile): Metadata? {
     val builder = Metadata.Builder(file.nameWithoutExtension())
     val fileType = FileTypes.inferFileTypeFromUri(file.uri)
-    val extension = (file.name ?: "").substringAfterLast(delimiter = ".", missingDelimiterValue = "").lowercase()
+    val extension = (file.name() ?: "").substringAfterLast(delimiter = ".", missingDelimiterValue = "").lowercase()
     val isMp4 = fileType == FileTypes.MP4 || extension == "mp4" || extension == "m4a" || extension == "m4b"
 
     // the boxes of an mp4 hold the duration, the tags and the chapters, so the

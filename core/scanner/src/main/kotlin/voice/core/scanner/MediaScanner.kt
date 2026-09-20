@@ -5,6 +5,12 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.asFlow
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.flow.flatMapConcat
+import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.flow.transform
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.sync.Semaphore
 import voice.core.common.PlaybackIoGate
@@ -79,7 +85,7 @@ internal class MediaScanner(
               // playback before it takes an io slot.
               val audioFiles = playbackIoGate.withScannerIoSlot(semaphore) {
                 bookFile.walk()
-                  .filter { it.isAudioFile() }
+                  .transform { if (it.isAudioFile()) emit(it) }
                   .toList()
               }
               val readError = bookFile.error
@@ -127,15 +133,18 @@ internal class MediaScanner(
     }
   }
 
-  private fun List<CachedDocumentFile>.findProbeFile(): CachedDocumentFile? {
-    return asSequence()
+  private suspend fun List<CachedDocumentFile>.findProbeFile(): CachedDocumentFile? {
+    return asFlow()
       // the storage permission bug only exists on the local external storage;
       // walking a remote book would only cost a network request per folder
       .filter { it.uri.scheme != "http" && it.uri.scheme != "https" }
-      .flatMap { it.walk() }
-      .firstOrNull { child ->
-        child.isAudioFile() && child.uri.authority == "com.android.externalstorage.documents"
+      .flatMapConcat { it.walk() }
+      .transform { child ->
+        if (child.isAudioFile() && child.uri.authority == "com.android.externalstorage.documents") {
+          emit(child)
+        }
       }
+      .firstOrNull()
   }
 
   private suspend fun scan(entry: BookEntry): ChapterParseResult {

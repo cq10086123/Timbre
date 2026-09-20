@@ -8,7 +8,6 @@ import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.ContributesIntoSet
 import dev.zacsweers.metro.Inject
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.runBlocking
 import voice.core.documentfile.CachedDocumentFile
 import voice.core.documentfile.DocumentFileSchemeHandler
 import voice.core.logging.api.Logger
@@ -46,42 +45,35 @@ internal class WebDavDocumentFile(
 
   override val error: Throwable? get() = readError
 
-  override val children: List<CachedDocumentFile>
-    get() {
-      val resolved = resolver.byUri(uri) ?: return emptyList()
-      return try {
-        val resources = runBlocking {
-          client.list(resolved.server, resolved.password, url)
-        }
-        readError = null
-        resources.map { child ->
-          WebDavDocumentFile(client, resolver, child.url.toUri(), child)
-        }
-      } catch (e: CancellationException) {
-        throw e
-      } catch (e: Exception) {
-        Logger.w(e, "Could not list $url")
-        readError = e
-        emptyList()
+  override suspend fun children(): List<CachedDocumentFile> {
+    // resolve on every access (the resolver caches its snapshot), same as props()
+    val resolved = resolver.byUri(uri) ?: return emptyList()
+    return try {
+      val resources = client.list(resolved.server, resolved.password, url)
+      readError = null
+      resources.map { child ->
+        WebDavDocumentFile(client, resolver, child.url.toUri(), child)
       }
+    } catch (e: CancellationException) {
+      throw e
+    } catch (e: Exception) {
+      Logger.w(e, "Could not list $url")
+      readError = e
+      emptyList()
     }
+  }
 
-  override val name: String?
-    get() = props()?.name
+  override suspend fun name(): String? = props()?.name
 
-  override val isDirectory: Boolean
-    get() = props()?.isDirectory ?: false
+  override suspend fun isDirectory(): Boolean = props()?.isDirectory ?: false
 
-  override val isFile: Boolean
-    get() = props()?.isDirectory == false
+  override suspend fun isFile(): Boolean = props()?.isDirectory == false
 
-  override val length: Long
-    get() = props()?.contentLength?.takeIf { it >= 0 } ?: 0L
+  override suspend fun length(): Long = props()?.contentLength?.takeIf { it >= 0 } ?: 0L
 
-  override val lastModified: Long
-    get() = props()?.lastModified ?: 0L
+  override suspend fun lastModified(): Long = props()?.lastModified ?: 0L
 
-  private fun props(): WebDavResource? {
+  private suspend fun props(): WebDavResource? {
     knownResource?.let { return it }
     fetchedResource?.let { return it }
     // resolve on every access (the resolver caches its snapshot): a lazily
@@ -89,9 +81,7 @@ internal class WebDavDocumentFile(
     val resolved = resolver.byUri(uri) ?: return null
     if (SystemClock.elapsedRealtime() - lastFetchFailureAt < retryAfterMs) return null
     val fetched = try {
-      runBlocking {
-        client.resource(resolved.server, resolved.password, url)
-      }
+      client.resource(resolved.server, resolved.password, url)
     } catch (e: CancellationException) {
       throw e
     } catch (e: Exception) {

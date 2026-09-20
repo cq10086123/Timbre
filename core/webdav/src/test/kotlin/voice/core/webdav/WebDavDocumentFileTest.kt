@@ -43,8 +43,8 @@ class WebDavDocumentFileTest {
     // retryAfterMs = 0 forces an immediate retry instead of waiting out
     // the cooldown, so the test observes the recovery path deterministically
     val file = WebDavDocumentFile(client, resolver, url.toUri(), knownResource = null, retryAfterMs = 0L)
-    assertEquals(expected = 0L, actual = file.length)
-    assertEquals(expected = 42L, actual = file.length)
+    assertEquals(expected = 0L, actual = file.length())
+    assertEquals(expected = 42L, actual = file.length())
     assertEquals(expected = 2, actual = server.requestCount)
   }
 
@@ -62,13 +62,13 @@ class WebDavDocumentFileTest {
     }
 
     val file = WebDavDocumentFile(client, resolver, url.toUri(), knownResource = null, retryAfterMs = 0L)
-    assertEquals(expected = 0L, actual = file.length)
+    assertEquals(expected = 0L, actual = file.length())
 
     // the user re-entered the password, like WebDavLibrary.saveServer does
     serversStore.updateData { listOf(serverConfig(password = "new")) }
     resolver.invalidate()
 
-    assertEquals(expected = 42L, actual = file.length)
+    assertEquals(expected = 42L, actual = file.length())
   }
 
   private fun serverConfig(password: String): WebDavServer {

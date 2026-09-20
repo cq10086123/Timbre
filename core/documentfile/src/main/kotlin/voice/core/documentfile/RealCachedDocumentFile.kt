@@ -9,23 +9,36 @@ internal data class RealCachedDocumentFile(
   private val preFilledContent: FileContents?,
 ) : CachedDocumentFile {
 
-  override val children: List<CachedDocumentFile> by lazy {
-    if (isDirectory) {
+  // a single check memo: the value is queried once and reused; a benign race
+  // under concurrency only queries twice and still ends up with the same
+  // immutable contents
+  @Volatile
+  private var content: FileContents? = null
+
+  @Volatile
+  private var contentResolved = false
+
+  private suspend fun content(): FileContents? {
+    if (!contentResolved) {
+      content = preFilledContent ?: FileContents.query(context, uri)
+      contentResolved = true
+    }
+    return content
+  }
+
+  override suspend fun children(): List<CachedDocumentFile> {
+    return if (isDirectory()) {
       parseContents(uri, context)
     } else {
       emptyList()
     }
   }
 
-  private val content: FileContents? by lazy {
-    preFilledContent ?: FileContents.query(context, uri)
-  }
-
-  override val name: String? by lazy { content?.name }
-  override val isDirectory: Boolean by lazy { content?.isDirectory ?: false }
-  override val isFile: Boolean by lazy { content?.isFile ?: false }
-  override val length: Long by lazy { content?.length ?: 0L }
-  override val lastModified: Long by lazy { content?.lastModified ?: 0L }
+  override suspend fun name(): String? = content()?.name
+  override suspend fun isDirectory(): Boolean = content()?.isDirectory ?: false
+  override suspend fun isFile(): Boolean = content()?.isFile ?: false
+  override suspend fun length(): Long = content()?.length ?: 0L
+  override suspend fun lastModified(): Long = content()?.lastModified ?: 0L
 
   override fun toString(): String = "RealCachedDocumentFile($uri)"
 }

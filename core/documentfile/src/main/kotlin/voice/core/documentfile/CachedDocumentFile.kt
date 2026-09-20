@@ -1,25 +1,22 @@
 package voice.core.documentfile
 
 import android.net.Uri
-import androidx.annotation.WorkerThread
 
 /**
  * A file or folder, local or remote.
  *
- * For remote implementations (e.g. WebDAV) reading [children], [name],
- * [isDirectory], [isFile], [length] or [lastModified] performs network
- * requests and blocks - sometimes for the full connect/read timeout. Every
- * call site must therefore run on a worker thread; calling these from the
- * main thread freezes the UI.
+ * For remote implementations (e.g. WebDAV) the suspend members perform
+ * network requests. Suspending instead of blocking makes it impossible to
+ * freeze the main thread: the compiler only allows calls from coroutines,
+ * where the caller controls the threading.
  */
-@WorkerThread
 interface CachedDocumentFile {
-  val children: List<CachedDocumentFile>
-  val name: String?
-  val isDirectory: Boolean
-  val isFile: Boolean
-  val length: Long
-  val lastModified: Long
+  suspend fun children(): List<CachedDocumentFile>
+  suspend fun name(): String?
+  suspend fun isDirectory(): Boolean
+  suspend fun isFile(): Boolean
+  suspend fun length(): Long
+  suspend fun lastModified(): Long
   val uri: Uri
 
   /**
@@ -34,8 +31,8 @@ interface CachedDocumentFile {
   val error: Throwable? get() = null
 }
 
-fun CachedDocumentFile.nameWithoutExtension(): String {
-  val name = name
+suspend fun CachedDocumentFile.nameWithoutExtension(): String {
+  val name = name()
   return if (name == null) {
     uri.pathSegments.lastOrNull()
       ?.dropWhile { it != ':' }
@@ -43,7 +40,7 @@ fun CachedDocumentFile.nameWithoutExtension(): String {
       ?.takeUnless { it.isBlank() }
       ?: uri.toString()
   } else {
-    if (isFile) {
+    if (isFile()) {
       name.substringBeforeLast(".")
         .takeUnless { it.isEmpty() }
         ?: name
