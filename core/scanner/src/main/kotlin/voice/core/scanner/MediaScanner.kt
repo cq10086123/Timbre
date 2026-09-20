@@ -145,7 +145,13 @@ internal class MediaScanner(
       // be played while its remaining chapters are still being analyzed
       storeChapters(file, progress.chapters, progress.firstChapterMetadata, isComplete = false)
     }
-    storeChapters(file, parseResult.chapters, parseResult.firstChapterMetadata, isComplete = true)
+    storeChapters(
+      file,
+      parseResult.chapters,
+      parseResult.firstChapterMetadata,
+      isComplete = true,
+      failedChapters = parseResult.failedChapters,
+    )
     return parseResult
   }
 
@@ -154,6 +160,7 @@ internal class MediaScanner(
     chapters: List<Chapter>,
     firstChapterMetadata: Metadata?,
     isComplete: Boolean,
+    failedChapters: Int = 0,
   ) {
     if (chapters.isEmpty()) return
 
@@ -161,9 +168,12 @@ internal class MediaScanner(
 
     val chapterIds = chapters.map { it.id }
     val currentChapterGone = content.currentChapter !in chapterIds
-    if (!isComplete) {
-      // an incomplete chapter list must only ever grow the book. Otherwise a
-      // rescan would temporarily hide chapters and reset the stored position.
+    if (!isComplete || failedChapters > 0) {
+      // an incomplete or partially failed chapter list must only ever grow
+      // the book. Otherwise a rescan would permanently drop chapters that
+      // merely failed to analyze (flaky network, corrupt header) and silently
+      // move the stored position. Genuinely deleted files are picked up by the
+      // next fully successful scan instead.
       if (chapterIds.size <= content.chapters.size || currentChapterGone) {
         return
       }

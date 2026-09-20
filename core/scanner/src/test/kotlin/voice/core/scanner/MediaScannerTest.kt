@@ -111,6 +111,40 @@ class MediaScannerTest {
   }
 
   @Test
+  fun failedChapterRescanKeepsStoredChapters() = test {
+    val audiobookFolder = folder("audiobooks")
+    val book = File(audiobookFolder, "book1")
+    val chapter1 = audioFile(book, "1.mp3")
+    val chapter2 = audioFile(book, "2.mp3")
+    val chapter3 = audioFile(book, "3.mp3")
+
+    scan(FolderType.Root, audiobookFolder)
+    assertBookContents(BookContentView(audiobookFolder, listOf(chapter1, chapter2, chapter3)))
+
+    // the file changed but cannot be analyzed right now, e.g. the server
+    // rejects the range requests of the analyzer
+    chapter2.appendBytes(byteArrayOf(1, 2, 3))
+    failSingleChapter("2.mp3")
+
+    scan(FolderType.Root, audiobookFolder)
+
+    // the failed chapter is kept instead of being dropped from the book,
+    // and the failure is reported on the card of the book
+    assertBookContents(BookContentView(audiobookFolder, listOf(chapter1, chapter2, chapter3)))
+    val bookId = BookId(audiobookFolder.toUri())
+    assertEquals(
+      expected = mapOf(
+        bookId to BookScanError(
+          bookId = bookId,
+          kind = BookScanError.Kind.AnalysisFailed,
+          failedChapters = 1,
+        ),
+      ),
+      actual = bookScanErrors,
+    )
+  }
+
+  @Test
   fun failedAnalysisIsReported() = test {
     val audiobookFolder = folder("audiobooks")
     val book = File(audiobookFolder, "book1")
@@ -522,23 +556,38 @@ class MediaScannerTest {
       }
     }
 
+    /** The analysis of one file fails while all others succeed. */
+    fun failSingleChapter(name: String) {
+      coEvery { mediaAnalyzer.analyze(any()) } coAnswers {
+        val file = invocation.args.first() as CachedDocumentFile
+        if (file.name == name) throw IOException("the audio file cannot be read")
+        analyzeSnapshots += scanProgressReporter.bookProgress.value
+        analyzeCounter.incrementAndGet()
+        testMetadata()
+      }
+    }
+
+    private fun testMetadata(): Metadata {
+      return Metadata(
+        duration = 1000L,
+        artist = "Author",
+        album = "Book Name",
+        fileName = "Chapter",
+        chapters = emptyList(),
+        title = "Title",
+        genre = "Genre",
+        narrator = "Narrator",
+        series = "Series",
+        part = "Part",
+      )
+    }
+
     /** The analysis works again (the file is readable). */
     fun succeedAnalysis() {
       coEvery { mediaAnalyzer.analyze(any()) } coAnswers {
         analyzeSnapshots += scanProgressReporter.bookProgress.value
         analyzeCounter.incrementAndGet()
-        Metadata(
-          duration = 1000L,
-          artist = "Author",
-          album = "Book Name",
-          fileName = "Chapter",
-          chapters = emptyList(),
-          title = "Title",
-          genre = "Genre",
-          narrator = "Narrator",
-          series = "Series",
-          part = "Part",
-        )
+        testMetadata()
       }
     }
 
