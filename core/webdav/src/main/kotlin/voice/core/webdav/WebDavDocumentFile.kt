@@ -1,6 +1,7 @@
 package voice.core.webdav
 
 import android.net.Uri
+import android.os.SystemClock
 import androidx.annotation.WorkerThread
 import androidx.core.net.toUri
 import dev.zacsweers.metro.AppScope
@@ -18,21 +19,23 @@ internal class WebDavDocumentFile(
   private val resolver: WebDavCredentialResolver,
   override val uri: Uri,
   private val knownResource: WebDavResource?,
+  private val retryAfterMs: Long = DEFAULT_RETRY_AFTER_MS,
 ) : CachedDocumentFile {
 
   private val url: String = uri.toString()
 
-  private val resolved: WebDavCredentialResolver.Resolved? by lazy { resolver.byUri(uri) }
-
   @Volatile
   private var fetchedResource: WebDavResource? = null
 
-  // a file whose properties are unknown asks the server exactly once: every
-  // access to name/length/isFile would otherwise start another request, and an
-  // unreachable server costs a connect timeout each time (a scan over a whole
-  // library adds up to minutes of network timeouts)
+  // a file whose properties are unknown asks the server at most once per
+  // cooldown: every access to name/length/isFile would otherwise start another
+  // request, and an unreachable server costs a connect timeout each time (a
+  // scan over a whole library adds up to minutes of network timeouts). But the
+  // failure must not latch forever: a nas hiccup at the start of a long scan
+  // would otherwise misjudge the book for the rest of the scan, and a
+  // password change would never be picked up by this instance.
   @Volatile
-  private var fetchFailed: Boolean = false
+  private var lastFetchFailureAt: Long = 0L
 
   /**
    * The reason the last read failed, so the scan can tell an unreachable book
@@ -45,7 +48,7 @@ internal class WebDavDocumentFile(
 
   override val children: List<CachedDocumentFile>
     get() {
-      val resolved = resolved ?: return emptyList()
+      val resolved = resolver.byUri(uri) ?: return emptyList()
       return try {
         val resources = runBlocking {
           client.list(resolved.server, resolved.password, url)
@@ -81,8 +84,10 @@ internal class WebDavDocumentFile(
   private fun props(): WebDavResource? {
     knownResource?.let { return it }
     fetchedResource?.let { return it }
-    val resolved = resolved ?: return null
-    if (fetchFailed) return null
+    // resolve on every access (the resolver caches its snapshot): a lazily
+    // cached resolution would keep using a stale password after it changed
+    val resolved = resolver.byUri(uri) ?: return null
+    if (SystemClock.elapsedRealtime() - lastFetchFailureAt < retryAfterMs) return null
     val fetched = try {
       runBlocking {
         client.resource(resolved.server, resolved.password, url)
@@ -91,18 +96,23 @@ internal class WebDavDocumentFile(
       throw e
     } catch (e: Exception) {
       Logger.w(e, "Could not fetch properties of $url")
-      fetchFailed = true
+      lastFetchFailureAt = SystemClock.elapsedRealtime()
       readError = e
       return null
     }
     if (fetched == null) {
       // the server answered, but has no such resource: it is gone, not offline
-      fetchFailed = true
+      lastFetchFailureAt = SystemClock.elapsedRealtime()
       return null
     }
     fetchedResource = fetched
+    lastFetchFailureAt = 0L
     readError = null
     return fetched
+  }
+
+  private companion object {
+    const val DEFAULT_RETRY_AFTER_MS = 60_000L
   }
 }
 
