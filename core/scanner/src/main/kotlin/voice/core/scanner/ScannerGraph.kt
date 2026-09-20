@@ -22,16 +22,20 @@ public interface ScannerGraph {
     // provider is also the path the player takes to open the next chapter.
     // A read that is already in flight cannot be cancelled, so the number of
     // reads in flight decides whether a chapter switch gets its file right
-    // away or is queued behind the import. One analysis at a time is what
-    // makes "switch a chapter and it plays immediately" hold on slow storage;
-    // on fast storage imports only get a little slower, and on slow storage
-    // they get faster because the reads stop thrashing each other.
-    val permits = ANALYSIS_PARALLELISM
-    // the retriever caps the number of parallel retrievals on its own, so it
-    // has to be raised together with our permits
-    MetadataRetriever.setMaximumParallelRetrievals(permits)
-    return Semaphore(permits)
+    // away or is queued behind the import. The default target of one analysis
+    // at a time keeps "switch a chapter and it plays immediately" holding on
+    // slow storage.
+    //
+    // The user can raise the target to [MAX_IMPORT_PARALLELISM]; operations
+    // then acquire ANALYSIS_PERMITS / target permits each, which scales the
+    // effective concurrency to the target while keeping this single physical
+    // semaphore (kotlinx semaphores cannot change their permit count).
+    MetadataRetriever.setMaximumParallelRetrievals(MAX_IMPORT_PARALLELISM)
+    return Semaphore(ANALYSIS_PERMITS)
   }
 }
 
-private const val ANALYSIS_PARALLELISM = 1
+// 6 = MAX_IMPORT_PARALLELISM squared: it divides evenly by every target
+// (6 / 1 = 6, 6 / 2 = 3, 6 / 3 = 2), so multi-permit acquisition yields
+// exactly the chosen concurrency.
+internal const val ANALYSIS_PERMITS = 6

@@ -18,6 +18,9 @@ public annotation class SeekTimeStore
 public annotation class BtSkipToChapterStore
 
 @Qualifier
+public annotation class AnalysisParallelismStore
+
+@Qualifier
 public annotation class SleepTimerPreferenceStore
 
 @Qualifier

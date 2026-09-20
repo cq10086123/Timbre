@@ -26,6 +26,8 @@ interface SettingsListener {
   fun openWebDav()
   fun setAutoRefreshWifi(checked: Boolean)
   fun setBtSkipToChapter(checked: Boolean)
+  fun onImportParallelismRowClick()
+  fun importParallelismChanged(level: Int)
   fun onAppVersionClick()
 
   fun openDeveloperMenu()
@@ -43,6 +45,8 @@ interface SettingsListener {
       override fun autoRewindAmountChang(seconds: Int) {}
       override fun onAutoRewindRowClick() {}
       override fun setBtSkipToChapter(checked: Boolean) {}
+      override fun onImportParallelismRowClick() {}
+      override fun importParallelismChanged(level: Int) {}
       override fun dismissDialog() {}
       override fun openProjectRepository() {}
       override fun openSupportVoice() {}

@@ -249,6 +249,10 @@
     <string name="settings.playback.seek_time.title">Skip amount</string>
     <!-- Behavior of the previous/next media buttons (bluetooth, lock screen): chapter skip vs. seek. -->
     <string name="settings.playback.bt_skip_chapter.title">Bluetooth prev/next skips chapters</string>
+    <string name="settings.playback.import_parallelism.title">Import parallelism</string>
+    <string name="settings.playback.import_parallelism.summary">Chapters analyzed at the same time. Higher imports faster, but chapter switches respond slower while importing.</string>
+    <string name="settings.playback.import_parallelism.value">%1$d at a time</string>
+    <string name="settings.playback.import_parallelism.option">%1$d chapter(s) at a time</string>
     <string name="settings.playback.bt_skip_chapter.summary">When on, the previous/next buttons on bluetooth and the lock screen jump to the previous/next chapter. When off, they seek back/forward.</string>
     <!-- Settings row description for opening the donation/support screen. -->
     <string name="settings.support.support_voice.summary">Donations help keep Timbre maintained</string>

@@ -6,7 +6,9 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import io.mockk.coEvery
+import io.mockk.every
 import io.mockk.mockk
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.test.runTest
 import org.junit.runner.RunWith
@@ -498,7 +500,10 @@ class MediaScannerTest {
         mediaAnalyzer = mediaAnalyzer,
         scanProgressReporter = scanProgressReporter,
         playbackIoGate = PlaybackIoGate(),
-        analyzeSemaphore = Semaphore(4),
+        analyzeSemaphore = Semaphore(6),
+        analysisParallelismStore = mockk {
+          every { data } returns flowOf(1)
+        },
       ),
       bookParser = BookParser(
         contentRepo = bookContentRepo,
@@ -507,7 +512,10 @@ class MediaScannerTest {
       ),
       deviceHasPermissionBug = mockk(),
       scanProgressReporter = scanProgressReporter,
-      semaphore = Semaphore(4),
+      semaphore = Semaphore(6),
+      analysisParallelismStore = mockk {
+        every { data } returns flowOf(1)
+      },
       playbackIoGate = PlaybackIoGate(),
     )
 

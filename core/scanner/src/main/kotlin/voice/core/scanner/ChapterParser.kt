@@ -1,10 +1,12 @@
 package voice.core.scanner
 
+import androidx.datastore.core.DataStore
 import dev.zacsweers.metro.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.flow.transform
 import kotlinx.coroutines.sync.Semaphore
@@ -14,6 +16,7 @@ import voice.core.data.Chapter
 import voice.core.data.ChapterId
 import voice.core.data.isAudioFile
 import voice.core.data.repo.ChapterRepo
+import voice.core.data.store.AnalysisParallelismStore
 import voice.core.documentfile.CachedDocumentFile
 import voice.core.documentfile.walk
 import voice.core.logging.api.Logger
@@ -40,6 +43,7 @@ internal class ChapterParser(
   private val scanProgressReporter: ScanProgressReporter,
   private val playbackIoGate: PlaybackIoGate,
   @MediaAnalysisSemaphore private val analyzeSemaphore: Semaphore,
+  @AnalysisParallelismStore private val analysisParallelismStore: DataStore<Int>,
 ) {
 
   suspend fun parse(
@@ -89,7 +93,7 @@ internal class ChapterParser(
         coroutineScope {
           val deferred = batch.map { file ->
             async(Dispatchers.IO) {
-              playbackIoGate.withScannerIoSlot(analyzeSemaphore) {
+              playbackIoGate.withScannerIoSlot(analyzeSemaphore, analysisPermits()) {
                 try {
                   parseChapter(file)
                 } finally {
@@ -127,6 +131,10 @@ internal class ChapterParser(
     }
 
     return parseResult(chapters, metadataByChapter, failedChapters)
+  }
+
+  private suspend fun analysisPermits(): Int {
+    return ANALYSIS_PERMITS / analysisParallelismStore.data.first().coerceIn(1, MAX_IMPORT_PARALLELISM)
   }
 
   private fun publishStride(chapterCount: Int): Int {

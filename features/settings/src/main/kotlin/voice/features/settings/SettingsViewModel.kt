@@ -18,6 +18,7 @@ import voice.core.data.GridMode
 import voice.core.data.ThemeColorScheme
 import voice.core.data.ThemeMode
 import voice.core.data.sleeptimer.SleepTimerPreference
+import voice.core.data.store.AnalysisParallelismStore
 import voice.core.data.store.AnalyticsConsentStore
 import voice.core.data.store.AutoRewindAmountStore
 import voice.core.data.store.BtSkipToChapterStore
@@ -65,6 +66,8 @@ class SettingsViewModel(
   private val autoRefreshWifiStore: DataStore<Boolean>,
   @BtSkipToChapterStore
   private val btSkipToChapterStore: DataStore<Boolean>,
+  @AnalysisParallelismStore
+  private val analysisParallelismStore: DataStore<Int>,
   private val dynamicColorAvailability: DynamicColorAvailability,
   private val updateNotifier: UpdateNotifier,
   dispatcherProvider: DispatcherProvider,
@@ -93,6 +96,7 @@ class SettingsViewModel(
     val showDeveloperMenu by remember { developerMenuUnlockedStore.data }.collectAsState(initial = false)
     val autoRefreshWifi by remember { autoRefreshWifiStore.data }.collectAsState(initial = true)
     val btSkipToChapter by remember { btSkipToChapterStore.data }.collectAsState(initial = true)
+    val importParallelism by remember { analysisParallelismStore.data }.collectAsState(initial = 1)
     val showThemeColorSchemePref = remember {
       dynamicColorAvailability.isSupported()
     }
@@ -120,6 +124,7 @@ class SettingsViewModel(
       showDeveloperMenu = showDeveloperMenu,
       autoRefreshWifi = autoRefreshWifi,
       btSkipToChapter = btSkipToChapter,
+      importParallelism = importParallelism,
       showSupportDevelopment = appInfoProvider.supportDevelopmentIncluded,
       kioskMode = kioskMode,
     )
@@ -216,6 +221,17 @@ class SettingsViewModel(
   override fun setBtSkipToChapter(checked: Boolean) {
     mainScope.launch {
       btSkipToChapterStore.updateData { checked }
+    }
+  }
+
+  override fun onImportParallelismRowClick() {
+    dialog.value = SettingsViewState.Dialog.ImportParallelism
+  }
+
+  override fun importParallelismChanged(level: Int) {
+    dialog.value = null
+    mainScope.launch {
+      analysisParallelismStore.updateData { level }
     }
   }
 
