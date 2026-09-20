@@ -5,6 +5,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.flow.transform
 import kotlinx.coroutines.sync.Semaphore
@@ -39,7 +40,6 @@ internal class ChapterParser(
   private val mediaAnalyzer: MediaAnalyzer,
   private val scanProgressReporter: ScanProgressReporter,
   private val playbackIoGate: PlaybackIoGate,
-  @MediaAnalysisSemaphore private val analyzeSemaphore: Semaphore,
 ) {
 
   suspend fun parse(
@@ -49,7 +49,7 @@ internal class ChapterParser(
     val audioFiles = documentFile.walk()
       .transform { if (it.isAudioFile()) emit(it) }
       .toList()
-    return parse(documentFile, audioFiles, onProgress)
+    return parse(documentFile, audioFiles, Semaphore(1), onProgress)
   }
 
   /**
@@ -70,6 +70,7 @@ internal class ChapterParser(
   suspend fun parse(
     documentFile: CachedDocumentFile,
     audioFiles: List<CachedDocumentFile>,
+    analysisSemaphore: Semaphore = Semaphore(1),
     onProgress: suspend (ChapterParseResult) -> Unit = { },
   ): ChapterParseResult {
     val bookId = BookId(documentFile.uri)
@@ -89,7 +90,7 @@ internal class ChapterParser(
         coroutineScope {
           val deferred = batch.map { file ->
             async(Dispatchers.IO) {
-              playbackIoGate.withScannerIoSlot(analyzeSemaphore) {
+              playbackIoGate.withScannerIoSlot(analysisSemaphore) {
                 try {
                   parseChapter(file)
                 } finally {

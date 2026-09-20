@@ -1,16 +1,23 @@
 package voice.features.settings.views
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -18,10 +25,12 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.retain.retain
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.dp
 import androidx.navigation3.runtime.NavEntry
 import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.ContributesTo
@@ -199,6 +208,29 @@ private fun Settings(
 
       item {
         ListItem(
+          modifier = Modifier.clickable { listener.onImportParallelismRowClick() },
+          leadingContent = {
+            Icon(
+              imageVector = VoiceIcons.Speed,
+              contentDescription = stringResource(StringsR.string.settings_playback_import_parallelism_title),
+            )
+          },
+          supportingContent = {
+            Text(stringResource(StringsR.string.settings_playback_import_parallelism_summary))
+          },
+          trailingContent = {
+            Text(
+              text = stringResource(StringsR.string.settings_playback_import_parallelism_value, viewState.importParallelism),
+              style = MaterialTheme.typography.bodyLarge,
+            )
+          },
+        ) {
+          Text(stringResource(StringsR.string.settings_playback_import_parallelism_title))
+        }
+      }
+
+      item {
+        ListItem(
           modifier = Modifier.clickable { listener.setBtSkipToChapter(!viewState.btSkipToChapter) },
           leadingContent = {
             Icon(
@@ -359,6 +391,13 @@ private fun Dialog(
         onDismiss = listener::dismissDialog,
       )
     }
+    SettingsViewState.Dialog.ImportParallelism -> {
+      ImportParallelismDialog(
+        currentLevel = viewState.importParallelism,
+        onLevelSelect = listener::importParallelismChanged,
+        onDismiss = listener::dismissDialog,
+      )
+    }
     SettingsViewState.Dialog.SeekTime -> {
       SeekAmountDialog(
         currentSeconds = viewState.seekTimeInSeconds,
@@ -381,4 +420,51 @@ private fun Dialog(
       )
     }
   }
+}
+
+@Composable
+internal fun ImportParallelismDialog(
+  currentLevel: Int,
+  onLevelSelect: (Int) -> Unit,
+  onDismiss: () -> Unit,
+) {
+  AlertDialog(
+    onDismissRequest = onDismiss,
+    title = {
+      Text(stringResource(StringsR.string.settings_playback_import_parallelism_title))
+    },
+    text = {
+      Column {
+        Text(
+          modifier = Modifier.padding(bottom = 8.dp),
+          text = stringResource(StringsR.string.settings_playback_import_parallelism_summary),
+          style = MaterialTheme.typography.bodySmall,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        (1..3).forEach { level ->
+          Row(
+            modifier = Modifier
+              .fillMaxWidth()
+              .clickable { onLevelSelect(level) },
+            verticalAlignment = Alignment.CenterVertically,
+          ) {
+            RadioButton(
+              selected = level == currentLevel,
+              onClick = { onLevelSelect(level) },
+            )
+            Text(
+              text = stringResource(StringsR.string.settings_playback_import_parallelism_option, level),
+              style = MaterialTheme.typography.bodyLarge,
+            )
+          }
+        }
+      }
+    },
+    confirmButton = {},
+    dismissButton = {
+      TextButton(onClick = onDismiss) {
+        Text(stringResource(StringsR.string.common_dialog_cancel))
+      }
+    },
+  )
 }

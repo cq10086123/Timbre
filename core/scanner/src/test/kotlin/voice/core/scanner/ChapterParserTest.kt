@@ -6,6 +6,7 @@ import io.mockk.coEvery
 import io.mockk.just
 import io.mockk.mockk
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -82,7 +83,6 @@ class ChapterParserTest {
         }
       },
       playbackIoGate = PlaybackIoGate(),
-      analyzeSemaphore = kotlinx.coroutines.sync.Semaphore(4),
       scanProgressReporter = ScanProgressReporter(),
     )
     assertEquals(
@@ -162,7 +162,6 @@ class ChapterParserTest {
         }
       },
       playbackIoGate = PlaybackIoGate(),
-      analyzeSemaphore = Semaphore(4),
       scanProgressReporter = ScanProgressReporter(),
     )
 
@@ -224,7 +223,6 @@ class ChapterParserTest {
         }
       },
       playbackIoGate = PlaybackIoGate(),
-      analyzeSemaphore = Semaphore(4),
       scanProgressReporter = ScanProgressReporter(),
     )
   }

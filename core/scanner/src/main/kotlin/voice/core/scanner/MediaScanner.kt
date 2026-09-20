@@ -7,12 +7,14 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.asFlow
 import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.flatMapConcat
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.flow.transform
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import voice.core.common.PlaybackIoGate
 import voice.core.data.BookId
 import voice.core.data.Chapter
@@ -30,13 +32,15 @@ internal class MediaScanner(
   private val bookParser: BookParser,
   private val deviceHasPermissionBug: DeviceHasStoragePermissionBug,
   private val scanProgressReporter: ScanProgressReporter,
-  @MediaAnalysisSemaphore private val semaphore: Semaphore,
   private val playbackIoGate: PlaybackIoGate,
 ) {
+
+  private val bookSemaphore = Semaphore(BOOK_SCAN_CONCURRENCY)
 
   suspend fun scan(
     folders: Map<FolderType, List<CachedDocumentFile>>,
     hasRegisteredFolders: Boolean = true,
+    analysisSemaphore: Semaphore = Semaphore(1),
   ) {
     // bookshelf model: every registered folder or file is exactly one book,
     // regardless of the (legacy) folder type
@@ -73,63 +77,72 @@ internal class MediaScanner(
       files
         .map { bookFile ->
           async(Dispatchers.IO) {
-            val bookId = BookId(bookFile.uri)
-            var error: BookScanError? = null
-            try {
-              // enumerate this book's chapters first (directory listing only,
-              // no media parsing) so the import progress has an exact total
-              // and the bar never moves backwards. A book starts analyzing as
-              // soon as its own listing is known; one book's directory walk
-              // no longer delays the import of the others. The walk goes
-              // through the documents provider as well, so it waits for
-              // playback before it takes an io slot.
-              val audioFiles = playbackIoGate.withScannerIoSlot(semaphore) {
-                bookFile.walk()
-                  .transform { if (it.isAudioFile()) emit(it) }
-                  .toList()
-              }
-              val readError = bookFile.error
-              if (audioFiles.isEmpty() && readError != null) {
-                // an unreadable folder is not an empty one. Its stored
-                // chapters are kept, so the book stays on the shelf (with an
-                // error on its card) instead of silently disappearing
-                Logger.w(readError, "Could not read the folder of $bookId")
-                error = BookScanError(bookId = bookId, kind = BookScanError.Kind.Unreachable)
-              }
-              scanProgressReporter.beginBook(
-                bookId = bookId,
-                chaptersTotal = audioFiles.size,
-              )
-              if (audioFiles.isNotEmpty()) {
-                val result = scan(BookEntry(bookFile, audioFiles))
-                if (result.failedChapters > 0) {
-                  error = BookScanError(
-                    bookId = bookId,
-                    kind = BookScanError.Kind.AnalysisFailed,
-                    failedChapters = result.failedChapters,
-                  )
-                }
-              }
-            } catch (e: CancellationException) {
-              throw e
-            } catch (e: Exception) {
-              Logger.w(e, "Error while scanning $bookFile")
-              error = BookScanError(bookId = bookId, kind = BookScanError.Kind.Unreachable)
-            } finally {
-              scanProgressReporter.finishBook(bookId)
-              val scanError = error
-              if (scanError == null) {
-                scanProgressReporter.clearError(bookId)
-              } else {
-                // reported through the shelf, which shows the error on the
-                // card of the book with a retry: a failed import must not stay
-                // invisible
-                scanProgressReporter.reportError(scanError)
-              }
+            bookSemaphore.withPermit {
+              scanBook(bookFile, analysisSemaphore)
             }
           }
         }
         .joinAll()
+    }
+  }
+
+  private suspend fun scanBook(
+    bookFile: CachedDocumentFile,
+    analysisSemaphore: Semaphore,
+  ) {
+    val bookId = BookId(bookFile.uri)
+    var error: BookScanError? = null
+    try {
+      // enumerate this book's chapters first (directory listing only,
+      // no media parsing) so the import progress has an exact total
+      // and the bar never moves backwards. A book starts analyzing as
+      // soon as its own listing is known; one book's directory walk
+      // no longer delays the import of the others. The walk goes
+      // through the documents provider as well, so it waits for
+      // playback before it takes an io slot.
+      val audioFiles = playbackIoGate.withScannerIoSlot(analysisSemaphore) {
+        bookFile.walk()
+          .transform { if (it.isAudioFile()) emit(it) }
+          .toList()
+      }
+      val readError = bookFile.error
+      if (audioFiles.isEmpty() && readError != null) {
+        // an unreadable folder is not an empty one. Its stored
+        // chapters are kept, so the book stays on the shelf (with an
+        // error on its card) instead of silently disappearing
+        Logger.w(readError, "Could not read the folder of $bookId")
+        error = BookScanError(bookId = bookId, kind = BookScanError.Kind.Unreachable)
+      }
+      scanProgressReporter.beginBook(
+        bookId = bookId,
+        chaptersTotal = audioFiles.size,
+      )
+      if (audioFiles.isNotEmpty()) {
+        val result = scan(BookEntry(bookFile, audioFiles), analysisSemaphore)
+        if (result.failedChapters > 0) {
+          error = BookScanError(
+            bookId = bookId,
+            kind = BookScanError.Kind.AnalysisFailed,
+            failedChapters = result.failedChapters,
+          )
+        }
+      }
+    } catch (e: CancellationException) {
+      throw e
+    } catch (e: Exception) {
+      Logger.w(e, "Error while scanning $bookFile")
+      error = BookScanError(bookId = bookId, kind = BookScanError.Kind.Unreachable)
+    } finally {
+      scanProgressReporter.finishBook(bookId)
+      val scanError = error
+      if (scanError == null) {
+        scanProgressReporter.clearError(bookId)
+      } else {
+        // reported through the shelf, which shows the error on the
+        // card of the book with a retry: a failed import must not stay
+        // invisible
+        scanProgressReporter.reportError(scanError)
+      }
     }
   }
 
@@ -147,9 +160,12 @@ internal class MediaScanner(
       .firstOrNull()
   }
 
-  private suspend fun scan(entry: BookEntry): ChapterParseResult {
+  private suspend fun scan(
+    entry: BookEntry,
+    analysisSemaphore: Semaphore,
+  ): ChapterParseResult {
     val file = entry.bookFile
-    val parseResult = chapterParser.parse(file, entry.audioFiles) { progress ->
+    val parseResult = chapterParser.parse(file, entry.audioFiles, analysisSemaphore) { progress ->
       // store every batch so the book shows up in the library and can already
       // be played while its remaining chapters are still being analyzed
       storeChapters(file, progress.chapters, progress.firstChapterMetadata, isComplete = false)
@@ -212,3 +228,9 @@ internal class MediaScanner(
     val audioFiles: List<CachedDocumentFile>,
   )
 }
+
+internal const val MAX_IMPORT_PARALLELISM = 3
+
+// how many books the import processes at the same time: bounds the heap
+// retained by listings and in-progress chapter lists during mass imports
+private const val BOOK_SCAN_CONCURRENCY = 4

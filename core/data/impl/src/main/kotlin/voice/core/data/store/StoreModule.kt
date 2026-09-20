@@ -91,6 +91,16 @@ public interface StoreModule {
 
   @Provides
   @SingleIn(AppScope::class)
+  @AnalysisParallelismStore
+  private fun analysisParallelism(factory: VoiceDataStoreFactory): DataStore<Int> {
+    return factory.int(
+      fileName = "analysisParallelism",
+      defaultValue = 1,
+    )
+  }
+
+  @Provides
+  @SingleIn(AppScope::class)
   @BtSkipToChapterStore
   private fun btSkipToChapter(factory: VoiceDataStoreFactory): DataStore<Boolean> {
     return factory.boolean(

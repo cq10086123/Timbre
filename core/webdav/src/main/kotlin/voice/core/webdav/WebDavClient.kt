@@ -53,28 +53,11 @@ public class WebDavClient {
       .build()
   }
 
-  // Opt-in per server for self-signed certificates; the user explicitly
-  // enables this in the server settings, so a lint suppression is intended.
   private val trustAllClient: OkHttpClient by lazy {
-    val trustManager =
-      @SuppressLint("CustomX509TrustManager")
-      object : X509TrustManager {
-        override fun checkClientTrusted(
-          chain: Array<X509Certificate>,
-          authType: String,
-        ) = Unit
-
-        override fun checkServerTrusted(
-          chain: Array<X509Certificate>,
-          authType: String,
-        ) = Unit
-
-        override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
-      }
     val sslContext = SSLContext.getInstance("TLS")
-    sslContext.init(null, arrayOf<TrustManager>(trustManager), SecureRandom())
+    sslContext.init(null, arrayOf<TrustManager>(TrustAllX509TrustManager), SecureRandom())
     plainClient.newBuilder()
-      .sslSocketFactory(sslContext.socketFactory, trustManager)
+      .sslSocketFactory(sslContext.socketFactory, TrustAllX509TrustManager)
       .hostnameVerifier { _, _ -> true }
       .build()
   }
@@ -366,4 +349,24 @@ public class WebDavClient {
     const val LISTING_TTL_MS = 30_000L
     const val LISTING_CACHE_MAX_ENTRIES = 256
   }
+}
+
+/**
+ * Opt-in per server for self-signed certificates: the user explicitly enables
+ * "trust all certificates" in the server settings, so disabling certificate
+ * validation here is intended and lint-suppressed at the declaration level.
+ */
+@SuppressLint("CustomX509TrustManager")
+private object TrustAllX509TrustManager : X509TrustManager {
+  override fun checkClientTrusted(
+    chain: Array<X509Certificate>,
+    authType: String,
+  ) = Unit
+
+  override fun checkServerTrusted(
+    chain: Array<X509Certificate>,
+    authType: String,
+  ) = Unit
+
+  override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
 }

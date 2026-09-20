@@ -78,6 +78,9 @@ class SettingsViewModelTest {
     btSkipToChapterStore = mockk {
       every { data } returns flowOf(true)
     },
+    analysisParallelismStore = mockk {
+      every { data } returns flowOf(1)
+    },
     dynamicColorAvailability = dynamicColorAvailability,
     updateNotifier = mockk {
       every { update } returns MutableStateFlow(null)

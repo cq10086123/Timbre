@@ -19,6 +19,7 @@ data class SettingsViewState(
   val showDeveloperMenu: Boolean,
   val autoRefreshWifi: Boolean,
   val btSkipToChapter: Boolean,
+  val importParallelism: Int,
   val showSupportDevelopment: Boolean,
   val kioskMode: Boolean,
   val updateAvailable: String? = null,
@@ -27,6 +28,7 @@ data class SettingsViewState(
   enum class Dialog {
     AutoRewindAmount,
     SeekTime,
+    ImportParallelism,
     Theme,
     ColorScheme,
   }
@@ -40,6 +42,7 @@ data class SettingsViewState(
         seekTimeInSeconds = 42,
         autoRewindInSeconds = 12,
         btSkipToChapter = true,
+        importParallelism = 1,
         dialog = null,
         appVersion = "1.2.3",
         useGrid = true,

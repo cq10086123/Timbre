@@ -19,5 +19,13 @@ import voice.core.common.PlaybackIoGate
  */
 internal suspend fun <T> PlaybackIoGate.withScannerIoSlot(
   semaphore: Semaphore,
+  permits: Int = 1,
   block: suspend () -> T,
-): T = whilePlaybackLoads { semaphore.withPermit { block() } }
+): T = whilePlaybackLoads {
+  repeat(permits) { semaphore.acquire() }
+  try {
+    block()
+  } finally {
+    repeat(permits) { semaphore.release() }
+  }
+}
