@@ -28,10 +28,22 @@ internal class MediaScanner(
   private val playbackIoGate: PlaybackIoGate,
 ) {
 
-  suspend fun scan(folders: Map<FolderType, List<CachedDocumentFile>>) {
+  suspend fun scan(
+    folders: Map<FolderType, List<CachedDocumentFile>>,
+    hasRegisteredFolders: Boolean = true,
+  ) {
     // bookshelf model: every registered folder or file is exactly one book,
     // regardless of the (legacy) folder type
     val files = folders.values.flatten()
+
+    if (files.isEmpty() && hasRegisteredFolders) {
+      // folders are registered but none of them resolved, e.g. the persisted
+      // uri permissions were lost on an update. Deactivating everything now
+      // would empty the whole shelf even though every book is still there, so
+      // the scan is skipped until the folders are accessible again.
+      Logger.w("Skipping the scan because no registered folder is accessible")
+      return
+    }
 
     contentRepo.setAllInactiveExcept(files.map { BookId(it.uri) })
 

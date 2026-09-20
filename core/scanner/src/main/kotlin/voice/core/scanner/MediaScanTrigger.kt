@@ -159,7 +159,12 @@ internal constructor(
                 (localFolders[FolderType.SingleFolder].orEmpty() + remoteBooks)
               )
           }
-          val importJob = launch { scanner.scan(folders) }
+          // registrations (datastore) can outlive their accessibility
+          // (persisted uri permissions): an empty listing with registered
+          // folders must not deactivate the whole library, so the scanner is
+          // told and skips the deactivation instead.
+          val hasRegisteredFolders = audiobookFolders.hasAnyFolders()
+          val importJob = launch { scanner.scan(folders, hasRegisteredFolders) }
           while (importJob.isActive) {
             coverScanner.scan(bookRepo.all())
             delay(COVER_LOOKUP_POLL_MILLIS)

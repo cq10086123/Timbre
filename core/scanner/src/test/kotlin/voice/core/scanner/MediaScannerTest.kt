@@ -89,6 +89,28 @@ class MediaScannerTest {
   }
 
   @Test
+  fun inaccessibleFoldersKeepTheBooksOnTheShelf() = test {
+    val audiobookFolder = folder("audiobooks")
+    val book = File(audiobookFolder, "book1")
+    val chapters = listOf(
+      audioFile(book, "1.mp3"),
+      audioFile(book, "2.mp3"),
+    )
+
+    scan(FolderType.Root, audiobookFolder)
+    assertBookContents(BookContentView(audiobookFolder, chapters))
+
+    // the persisted uri permissions were lost: folders are still registered
+    // but none of them resolves, so the scan must not deactivate the library
+    scanRaw(emptyMap(), hasRegisteredFolders = true)
+    assertBookContents(BookContentView(audiobookFolder, chapters))
+
+    // ...while a scan with genuinely no registrations still clears removed books
+    scanRaw(emptyMap(), hasRegisteredFolders = false)
+    assertBookContents()
+  }
+
+  @Test
   fun failedAnalysisIsReported() = test {
     val audiobookFolder = folder("audiobooks")
     val book = File(audiobookFolder, "book1")
@@ -468,6 +490,13 @@ class MediaScannerTest {
 
     suspend fun scanDocuments(vararg files: CachedDocumentFile) {
       scanner.scan(mapOf(FolderType.Root to files.toList()))
+    }
+
+    suspend fun scanRaw(
+      folders: Map<FolderType, List<CachedDocumentFile>>,
+      hasRegisteredFolders: Boolean,
+    ) {
+      scanner.scan(folders, hasRegisteredFolders)
     }
 
     @IgnorableReturnValue
