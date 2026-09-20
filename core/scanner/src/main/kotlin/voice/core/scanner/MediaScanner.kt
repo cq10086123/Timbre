@@ -1,6 +1,5 @@
 package voice.core.scanner
 
-import androidx.datastore.core.DataStore
 import dev.zacsweers.metro.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -22,7 +21,6 @@ import voice.core.data.Chapter
 import voice.core.data.folders.FolderType
 import voice.core.data.isAudioFile
 import voice.core.data.repo.BookContentRepo
-import voice.core.data.store.AnalysisParallelismStore
 import voice.core.documentfile.CachedDocumentFile
 import voice.core.documentfile.walk
 import voice.core.logging.api.Logger
@@ -34,8 +32,6 @@ internal class MediaScanner(
   private val bookParser: BookParser,
   private val deviceHasPermissionBug: DeviceHasStoragePermissionBug,
   private val scanProgressReporter: ScanProgressReporter,
-  @MediaAnalysisSemaphore private val semaphore: Semaphore,
-  @AnalysisParallelismStore private val analysisParallelismStore: DataStore<Int>,
   private val playbackIoGate: PlaybackIoGate,
 ) {
 
@@ -44,6 +40,7 @@ internal class MediaScanner(
   suspend fun scan(
     folders: Map<FolderType, List<CachedDocumentFile>>,
     hasRegisteredFolders: Boolean = true,
+    analysisSemaphore: Semaphore = Semaphore(1),
   ) {
     // bookshelf model: every registered folder or file is exactly one book,
     // regardless of the (legacy) folder type
@@ -81,7 +78,7 @@ internal class MediaScanner(
         .map { bookFile ->
           async(Dispatchers.IO) {
             bookSemaphore.withPermit {
-              scanBook(bookFile)
+              scanBook(bookFile, analysisSemaphore)
             }
           }
         }
@@ -89,7 +86,10 @@ internal class MediaScanner(
     }
   }
 
-  private suspend fun scanBook(bookFile: CachedDocumentFile) {
+  private suspend fun scanBook(
+    bookFile: CachedDocumentFile,
+    analysisSemaphore: Semaphore,
+  ) {
     val bookId = BookId(bookFile.uri)
     var error: BookScanError? = null
     try {
@@ -100,7 +100,7 @@ internal class MediaScanner(
       // no longer delays the import of the others. The walk goes
       // through the documents provider as well, so it waits for
       // playback before it takes an io slot.
-      val audioFiles = playbackIoGate.withScannerIoSlot(semaphore, analysisPermits()) {
+      val audioFiles = playbackIoGate.withScannerIoSlot(analysisSemaphore) {
         bookFile.walk()
           .transform { if (it.isAudioFile()) emit(it) }
           .toList()
@@ -118,7 +118,7 @@ internal class MediaScanner(
         chaptersTotal = audioFiles.size,
       )
       if (audioFiles.isNotEmpty()) {
-        val result = scan(BookEntry(bookFile, audioFiles))
+        val result = scan(BookEntry(bookFile, audioFiles), analysisSemaphore)
         if (result.failedChapters > 0) {
           error = BookScanError(
             bookId = bookId,
@@ -146,12 +146,6 @@ internal class MediaScanner(
     }
   }
 
-  private suspend fun analysisPermits(): Int {
-    // ANALYSIS_PERMITS divides evenly by every target (1/2/3), so acquiring
-    // permits/target yields exactly the chosen concurrency
-    return ANALYSIS_PERMITS / analysisParallelismStore.data.first().coerceIn(1, MAX_IMPORT_PARALLELISM)
-  }
-
   private suspend fun List<CachedDocumentFile>.findProbeFile(): CachedDocumentFile? {
     return asFlow()
       // the storage permission bug only exists on the local external storage;
@@ -166,9 +160,12 @@ internal class MediaScanner(
       .firstOrNull()
   }
 
-  private suspend fun scan(entry: BookEntry): ChapterParseResult {
+  private suspend fun scan(
+    entry: BookEntry,
+    analysisSemaphore: Semaphore,
+  ): ChapterParseResult {
     val file = entry.bookFile
-    val parseResult = chapterParser.parse(file, entry.audioFiles) { progress ->
+    val parseResult = chapterParser.parse(file, entry.audioFiles, analysisSemaphore) { progress ->
       // store every batch so the book shows up in the library and can already
       // be played while its remaining chapters are still being analyzed
       storeChapters(file, progress.chapters, progress.firstChapterMetadata, isComplete = false)

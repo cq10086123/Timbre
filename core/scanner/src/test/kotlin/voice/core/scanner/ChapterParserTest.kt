@@ -83,10 +83,6 @@ class ChapterParserTest {
         }
       },
       playbackIoGate = PlaybackIoGate(),
-      analyzeSemaphore = kotlinx.coroutines.sync.Semaphore(4),
-      analysisParallelismStore = mockk {
-        coEvery { data } returns flowOf(1)
-      },
       scanProgressReporter = ScanProgressReporter(),
     )
     assertEquals(
@@ -166,10 +162,6 @@ class ChapterParserTest {
         }
       },
       playbackIoGate = PlaybackIoGate(),
-      analyzeSemaphore = Semaphore(6),
-      analysisParallelismStore = mockk {
-        coEvery { data } returns flowOf(1)
-      },
       scanProgressReporter = ScanProgressReporter(),
     )
 
@@ -231,10 +223,6 @@ class ChapterParserTest {
         }
       },
       playbackIoGate = PlaybackIoGate(),
-      analyzeSemaphore = Semaphore(6),
-      analysisParallelismStore = mockk {
-        coEvery { data } returns flowOf(1)
-      },
       scanProgressReporter = ScanProgressReporter(),
     )
   }

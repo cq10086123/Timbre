@@ -500,10 +500,6 @@ class MediaScannerTest {
         mediaAnalyzer = mediaAnalyzer,
         scanProgressReporter = scanProgressReporter,
         playbackIoGate = PlaybackIoGate(),
-        analyzeSemaphore = Semaphore(6),
-        analysisParallelismStore = mockk {
-          every { data } returns flowOf(1)
-        },
       ),
       bookParser = BookParser(
         contentRepo = bookContentRepo,
@@ -512,10 +508,6 @@ class MediaScannerTest {
       ),
       deviceHasPermissionBug = mockk(),
       scanProgressReporter = scanProgressReporter,
-      semaphore = Semaphore(6),
-      analysisParallelismStore = mockk {
-        every { data } returns flowOf(1)
-      },
       playbackIoGate = PlaybackIoGate(),
     )
 

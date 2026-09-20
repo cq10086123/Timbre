@@ -1,6 +1,5 @@
 package voice.core.scanner
 
-import androidx.datastore.core.DataStore
 import dev.zacsweers.metro.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -16,7 +15,6 @@ import voice.core.data.Chapter
 import voice.core.data.ChapterId
 import voice.core.data.isAudioFile
 import voice.core.data.repo.ChapterRepo
-import voice.core.data.store.AnalysisParallelismStore
 import voice.core.documentfile.CachedDocumentFile
 import voice.core.documentfile.walk
 import voice.core.logging.api.Logger
@@ -42,8 +40,6 @@ internal class ChapterParser(
   private val mediaAnalyzer: MediaAnalyzer,
   private val scanProgressReporter: ScanProgressReporter,
   private val playbackIoGate: PlaybackIoGate,
-  @MediaAnalysisSemaphore private val analyzeSemaphore: Semaphore,
-  @AnalysisParallelismStore private val analysisParallelismStore: DataStore<Int>,
 ) {
 
   suspend fun parse(
@@ -53,7 +49,7 @@ internal class ChapterParser(
     val audioFiles = documentFile.walk()
       .transform { if (it.isAudioFile()) emit(it) }
       .toList()
-    return parse(documentFile, audioFiles, onProgress)
+    return parse(documentFile, audioFiles, Semaphore(1), onProgress)
   }
 
   /**
@@ -74,6 +70,7 @@ internal class ChapterParser(
   suspend fun parse(
     documentFile: CachedDocumentFile,
     audioFiles: List<CachedDocumentFile>,
+    analysisSemaphore: Semaphore = Semaphore(1),
     onProgress: suspend (ChapterParseResult) -> Unit = { },
   ): ChapterParseResult {
     val bookId = BookId(documentFile.uri)
@@ -93,7 +90,7 @@ internal class ChapterParser(
         coroutineScope {
           val deferred = batch.map { file ->
             async(Dispatchers.IO) {
-              playbackIoGate.withScannerIoSlot(analyzeSemaphore, analysisPermits()) {
+              playbackIoGate.withScannerIoSlot(analysisSemaphore) {
                 try {
                   parseChapter(file)
                 } finally {
@@ -131,10 +128,6 @@ internal class ChapterParser(
     }
 
     return parseResult(chapters, metadataByChapter, failedChapters)
-  }
-
-  private suspend fun analysisPermits(): Int {
-    return ANALYSIS_PERMITS / analysisParallelismStore.data.first().coerceIn(1, MAX_IMPORT_PARALLELISM)
   }
 
   private fun publishStride(chapterCount: Int): Int {
