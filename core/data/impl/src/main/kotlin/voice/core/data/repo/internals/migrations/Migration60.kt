@@ -14,6 +14,7 @@ import voice.core.data.normalizeRemoteUrl
 import voice.core.data.repo.internals.getLong
 import voice.core.data.repo.internals.getString
 import voice.core.data.repo.internals.mapRows
+import java.time.Instant
 
 /**
  * Remote (webdav) urls are the ids of their books and chapters. Servers hand
@@ -45,15 +46,17 @@ public class Migration60 : IncrementalMigration(60) {
       val id: String,
       val chapters: String,
       val currentChapter: String,
+      val lastPlayedAt: String,
     )
 
     // collect the rows before writing: writing to a table while its cursor is
     // still open would invalidate the cursor
-    val rows = db.query("SELECT id, chapters, currentChapter FROM content2").mapRows {
+    val rows = db.query("SELECT id, chapters, currentChapter, lastPlayedAt FROM content2").mapRows {
       Row(
         id = getString("id"),
         chapters = getString("chapters"),
         currentChapter = getString("currentChapter"),
+        lastPlayedAt = getString("lastPlayedAt"),
       )
     }
     rows.forEach { row ->
@@ -62,6 +65,24 @@ public class Migration60 : IncrementalMigration(60) {
       val chapters = normalizeChapterList(row.chapters)
       if (id == row.id && currentChapter == row.currentChapter && chapters == row.chapters) {
         return@forEach
+      }
+      val twin = db.query("SELECT id, lastPlayedAt FROM content2 WHERE id = ?", arrayOf(id)).mapRows {
+        Row(
+          id = getString("id"),
+          chapters = "",
+          currentChapter = "",
+          lastPlayedAt = getString("lastPlayedAt"),
+        )
+      }.firstOrNull()
+      if (twin != null && twin.id != row.id) {
+        // two spellings of the same book collide on the canonical id. A blind
+        // REPLACE would delete one of them with its listening progress, so the
+        // most recently played twin wins and the other one is dropped.
+        if (!isLaterOrEqual(row.lastPlayedAt, twin.lastPlayedAt)) {
+          db.delete("content2", "id = ?", arrayOf(row.id))
+          return@forEach
+        }
+        db.delete("content2", "id = ?", arrayOf(twin.id))
       }
       val values = ContentValues().apply {
         put("id", id)
@@ -101,6 +122,15 @@ public class Migration60 : IncrementalMigration(60) {
     ids.forEach { id ->
       val normalized = normalizeRemoteUrl(id)
       if (normalized == id) return@forEach
+      val twin = db.query("SELECT id FROM chapters2 WHERE id = ?", arrayOf(normalized)).mapRows {
+        getString("id")
+      }.firstOrNull()
+      if (twin != null && twin != id) {
+        // the same chapter under two spellings: the canonical row survives,
+        // the duplicate is dropped (its metadata is re-analyzed on the next scan)
+        db.delete("chapters2", "id = ?", arrayOf(id))
+        return@forEach
+      }
       val values = ContentValues().apply { put("id", normalized) }
       db.update("chapters2", SQLiteDatabase.CONFLICT_REPLACE, values, "id = ?", arrayOf(id))
     }
@@ -130,5 +160,17 @@ public class Migration60 : IncrementalMigration(60) {
       }
       db.update("bookmark2", SQLiteDatabase.CONFLICT_REPLACE, values, "rowid = ?", arrayOf(row.rowId.toString()))
     }
+  }
+
+  private fun isLaterOrEqual(
+    first: String,
+    second: String,
+  ): Boolean {
+    val firstInstant = runCatching { Instant.parse(first) }.getOrNull()
+    val secondInstant = runCatching { Instant.parse(second) }.getOrNull()
+    if (firstInstant != null && secondInstant != null) {
+      return !firstInstant.isBefore(secondInstant)
+    }
+    return first >= second
   }
 }
