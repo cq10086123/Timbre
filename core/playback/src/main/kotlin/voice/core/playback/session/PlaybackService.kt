@@ -1,10 +1,12 @@
 package voice.core.playback.session
 
+import android.content.Intent
 import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaSession
 import dev.zacsweers.metro.Inject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import voice.core.common.rootGraphAs
 import voice.core.logging.api.Logger
@@ -56,6 +58,19 @@ class PlaybackService : MediaLibraryService() {
   override fun onDestroy() {
     super.onDestroy()
     release()
+  }
+
+  /**
+   * Best-effort position save when the app is swiped away: onDestroy is not
+   * guaranteed on a kill, and the periodic updater may hold minutes of
+   * unpersisted progress (notably with experimental playback persistence).
+   */
+  override fun onTaskRemoved(rootIntent: Intent?) {
+    super.onTaskRemoved(rootIntent)
+    scope.launch {
+      runCatching { positionUpdater.flushPositionNow() }
+        .onFailure { Logger.w(it, "Could not flush the position on task removal") }
+    }
   }
 
   override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession? {
