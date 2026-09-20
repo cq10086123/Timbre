@@ -83,6 +83,74 @@ class WebDavClientTest {
   }
 
   @Test
+  fun listingsAreScopedPerServer() = runTest {
+    repeat(2) {
+      server.enqueue(
+        MockResponse.Builder()
+          .code(207)
+          .body(propfindBody())
+          .build(),
+      )
+    }
+    val url = server.url("/dav").toString()
+
+    client.list(newServer().copy(id = "one"), "secret", url).let { check(it.isNotEmpty()) }
+    client.list(newServer().copy(id = "two"), "secret", url).let { check(it.isNotEmpty()) }
+
+    // the same url on another server (e.g. after re-adding a nas) must not
+    // be served from the other server's listing
+    assertEquals(expected = 2, actual = server.requestCount)
+  }
+
+  @Test
+  fun listInvalidationForcesARefetch() = runTest {
+    repeat(2) {
+      server.enqueue(
+        MockResponse.Builder()
+          .code(207)
+          .body(propfindBody())
+          .build(),
+      )
+    }
+    val serverConfig = newServer()
+    val url = server.url("/dav").toString()
+
+    client.list(serverConfig, "secret", url).let { check(it.isNotEmpty()) }
+    client.invalidateListingsForServer(serverConfig.id)
+    client.list(serverConfig, "secret", url).let { check(it.isNotEmpty()) }
+
+    assertEquals(expected = 2, actual = server.requestCount)
+  }
+
+  @Test
+  fun listingCacheIsBounded() = runTest {
+    server.dispatcher = object : Dispatcher() {
+      override fun dispatch(request: RecordedRequest): MockResponse {
+        return MockResponse.Builder()
+          .code(207)
+          .body(propfindBody())
+          .build()
+      }
+    }
+    val serverConfig = newServer()
+    val total = 300
+    repeat(total) { index ->
+      client.list(serverConfig, "secret", server.url("/dav/dir$index/").toString())
+        .let { check(it.isNotEmpty()) }
+    }
+    val afterFirstPass = server.requestCount
+
+    // with an unbounded cache this second pass would be fully served from
+    // memory; a bounded cache must have evicted and refetch instead
+    repeat(total) { index ->
+      client.list(serverConfig, "secret", server.url("/dav/dir$index/").toString())
+        .let { check(it.isNotEmpty()) }
+    }
+
+    assertTrue(server.requestCount > afterFirstPass)
+  }
+
+  @Test
   fun listRetriesWithATrailingSlash() = runTest {
     // servers that only answer a PROPFIND in the trailing slash form of a
     // collection hand out something that is no multistatus for the slash-less

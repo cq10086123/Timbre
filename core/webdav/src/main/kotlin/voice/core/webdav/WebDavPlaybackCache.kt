@@ -49,7 +49,13 @@ public class WebDavPlaybackCache(
       .onEach { settings ->
         val previous = maxBytes
         maxBytes = settings.maxBytes
-        if (settings.maxBytes > 0 && settings.maxBytes < previous) {
+        if (settings.maxBytes <= 0L) {
+          // "Off" must not orphan gigabytes in cacheDir: drop whatever is on
+          // disk right away. The cache instance stays alive for a cheap
+          // re-enable.
+          runCatching { clear() }
+            .onFailure { Logger.w(it, "Could not clear the webdav cache after disabling") }
+        } else if (settings.maxBytes < previous) {
           // the limit was lowered: shrink immediately instead of waiting for
           // the next write
           simpleCache?.let { evictor.evictIfNeeded(it) }
@@ -133,6 +139,11 @@ public class WebDavPlaybackCache(
   /** [url] was read by actual playback, so it is no longer speculative. */
   public fun markConsumed(url: String) {
     classifier.markConsumed(url)
+  }
+
+  /** Drops the speculative label of [url], e.g. after its prefetch failed. */
+  public fun forgetUrl(url: String) {
+    classifier.forgetUrl(url)
   }
 
   public fun forgetBook(bookUrl: String) {

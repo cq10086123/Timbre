@@ -168,6 +168,9 @@ public class PrefetchScheduler(
       if (fetched > 0L) {
         fetchedAny = true
       } else {
+        // nothing was fetched and nothing was cached: the speculative label
+        // would otherwise linger forever, so drop it until the next round
+        playbackCache.forgetUrl(url)
         // one failed chapter should not spin the loop hot
         delay(FAILURE_BACKOFF_MS)
       }

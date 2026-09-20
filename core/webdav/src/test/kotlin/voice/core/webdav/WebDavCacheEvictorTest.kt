@@ -3,6 +3,8 @@ package voice.core.webdav
 import androidx.media3.datasource.cache.CacheSpan
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class WebDavCacheEvictorTest {
 
@@ -51,5 +53,18 @@ class WebDavCacheEvictorTest {
     )
 
     assertEquals(expected = listOf("a", "c", "b"), actual = order.map { it.key })
+  }
+
+  @Test
+  fun `forgetUrl drops the speculative label`() {
+    val classifier = WebDavSpanClassifier()
+    classifier.markActiveBook("https://nas/dav/b")
+    classifier.markSpeculative("https://nas/dav/a/ch01.mp3", "https://nas/dav/a")
+
+    assertTrue(classifier.isSpeculativeOfInactiveBook("https://nas/dav/a/ch01.mp3"))
+
+    classifier.forgetUrl("https://nas/dav/a/ch01.mp3")
+
+    assertFalse(classifier.isSpeculativeOfInactiveBook("https://nas/dav/a/ch01.mp3"))
   }
 }

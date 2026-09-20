@@ -60,6 +60,11 @@ internal class WebDavCacheEvictor(
       if (removed > 0) {
         overBy -= removed
       }
+      if (cache.getCachedSpans(span.key).isEmpty()) {
+        // the resource is fully gone: its label must not linger and keep
+        // steering future eviction rounds
+        classifier.forgetUrl(span.key)
+      }
     }
   }
 }

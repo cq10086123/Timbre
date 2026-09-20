@@ -42,6 +42,13 @@ public class WebDavSpanClassifier {
     }
   }
 
+  /** Drops the label of a single url, e.g. after its prefetch failed or its spans were evicted. */
+  public fun forgetUrl(url: String) {
+    synchronized(lock) {
+      speculativeByBook.remove(url)
+    }
+  }
+
   public fun forgetBook(bookUrl: String) {
     val prefix = bookUrl.trimEnd('/')
     synchronized(lock) {
