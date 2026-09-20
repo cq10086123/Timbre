@@ -17,10 +17,12 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.runner.RunWith
+import voice.core.common.DispatcherProvider
 import voice.core.data.Book
 import voice.core.data.BookId
 import voice.core.data.Chapter
@@ -114,6 +116,7 @@ class VoicePlayerTest {
     volumeGain = mockk(relaxed = true),
     sleepTimer = sleepTimer,
     analytics = mockk(relaxed = true),
+    dispatcherProvider = DispatcherProvider(io = UnconfinedTestDispatcher(scope.testScheduler)),
   )
 
   @Test

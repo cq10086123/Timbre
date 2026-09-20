@@ -8,10 +8,12 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import dev.zacsweers.metro.Inject
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import voice.core.analytics.api.Analytics
+import voice.core.common.DispatcherProvider
 import voice.core.data.BookContent
 import voice.core.data.BookId
 import voice.core.data.repo.BookRepository
@@ -53,6 +55,7 @@ class VoicePlayer(
   private val volumeGain: VolumeGain,
   private val sleepTimer: SleepTimer,
   private val analytics: Analytics,
+  private val dispatcherProvider: DispatcherProvider = DispatcherProvider(),
 ) : ForwardingPlayer(player) {
 
   // 蓝牙/锁屏的上一集/下一集行为：true=切换章节，false=快退/快进。
@@ -300,13 +303,36 @@ class VoicePlayer(
     setBook(mediaItem)
   }
 
+  private var setBookJob: Job? = null
+
+  // prepare()/play() arriving while setBook is still assembling ran on an
+  // empty playlist and did nothing. The flag re-applies them once the items
+  // land; play() needs no flag because playWhenReady persists on the player.
+  private var pendingPrepare = false
+
+  override fun prepare() {
+    pendingPrepare = true
+    super.prepare()
+  }
+
+  override fun stop() {
+    setBookJob?.cancel()
+    pendingPrepare = false
+    super.stop()
+  }
+
+  override fun clearMediaItems() {
+    setBookJob?.cancel()
+    pendingPrepare = false
+    super.clearMediaItems()
+  }
+
   override fun setMediaItem(
     mediaItem: MediaItem,
     resetPosition: Boolean,
   ) {
     setBook(mediaItem)
   }
-
   override fun setMediaItems(mediaItems: List<MediaItem>) {
     val first = mediaItems.firstOrNull() ?: return
     setBook(first)
@@ -336,33 +362,50 @@ class VoicePlayer(
   private fun setBook(mediaItem: MediaItem) {
     Logger.v("setBook(${mediaItem.mediaId})")
     val mediaId = mediaItem.mediaId.toMediaIdOrNull()
-    if (mediaId is MediaId.Book) {
+    if (mediaId !is MediaId.Book) {
+      if (mediaId != null) {
+        Logger.w("Unexpected mediaId=$mediaId")
+      }
+      return
+    }
+    // Assembling touches the database and builds one MediaItem per chapter:
+    // both grow with the chapter count and must never run on the calling
+    // (usually main) thread. Later calls win: an assembly still in flight is
+    // cancelled so rapid book switches cannot apply out of order.
+    setBookJob?.cancel()
+    pendingPrepare = false
+    setBookJob = scope.launch {
       val assemblyDuration = measureTime {
-        val book = runBlocking {
+        val book = withContext(dispatcherProvider.io) {
           repo.get(mediaId.id)
+        } ?: return@measureTime
+        player.setPlaybackSpeed(book.content.playbackSpeed)
+        setSkipSilenceEnabled(book.content.skipSilence)
+        volumeGain.gain = Decibel(book.content.gain)
+        val currentPlaybackItem = book.playbackItemForPosition(
+          chapterId = book.content.currentChapter,
+          positionInChapterMs = book.content.positionInChapter,
+        ) ?: return@measureTime
+        val mediaItems = withContext(dispatcherProvider.io) {
+          mediaItemProvider.playbackItems(book)
         }
-        if (book != null) {
-          player.setPlaybackSpeed(book.content.playbackSpeed)
-          setSkipSilenceEnabled(book.content.skipSilence)
-          volumeGain.gain = Decibel(book.content.gain)
-          val currentPlaybackItem = book.playbackItemForPosition(
-            chapterId = book.content.currentChapter,
-            positionInChapterMs = book.content.positionInChapter,
-          ) ?: return@measureTime
-          val mediaItems = mediaItemProvider.playbackItems(book)
-          player.setMediaItems(
-            mediaItems,
-            currentPlaybackItem.index,
-            currentPlaybackItem.positionInMediaItem(book.content.positionInChapter),
-          )
-        }
+        player.setMediaItems(
+          mediaItems,
+          currentPlaybackItem.index,
+          currentPlaybackItem.positionInMediaItem(book.content.positionInChapter),
+        )
+      }
+      // prepare()/play() that arrived while the book was still assembling ran
+      // on an empty playlist and did nothing: apply them now that the items
+      // landed, otherwise tap-play on a cold book stays silent.
+      if (pendingPrepare || player.playWhenReady) {
+        pendingPrepare = false
+        player.prepare()
       }
       // assembling the playlist of a book with thousands of chapters is the
       // one step of a playback start that grows with the chapter count. The
       // log marks how long it took so a slow start can be attributed.
       Logger.i("setBook(${mediaItem.mediaId}) took $assemblyDuration")
-    } else if (mediaId != null) {
-      Logger.w("Unexpected mediaId=$mediaId")
     }
   }
 
