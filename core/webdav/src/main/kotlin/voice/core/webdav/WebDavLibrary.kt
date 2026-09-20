@@ -98,6 +98,9 @@ public class WebDavLibrary internal constructor(
       servers.filterNot { it.id == id } + server
     }
     resolver.invalidate()
+    // Listings are keyed per server: credentials or the url may have changed,
+    // so entries cached under this server must not be served anymore.
+    client.invalidateListingsForServer(id)
   }
 
   /** Removes the server and all book registrations that point into it. */
@@ -106,6 +109,7 @@ public class WebDavLibrary internal constructor(
     serversStore.updateData { servers -> servers.filterNot { it.id == id } }
     sourcesStore.updateData { sources -> sources.filterNot { it.serverId == id } }
     resolver.invalidate()
+    client.invalidateListingsForServer(id)
     server?.let {
       runCatching { playbackCache.removeByPrefix(it.baseUrl) }
         .onFailure { e -> voice.core.logging.api.Logger.w(e, "Could not clear the webdav cache prefix") }

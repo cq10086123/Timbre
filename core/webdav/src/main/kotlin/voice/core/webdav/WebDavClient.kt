@@ -82,6 +82,16 @@ public class WebDavClient {
   /** Directory listings with a short ttl so a scan walking a tree reuses one request per directory. */
   private val listingCache = ConcurrentHashMap<String, Pair<Long, List<WebDavResource>>>()
 
+  private fun listingKey(
+    server: WebDavServer,
+    url: String,
+  ): String = "${server.id}::$url"
+
+  /** Drops all cached listings of one server, e.g. after its credentials or url changed. */
+  public fun invalidateListingsForServer(serverId: String) {
+    listingCache.keys.removeAll { it.startsWith("$serverId::") }
+  }
+
   /**
    * Returns a client configured for one server. A fresh authenticator-bearing
    * client is cheap (it shares OkHttp's connection pool with the base client)
@@ -121,13 +131,19 @@ public class WebDavClient {
     password: String,
     url: String,
   ): List<WebDavResource> {
-    val cached = listingCache[url]
+    val key = listingKey(server, url)
+    val cached = listingCache[key]
     if (cached != null && System.currentTimeMillis() - cached.first < LISTING_TTL_MS) {
       return cached.second
     }
     val resources = propfind(server, password, url, depth = 1)
       .filterNot { it.url == url || it.url == "$url/" }
-    listingCache[url] = System.currentTimeMillis() to resources
+    if (listingCache[key] == null && listingCache.size >= LISTING_CACHE_MAX_ENTRIES) {
+      // ConcurrentHashMap has no LRU order: evict the oldest entry so a walk
+      // over a huge tree cannot grow this map without bounds.
+      listingCache.entries.minByOrNull { it.value.first }?.let { listingCache.remove(it.key) }
+    }
+    listingCache[key] = System.currentTimeMillis() to resources
     return resources
   }
 

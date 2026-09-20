@@ -84,7 +84,15 @@ public class PrefetchScheduler(
       if (settings.maxBytes <= 0L || settings.prefetchMode == WebDavCacheSettings.PrefetchMode.Disabled) {
         return
       }
-      val content = bookRepository.get(book.id)?.content ?: return
+      // Re-read the book every round: chapters are imported in batches while
+      // a big book is still being scanned, so a snapshot taken when playback
+      // started would never see chapters discovered later.
+      val fresh = bookRepository.get(book.id) ?: return
+      if (fresh.chapters.isEmpty()) {
+        delay(REFILL_CHECK_MS)
+        continue
+      }
+      val content = fresh.content
 
       // playback of the current chapter consumes its cached data, even when
       // the CacheDataSource served it without opening the upstream
@@ -109,8 +117,8 @@ public class PrefetchScheduler(
         continue
       }
 
-      val index = book.chapters.indexOfFirst { it.id == content.currentChapter }
-      val upcoming = book.chapters.drop(index + 1)
+      val index = fresh.chapters.indexOfFirst { it.id == content.currentChapter }
+      val upcoming = fresh.chapters.drop(index + 1)
       val window = when (settings.prefetchMode) {
         WebDavCacheSettings.PrefetchMode.Disabled -> return
         WebDavCacheSettings.PrefetchMode.Chapters5 -> upcoming.take(5)
@@ -118,7 +126,7 @@ public class PrefetchScheduler(
         WebDavCacheSettings.PrefetchMode.FillBook -> upcoming
       }
 
-      val fetchedSomething = prefetchWindow(cache, settings, book, window)
+      val fetchedSomething = prefetchWindow(cache, settings, fresh, window)
       if (!fetchedSomething) {
         // nothing left to fetch: everything cached, the limit is reached or
         // the network is failing. Wait for the next position change.
