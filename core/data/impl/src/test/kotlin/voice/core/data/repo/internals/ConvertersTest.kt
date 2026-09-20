@@ -21,7 +21,15 @@ class ConvertersTest {
 
   @Test
   fun file() {
-    test(File("/sdcard/audiobooks/potter.mp3"), Converters::fromFile, Converters::toFile)
+    // assert against absolutePath instead of the original file: java.io.File
+    // normalizes differently per platform (windows prepends a drive letter
+    // and uses backslashes), and the converter only guarantees that
+    // serialize/deserialize are stable relative to absolutePath.
+    val original = File("/sdcard/audiobooks/potter.mp3")
+    val converters = Converters()
+    val serialized = converters.fromFile(original)
+    assertEquals(expected = original.absolutePath, actual = serialized)
+    assertEquals(expected = original.absolutePath, actual = converters.toFile(serialized).absolutePath)
   }
 
   @Test

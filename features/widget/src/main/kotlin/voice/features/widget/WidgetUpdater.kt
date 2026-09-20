@@ -151,18 +151,23 @@ class WidgetUpdater(
     val wholeWidgetClickPI = mainActivityIntentProvider.toCurrentBook()
 
     val coverFile = book.content.cover
-    if (coverFile != null && coverSize > 0) {
-      val bitmap = context.imageLoader
+    // a null drawable means even the fallback failed to decode: fall back to
+    // the static resource instead of crashing the whole widget update
+    val bitmap = coverFile?.takeIf { coverSize > 0 }?.let { cover ->
+      context.imageLoader
         .execute(
           ImageRequest.Builder(context)
-            .data(coverFile)
+            .data(cover)
             .size(coverSize, coverSize)
             .fallback(UiR.drawable.album_art)
             .error(UiR.drawable.album_art)
             .allowHardware(false)
             .build(),
         )
-        .drawable!!.toBitmap()
+        .drawable
+        ?.toBitmap()
+    }
+    if (bitmap != null) {
       remoteViews.setImageViewBitmap(R.id.imageView, bitmap)
     } else {
       remoteViews.setImageViewResource(R.id.imageView, UiR.drawable.album_art)
