@@ -82,6 +82,14 @@ public class WebDavClient {
   /** Directory listings with a short ttl so a scan walking a tree reuses one request per directory. */
   private val listingCache = ConcurrentHashMap<String, Pair<Long, List<WebDavResource>>>()
 
+  /**
+   * Servers that answered a Digest challenge before. Their requests skip the
+   * pre-emptive Basic header (which a Digest-only server would reject with a
+   * wasted 401 round trip, leaking reversibly-encoded credentials on plain
+   * http) and go straight to the Digest handshake.
+   */
+  private val digestOnlyServerIds = ConcurrentHashMap.newKeySet<String>()
+
   private fun listingKey(
     server: WebDavServer,
     url: String,
@@ -90,6 +98,8 @@ public class WebDavClient {
   /** Drops all cached listings of one server, e.g. after its credentials or url changed. */
   public fun invalidateListingsForServer(serverId: String) {
     listingCache.keys.removeAll { it.startsWith("$serverId::") }
+    // the auth scheme may have changed with the credentials, so re-learn it
+    digestOnlyServerIds.remove(serverId)
   }
 
   /**
@@ -103,7 +113,11 @@ public class WebDavClient {
   ): OkHttpClient {
     val base = if (server.trustAllCertificates) trustAllClient else plainClient
     return base.newBuilder()
-      .authenticator(WebDavDigestAuthenticator(server.username, password))
+      .authenticator(
+        WebDavDigestAuthenticator(server.username, password) {
+          digestOnlyServerIds.add(server.id)
+        },
+      )
       .build()
   }
 
@@ -124,6 +138,23 @@ public class WebDavClient {
     server: WebDavServer,
     password: String,
   ): String = basicAuth(server.username, password)
+
+  /**
+   * The Authorization header to send pre-emptively, or null when the server
+   * is known to speak Digest: sending Basic there would cost a wasted 401
+   * round trip on every request. The Digest handshake still answers the
+   * challenge when it arrives.
+   */
+  public fun preemptiveAuthHeader(
+    server: WebDavServer,
+    password: String,
+  ): String? {
+    return if (digestOnlyServerIds.contains(server.id)) {
+      null
+    } else {
+      authHeader(server, password)
+    }
+  }
 
   /** Lists the children of [url]. The directory itself is not part of the result. */
   public suspend fun list(
@@ -194,11 +225,11 @@ public class WebDavClient {
     fileUrl: String,
   ): Boolean {
     return try {
-      val request = Request.Builder()
+      val builder = Request.Builder()
         .url(fileUrl)
-        .header("Authorization", authHeader(server, password))
         .header("Range", "bytes=0-0")
-        .build()
+      preemptiveAuthHeader(server, password)?.let { builder.header("Authorization", it) }
+      val request = builder.build()
       clientFor(server, password).await(request).use { response ->
         response.code == 206 || response.code == 200
       }
@@ -269,12 +300,12 @@ public class WebDavClient {
     url: String,
     depth: Int,
   ): List<WebDavResource> = withContext(Dispatchers.IO) {
-    val request = Request.Builder()
+    val builder = Request.Builder()
       .url(url)
-      .header("Authorization", authHeader(server, password))
       .header("Depth", depth.toString())
       .method("PROPFIND", null)
-      .build()
+    preemptiveAuthHeader(server, password)?.let { builder.header("Authorization", it) }
+    val request = builder.build()
     clientFor(server, password).await(request).use { response ->
       when (response.code) {
         207 -> {

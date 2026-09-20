@@ -224,6 +224,71 @@ class WebDavClientTest {
   }
 
   @Test
+  fun digestServersSkipPreemptiveBasicAfterLearning() = runTest {
+    val nonce = "fixed-nonce"
+    server.dispatcher = object : Dispatcher() {
+      override fun dispatch(request: RecordedRequest): MockResponse {
+        val authorization = request.headers["Authorization"].orEmpty()
+        return if (authorization.startsWith("Digest ")) {
+          MockResponse.Builder()
+            .code(207)
+            .body(propfindBody())
+            .build()
+        } else {
+          // this server only speaks Digest: even a correct Basic is rejected
+          MockResponse.Builder()
+            .code(401)
+            .setHeader(
+              "WWW-Authenticate",
+              "Digest realm=\"dav\", nonce=\"$nonce\", qop=\"auth\", algorithm=MD5",
+            )
+            .build()
+        }
+      }
+    }
+    val serverConfig = newServer()
+
+    client.list(serverConfig, "secret", server.url("/dav/a/").toString()).let { check(it.isNotEmpty()) }
+    client.list(serverConfig, "secret", server.url("/dav/b/").toString()).let { check(it.isNotEmpty()) }
+
+    // first contact costs pre-emptive Basic + Digest retry; once learned the
+    // client sends a bare request straight into the Digest handshake
+    assertEquals(expected = 4, actual = server.requestCount)
+    val authorizations = List(4) { server.takeRequest().headers["Authorization"].orEmpty() }
+    assertTrue(authorizations[0].startsWith("Basic "))
+    assertTrue(authorizations[1].startsWith("Digest "))
+    assertEquals(expected = "", actual = authorizations[2])
+    assertTrue(authorizations[3].startsWith("Digest "))
+  }
+
+  @Test
+  fun basicServersKeepPreemptiveBasic() = runTest {
+    val expectedAuth =
+      "Basic ${java.util.Base64.getEncoder().encodeToString("user:secret".toByteArray())}"
+    server.dispatcher = object : Dispatcher() {
+      override fun dispatch(request: RecordedRequest): MockResponse {
+        return if (request.headers["Authorization"] == expectedAuth) {
+          MockResponse.Builder()
+            .code(207)
+            .body(propfindBody())
+            .build()
+        } else {
+          MockResponse.Builder()
+            .code(401)
+            .build()
+        }
+      }
+    }
+    val serverConfig = newServer()
+
+    // a plain 401 without a Digest challenge must not teach Digest-only mode
+    client.list(serverConfig, "secret", server.url("/dav/a/").toString()).let { check(it.isNotEmpty()) }
+    client.list(serverConfig, "secret", server.url("/dav/b/").toString()).let { check(it.isNotEmpty()) }
+
+    assertEquals(expected = 2, actual = server.requestCount)
+  }
+
+  @Test
   fun probeReportsSupportedRange() = runTest {
     server.enqueue(
       MockResponse.Builder()

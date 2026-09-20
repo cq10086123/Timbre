@@ -93,7 +93,9 @@ internal class WebDavDataSource(
       .apply {
         dataSpec.httpRequestHeaders.forEach { (name, value) -> header(name, value) }
         if (dataSpec.httpRequestHeaders.keys.none { it.equals("Authorization", ignoreCase = true) }) {
-          header("Authorization", client.basicAuth(resolved.server.username, resolved.password))
+          // Digest-only servers learned earlier get no pre-emptive Basic
+          // header: it would cost a 401 round trip on every playback open
+          client.preemptiveAuthHeader(resolved.server, resolved.password)?.let { header("Authorization", it) }
         }
         // Media3's DefaultHttpDataSource uses byte ranges for seeking. Keep
         // this explicit so Digest authentication signs the exact GET that is

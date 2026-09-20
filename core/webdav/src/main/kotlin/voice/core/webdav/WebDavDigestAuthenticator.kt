@@ -20,6 +20,7 @@ import java.util.concurrent.atomic.AtomicInteger
 internal class WebDavDigestAuthenticator(
   private val username: String,
   private val password: String,
+  private val onDigestChallenge: () -> Unit = {},
 ) : Authenticator {
 
   private val random = SecureRandom()
@@ -96,6 +97,7 @@ internal class WebDavDigestAuthenticator(
     return response.request.newBuilder()
       .header("Authorization", header)
       .build()
+      .also { onDigestChallenge() }
   }
 
   private fun responseCount(response: Response): Int {

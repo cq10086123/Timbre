@@ -260,11 +260,14 @@ private fun WebDavServerDialogView(
             },
           )
         }
-        Text(
-          modifier = Modifier.padding(top = 4.dp),
-          text = stringResource(StringsR.string.webdav_http_hint),
-          style = MaterialTheme.typography.bodySmall,
-        )
+        if (dialog.url.trimStart().startsWith("http://", ignoreCase = true)) {
+          Text(
+            modifier = Modifier.padding(top = 4.dp),
+            text = stringResource(StringsR.string.webdav_http_hint),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.error,
+          )
+        }
       }
     },
     confirmButton = {
