@@ -49,9 +49,7 @@ class WebDavPlaybackCacheTest {
     assertEquals(expected = 0L, actual = playbackCache.cachedBytes())
   }
 
-  private class ByteArrayDataSource(
-    private val bytes: ByteArray,
-  ) : DataSource {
+  private class ByteArrayDataSource(private val bytes: ByteArray) : DataSource {
     private var position = 0
 
     override fun open(dataSpec: DataSpec): Long = bytes.size.toLong()
