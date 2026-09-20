@@ -199,7 +199,7 @@ internal constructor(
   }
 
   /** Returns false when the legacy folder couldn't be enumerated. */
-  private fun Uri.expandLegacy(
+  private suspend fun Uri.expandLegacy(
     type: FolderType,
     targetFolders: MutableSet<Uri>,
     targetFiles: MutableSet<Uri>,

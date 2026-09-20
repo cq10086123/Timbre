@@ -5,6 +5,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.flow.transform
 import kotlinx.coroutines.sync.Semaphore
 import voice.core.common.PlaybackIoGate
 import voice.core.data.BookId
@@ -45,7 +47,7 @@ internal class ChapterParser(
     onProgress: suspend (ChapterParseResult) -> Unit = { },
   ): ChapterParseResult {
     val audioFiles = documentFile.walk()
-      .filter { it.isAudioFile() }
+      .transform { if (it.isAudioFile()) emit(it) }
       .toList()
     return parse(documentFile, audioFiles, onProgress)
   }
@@ -149,8 +151,8 @@ internal class ChapterParser(
 
   private suspend fun parseChapter(file: CachedDocumentFile): Pair<Chapter, Metadata?>? {
     val id = ChapterId(file.uri)
-    val lastModified = Instant.ofEpochMilli(file.lastModified)
-    val fileSize = file.length
+    val lastModified = Instant.ofEpochMilli(file.lastModified())
+    val fileSize = file.length()
 
     val cached = try {
       chapterRepo.get(id)

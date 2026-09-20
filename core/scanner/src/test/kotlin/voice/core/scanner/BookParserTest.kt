@@ -28,7 +28,7 @@ class BookParserTest {
   )
 
   @Test
-  fun folderBookUsesFolderNameWhenAlbumMissing() {
+  fun folderBookUsesFolderNameWhenAlbumMissing() = kotlinx.coroutines.test.runTest {
     val bookFolder = testFolder.newFolder("My Audiobook")
     val chapters = listOf(
       chapter(File(bookFolder, "1.mp3").apply { createNewFile() }),
@@ -46,7 +46,7 @@ class BookParserTest {
   }
 
   @Test
-  fun folderBookWithSingleChapterStillUsesFolderName() {
+  fun folderBookWithSingleChapterStillUsesFolderName() = kotlinx.coroutines.test.runTest {
     val bookFolder = testFolder.newFolder("Harry Potter 3")
     val chapters = listOf(chapter(File(bookFolder, "track01.mp3").apply { createNewFile() }))
 
@@ -61,7 +61,7 @@ class BookParserTest {
   }
 
   @Test
-  fun singleFileBookUsesTitleWhenAlbumMissing() {
+  fun singleFileBookUsesTitleWhenAlbumMissing() = kotlinx.coroutines.test.runTest {
     val bookFile = testFolder.newFile("book.mp3")
     val chapters = listOf(chapter(bookFile))
 
@@ -76,7 +76,7 @@ class BookParserTest {
   }
 
   @Test
-  fun folderNameAlwaysWinsOverAlbumTag() {
+  fun folderNameAlwaysWinsOverAlbumTag() = kotlinx.coroutines.test.runTest {
     val bookFolder = testFolder.newFolder("Folder Name")
     val chapters = listOf(
       chapter(File(bookFolder, "1.mp3").apply { createNewFile() }),
@@ -94,7 +94,7 @@ class BookParserTest {
   }
 
   @Test
-  fun singleFileBookUsesAlbumWhenPresent() {
+  fun singleFileBookUsesAlbumWhenPresent() = kotlinx.coroutines.test.runTest {
     val bookFile = testFolder.newFile("book.mp3")
     val chapters = listOf(chapter(bookFile))
 
@@ -109,7 +109,7 @@ class BookParserTest {
   }
 
   @Test
-  fun missingMetadataFallsBackToFolderName() {
+  fun missingMetadataFallsBackToFolderName() = kotlinx.coroutines.test.runTest {
     val bookFolder = testFolder.newFolder("Fallback Folder")
     val chapters = listOf(
       chapter(File(bookFolder, "1.mp3").apply { createNewFile() }),

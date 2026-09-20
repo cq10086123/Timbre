@@ -1,5 +1,7 @@
 package voice.core.data
 
+import kotlinx.coroutines.flow.count
+import kotlinx.coroutines.flow.transform
 import voice.core.documentfile.CachedDocumentFile
 import voice.core.documentfile.walk
 
@@ -31,9 +33,9 @@ private val supportedAudioFormats = setOf(
   "xmf",
 )
 
-public fun CachedDocumentFile.isAudioFile(): Boolean {
-  if (!isFile) return false
-  val name = name ?: return false
+public suspend fun CachedDocumentFile.isAudioFile(): Boolean {
+  if (!isFile()) return false
+  val name = name() ?: return false
   val extension = name.substringAfterLast(".").lowercase()
   return extension in supportedAudioFormats
 }
@@ -51,10 +53,10 @@ public fun String.withoutAudioFileExtension(): String {
   }
 }
 
-public fun CachedDocumentFile.audioFileCount(): Int {
+public suspend fun CachedDocumentFile.audioFileCount(): Int {
   return if (isAudioFile()) {
     1
   } else {
-    walk().count { it.isAudioFile() }
+    walk().transform { if (it.isAudioFile()) emit(it) }.count()
   }
 }

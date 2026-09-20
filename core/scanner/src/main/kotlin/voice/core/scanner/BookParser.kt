@@ -33,7 +33,7 @@ internal class BookParser(
     }
   }
 
-  fun parse(
+  suspend fun parse(
     chapters: List<Chapter>,
     id: BookId,
     analyzed: Metadata?,
@@ -45,14 +45,14 @@ internal class BookParser(
       addedAt = Instant.now(),
       author = analyzed?.artist,
       lastPlayedAt = Instant.EPOCH,
-      name = if (file.isFile) {
+      name = if (file.isFile()) {
         analyzed?.album
           ?: analyzed?.title
           ?: file.bookName()
       } else {
         // bookshelf model: the imported folder itself is the book, so its
         // name wins over embedded album tags
-        file.name?.takeUnless { it.isBlank() }
+        file.name()?.takeUnless { it.isBlank() }
           ?: analyzed?.album
           ?: file.bookName()
       },
@@ -72,8 +72,8 @@ internal class BookParser(
     }
   }
 
-  private fun CachedDocumentFile.bookName(): String {
-    val fileName = name
+  private suspend fun CachedDocumentFile.bookName(): String {
+    val fileName = name()
     return if (fileName == null) {
       uri.toString()
         .removePrefix("/storage/emulated/0/")
@@ -83,7 +83,7 @@ internal class BookParser(
           Logger.w("Could not parse fileName from $this. Fallback to $it")
         }
     } else {
-      if (isFile) {
+      if (isFile()) {
         fileName.substringBeforeLast(".")
       } else {
         fileName

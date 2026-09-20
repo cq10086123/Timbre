@@ -17,7 +17,7 @@ class LegacyFolderExpanderTest {
   val temporaryFolder = TemporaryFolder()
 
   @Test
-  fun rootExpandsIntoChildFoldersAndFiles() {
+  fun rootExpandsIntoChildFoldersAndFiles() = kotlinx.coroutines.test.runTest {
     val root = temporaryFolder.newFolder("audiobooks")
     val book1 = File(root, "Book1").apply { mkdirs() }
     File(book1, "1.mp3").createNewFile()
@@ -41,7 +41,7 @@ class LegacyFolderExpanderTest {
   }
 
   @Test
-  fun authorExpandsNestedBooksAndLooseFiles() {
+  fun authorExpandsNestedBooksAndLooseFiles() = kotlinx.coroutines.test.runTest {
     val root = temporaryFolder.newFolder("audiobooks")
     val looseFile = File(root, "loose.mp3").apply { createNewFile() }
     val author = File(root, "Author").apply { mkdirs() }
@@ -65,7 +65,7 @@ class LegacyFolderExpanderTest {
   }
 
   @Test
-  fun singleFolderStaysUntouched() {
+  fun singleFolderStaysUntouched() = kotlinx.coroutines.test.runTest {
     val folder = temporaryFolder.newFolder("book")
     val entries = LegacyFolderExpander.expand(
       FolderType.SingleFolder,

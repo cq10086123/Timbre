@@ -65,7 +65,7 @@ class ChapterParserTest {
       mediaAnalyzer = mockk {
         coEvery {
           analyze(any())
-        } answers {
+        } coAnswers {
           val file = firstArg<CachedDocumentFile>()
           Metadata(
             duration = 1000,
@@ -144,7 +144,7 @@ class ChapterParserTest {
       mediaAnalyzer = mockk {
         coEvery { analyze(any()) } coAnswers {
           val file = firstArg<CachedDocumentFile>()
-          if (file.name == "Chapter 2.mp3") {
+          if (file.name() == "Chapter 2.mp3") {
             releaseSecondChapter.await()
           }
           Metadata(
@@ -207,7 +207,7 @@ class ChapterParserTest {
       mediaAnalyzer = mockk {
         coEvery {
           analyze(any())
-        } answers {
+        } coAnswers {
           val file = firstArg<CachedDocumentFile>()
           Metadata(
             duration = 1000,

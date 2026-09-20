@@ -560,7 +560,7 @@ class MediaScannerTest {
     fun failSingleChapter(name: String) {
       coEvery { mediaAnalyzer.analyze(any()) } coAnswers {
         val file = invocation.args.first() as CachedDocumentFile
-        if (file.name == name) throw IOException("the audio file cannot be read")
+        if (file.name() == name) throw IOException("the audio file cannot be read")
         analyzeSnapshots += scanProgressReporter.bookProgress.value
         analyzeCounter.incrementAndGet()
         testMetadata()
@@ -630,7 +630,7 @@ class MediaScannerTest {
    */
   private class UnreachableDocumentFile(private val delegate: CachedDocumentFile) : CachedDocumentFile by delegate {
 
-    override val children: List<CachedDocumentFile> get() = emptyList()
+    override suspend fun children(): List<CachedDocumentFile> = emptyList()
 
     override val error: Throwable get() = IOException("the server is offline")
   }

@@ -69,12 +69,12 @@ internal class RemoteCoverFinder(
     // accessing isDirectory is the first read: only after it the error of the
     // folder is trustworthy. A check before this access would always see null
     // and turn an unreachable server into a definitive "no picture".
-    val isDirectory = folder.isDirectory
+    val isDirectory = folder.isDirectory()
     if (folder.error != null) return@withContext RemoteCoverLookup.Inconclusive
     // a single remote audio file has no folder to search
     if (!isDirectory) return@withContext RemoteCoverLookup.NoPictureInFolder
 
-    val candidates = folder.children
+    val candidates = folder.children()
     if (folder.error != null) {
       // a failed listing surfaces as an empty folder; treating it as "no
       // picture" would pin the book to its embedded artwork because of one
@@ -83,17 +83,25 @@ internal class RemoteCoverFinder(
     }
 
     val pictures = candidates
-      .filter { it.isFile && it.name?.isSupportedImageFileName() == true }
+      .mapNotNull { file ->
+        val name = file.name()
+        if (file.isFile() && name?.isSupportedImageFileName() == true) {
+          file to name
+        } else {
+          null
+        }
+      }
       // a deterministic order instead of a random pick: the folder is listed
       // on every scan, and a new random winner each time would make the cover
       // flicker between scans. Conventional cover names win, the rest counts
       // in alphabetically.
       .sortedWith(
-        compareBy<CachedDocumentFile> { it.name.orEmpty().coverNamePriority() }
+        compareBy { (_, name): Pair<CachedDocumentFile, String> -> name.coverNamePriority() }
           .thenComparator { left, right ->
-            left.name.orEmpty().lowercase().compareTo(right.name.orEmpty().lowercase())
+            left.second.lowercase().compareTo(right.second.lowercase())
           },
       )
+      .map { it.first }
     if (pictures.isEmpty()) return@withContext RemoteCoverLookup.NoPictureInFolder
 
     // Every candidate is either applied (returned below) or fails to
@@ -154,16 +162,16 @@ internal class RemoteCoverFinder(
     return options.outWidth > 0 && options.outHeight > 0
   }
 
-  private fun CachedDocumentFile.marker(): String {
-    return "$uri|$length|$lastModified"
+  private suspend fun CachedDocumentFile.marker(): String {
+    return "$uri|${length()}|${lastModified()}"
   }
 
-  private fun CachedDocumentFile.matchesMarker(marker: String): Boolean {
+  private suspend fun CachedDocumentFile.matchesMarker(marker: String): Boolean {
     val parts = marker.split('|')
     if (parts.size != 3) return false
     return uri.toString() == parts[0] &&
-      length.toString() == parts[1] &&
-      lastModified.toString() == parts[2]
+      length().toString() == parts[1] &&
+      lastModified().toString() == parts[2]
   }
 
   private fun String.coverNamePriority(): Int {
