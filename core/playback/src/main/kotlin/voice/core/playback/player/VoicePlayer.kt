@@ -375,6 +375,10 @@ class VoicePlayer(
     setBookJob?.cancel()
     pendingPrepare = false
     setBookJob = scope.launch {
+      // a failed assembly (book deleted, position no longer resolvable) must
+      // not re-prepare the previous book's stale playlist, so the trailing
+      // prepare is gated on the items actually having been set
+      var assembled = false
       val assemblyDuration = measureTime {
         val book = withContext(dispatcherProvider.io) {
           repo.get(mediaId.id)
@@ -394,11 +398,12 @@ class VoicePlayer(
           currentPlaybackItem.index,
           currentPlaybackItem.positionInMediaItem(book.content.positionInChapter),
         )
+        assembled = true
       }
       // prepare()/play() that arrived while the book was still assembling ran
       // on an empty playlist and did nothing: apply them now that the items
       // landed, otherwise tap-play on a cold book stays silent.
-      if (pendingPrepare || player.playWhenReady) {
+      if (assembled && (pendingPrepare || player.playWhenReady)) {
         pendingPrepare = false
         player.prepare()
       }

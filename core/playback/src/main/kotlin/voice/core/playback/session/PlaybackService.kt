@@ -5,9 +5,12 @@ import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaSession
 import dev.zacsweers.metro.Inject
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import voice.core.common.rootGraphAs
 import voice.core.logging.api.Logger
 import voice.core.playback.di.PlaybackGraph
@@ -67,9 +70,14 @@ class PlaybackService : MediaLibraryService() {
    */
   override fun onTaskRemoved(rootIntent: Intent?) {
     super.onTaskRemoved(rootIntent)
-    scope.launch {
-      runCatching { positionUpdater.flushPositionNow() }
-        .onFailure { Logger.w(it, "Could not flush the position on task removal") }
+    // UNDISPATCHED + NonCancellable: the service is destroyed right after a
+    // swipe-away (cancelling the scope), and the flush would otherwise never
+    // run. The save is a single fast DataStore write on the main thread.
+    scope.launch(start = CoroutineStart.UNDISPATCHED) {
+      withContext(NonCancellable) {
+        runCatching { positionUpdater.flushPositionNow() }
+          .onFailure { Logger.w(it, "Could not flush the position on task removal") }
+      }
     }
   }
 
