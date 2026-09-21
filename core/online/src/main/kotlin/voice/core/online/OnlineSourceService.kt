@@ -22,6 +22,7 @@ public class OnlineSourceService internal constructor(
   @OnlineSourceBaseUrlStore private val baseUrlStore: DataStore<String>,
   @OnlineSourceCredentialStore private val credentialStore: DataStore<String>,
   @OnlineSourceTokenStore private val tokenStore: DataStore<String>,
+  @OnlineSourceBooksStore private val booksStore: DataStore<List<OnlineBook>>,
   private val client: OnlineSourceClient,
 ) {
 
@@ -120,6 +121,30 @@ public class OnlineSourceService internal constructor(
   public suspend fun downloadStatus(taskId: String): OnlineBatchStatus {
     val (base, _) = authed()
     return withRelogin { client.batchStatus(base, it, taskId) }
+  }
+
+  /** The books added from the online source, most recently added first. */
+  public fun shelf(): Flow<List<OnlineBook>> {
+    return booksStore.data
+  }
+
+  /** Adds or updates an online book (upsert by [OnlineBook.key]). */
+  public suspend fun addToShelf(book: OnlineBook) {
+    booksStore.updateData { current ->
+      val others = current.filterNot { it.key == book.key }
+      listOf(book.copy(addedAt = System.currentTimeMillis())) + others
+    }
+  }
+
+  /** Removes an online book. Only the record - server files stay untouched. */
+  public suspend fun removeFromShelf(key: String) {
+    booksStore.updateData { current ->
+      current.filterNot { it.key == key }
+    }
+  }
+
+  public suspend fun shelfBook(key: String): OnlineBook? {
+    return booksStore.data.first().firstOrNull { it.key == key }
   }
 
   /**

@@ -26,6 +26,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -34,7 +35,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import voice.core.common.rootGraphAs
+import voice.core.online.OnlineBook
 import voice.core.online.OnlineChapter
 import voice.core.online.OnlineSearchResult
 import voice.core.online.OnlineSourceClient
@@ -229,6 +232,23 @@ private fun OnlineChaptersDialog(
   onDismiss: () -> Unit,
 ) {
   var reloadKey by remember { mutableIntStateOf(0) }
+  var addedToShelf by remember { mutableStateOf(false) }
+  val scope = rememberCoroutineScope()
+  fun addToShelf(chapters: List<OnlineChapter>) {
+    scope.launch {
+      service.addToShelf(
+        OnlineBook(
+          source = book.source,
+          bookId = book.bookId,
+          title = book.title,
+          author = book.author,
+          cover = book.cover,
+          chapters = chapters,
+        ),
+      )
+      addedToShelf = true
+    }
+  }
   val state by produceState(initialValue = ChaptersUiState(), book, reloadKey) {
     value = ChaptersUiState(loading = true)
     val result = runCatching { service.chapters(book.source, book.bookId) }
@@ -311,6 +331,13 @@ private fun OnlineChaptersDialog(
               text = stringResource(StringsR.string.search_online_chapters_count, state.chapters.size),
               style = MaterialTheme.typography.bodyMedium,
             )
+            if (addedToShelf) {
+              Text(
+                modifier = Modifier.padding(bottom = 8.dp),
+                text = stringResource(StringsR.string.search_online_added_to_shelf),
+                style = MaterialTheme.typography.bodySmall,
+              )
+            }
             if (pageCount > 1) {
               Row(
                 modifier = Modifier
@@ -334,7 +361,13 @@ private fun OnlineChaptersDialog(
             ) {
               items(pageChapters) { chapter ->
                 Row(
-                  modifier = Modifier.fillMaxWidth(),
+                  modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable {
+                      if (!addedToShelf) {
+                        addToShelf(state.chapters)
+                      }
+                    },
                   verticalAlignment = Alignment.CenterVertically,
                 ) {
                   Text(

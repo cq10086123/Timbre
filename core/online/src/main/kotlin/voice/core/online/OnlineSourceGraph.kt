@@ -6,6 +6,7 @@ import dev.zacsweers.metro.ContributesTo
 import dev.zacsweers.metro.Provides
 import dev.zacsweers.metro.Qualifier
 import dev.zacsweers.metro.SingleIn
+import kotlinx.serialization.builtins.ListSerializer
 
 @Qualifier
 public annotation class OnlineSourceEnabledStore
@@ -18,6 +19,9 @@ public annotation class OnlineSourceCredentialStore
 
 @Qualifier
 public annotation class OnlineSourceTokenStore
+
+@Qualifier
+public annotation class OnlineSourceBooksStore
 
 @ContributesTo(AppScope::class)
 public interface OnlineSourceGraph {
@@ -48,6 +52,17 @@ public interface OnlineSourceGraph {
   @OnlineSourceTokenStore
   public fun onlineSourceToken(factory: OnlineSourceStoreFactory): DataStore<String> {
     return factory.string(fileName = "onlineSourceToken", defaultValue = "")
+  }
+
+  @Provides
+  @SingleIn(AppScope::class)
+  @OnlineSourceBooksStore
+  public fun onlineSourceBooks(factory: OnlineSourceStoreFactory): DataStore<List<OnlineBook>> {
+    return factory.create(
+      serializer = ListSerializer(OnlineBook.serializer()),
+      defaultValue = emptyList(),
+      fileName = "onlineBooks",
+    )
   }
 
   @Provides
