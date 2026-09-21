@@ -250,6 +250,13 @@
     <!-- Behavior of the previous/next media buttons (bluetooth, lock screen): chapter skip vs. seek. -->
     <string name="settings.playback.bt_skip_chapter.title">Bluetooth prev/next skips chapters</string>
     <string name="settings.playback.import_parallelism.title">Import parallelism</string>
+    <string name="settings.online_source.title">Online book source</string>
+    <string name="settings.online_source.summary">Search and stream audiobooks from your own download server. Off by default.</string>
+    <string name="settings.online_source.base_url_title">Server address</string>
+    <string name="settings.online_source.base_url_hint">http://192.168.1.10:6500</string>
+    <string name="settings.online_source.credential_title">Access key</string>
+    <string name="settings.online_source.credential_hint">Paste the access key of your server</string>
+    <string name="settings.online_source.not_set">Not set</string>
     <string name="settings.playback.import_parallelism.summary">Chapters analyzed at the same time. Higher imports faster, but chapter switches respond slower while importing.</string>
     <string name="settings.playback.import_parallelism.value">Concurrency: %1$d</string>
     <string name="settings.playback.import_parallelism.option">Analyze chapters in parallel: %1$d</string>

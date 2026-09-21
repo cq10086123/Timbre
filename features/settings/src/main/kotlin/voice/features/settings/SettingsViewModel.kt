@@ -31,6 +31,9 @@ import voice.core.data.store.ThemeModeStore
 import voice.core.data.store.WebDavAutoRefreshWifiStore
 import voice.core.featureflag.FeatureFlag
 import voice.core.featureflag.KioskModeFeatureFlagQualifier
+import voice.core.online.OnlineSourceBaseUrlStore
+import voice.core.online.OnlineSourceCredentialStore
+import voice.core.online.OnlineSourceEnabledStore
 import voice.core.ui.DynamicColorAvailability
 import voice.core.ui.GridCount
 import voice.core.update.UpdateNotifier
@@ -68,6 +71,12 @@ class SettingsViewModel(
   private val btSkipToChapterStore: DataStore<Boolean>,
   @AnalysisParallelismStore
   private val analysisParallelismStore: DataStore<Int>,
+  @OnlineSourceEnabledStore
+  private val onlineSourceEnabledStore: DataStore<Boolean>,
+  @OnlineSourceBaseUrlStore
+  private val onlineSourceBaseUrlStore: DataStore<String>,
+  @OnlineSourceCredentialStore
+  private val onlineSourceCredentialStore: DataStore<String>,
   private val dynamicColorAvailability: DynamicColorAvailability,
   private val updateNotifier: UpdateNotifier,
   dispatcherProvider: DispatcherProvider,
@@ -97,6 +106,9 @@ class SettingsViewModel(
     val autoRefreshWifi by remember { autoRefreshWifiStore.data }.collectAsState(initial = true)
     val btSkipToChapter by remember { btSkipToChapterStore.data }.collectAsState(initial = true)
     val importParallelism by remember { analysisParallelismStore.data }.collectAsState(initial = 1)
+    val onlineSourceEnabled by remember { onlineSourceEnabledStore.data }.collectAsState(initial = false)
+    val onlineSourceBaseUrl by remember { onlineSourceBaseUrlStore.data }.collectAsState(initial = "")
+    val onlineSourceCredential by remember { onlineSourceCredentialStore.data }.collectAsState(initial = "")
     val showThemeColorSchemePref = remember {
       dynamicColorAvailability.isSupported()
     }
@@ -125,6 +137,9 @@ class SettingsViewModel(
       autoRefreshWifi = autoRefreshWifi,
       btSkipToChapter = btSkipToChapter,
       importParallelism = importParallelism,
+      onlineSourceEnabled = onlineSourceEnabled,
+      onlineSourceBaseUrl = onlineSourceBaseUrl,
+      onlineSourceCredential = onlineSourceCredential,
       showSupportDevelopment = appInfoProvider.supportDevelopmentIncluded,
       kioskMode = kioskMode,
     )
@@ -221,6 +236,34 @@ class SettingsViewModel(
   override fun setBtSkipToChapter(checked: Boolean) {
     mainScope.launch {
       btSkipToChapterStore.updateData { checked }
+    }
+  }
+
+  override fun setOnlineSourceEnabled(checked: Boolean) {
+    mainScope.launch {
+      onlineSourceEnabledStore.updateData { checked }
+    }
+  }
+
+  override fun onOnlineSourceBaseUrlRowClick() {
+    dialog.value = SettingsViewState.Dialog.OnlineSourceBaseUrl
+  }
+
+  override fun onOnlineSourceCredentialRowClick() {
+    dialog.value = SettingsViewState.Dialog.OnlineSourceCredential
+  }
+
+  override fun onlineSourceBaseUrlChanged(value: String) {
+    dialog.value = null
+    mainScope.launch {
+      onlineSourceBaseUrlStore.updateData { value.trim() }
+    }
+  }
+
+  override fun onlineSourceCredentialChanged(value: String) {
+    dialog.value = null
+    mainScope.launch {
+      onlineSourceCredentialStore.updateData { value.trim() }
     }
   }
 

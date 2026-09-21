@@ -81,6 +81,15 @@ class SettingsViewModelTest {
     analysisParallelismStore = mockk {
       every { data } returns flowOf(1)
     },
+    onlineSourceEnabledStore = mockk {
+      every { data } returns flowOf(false)
+    },
+    onlineSourceBaseUrlStore = mockk {
+      every { data } returns flowOf("")
+    },
+    onlineSourceCredentialStore = mockk {
+      every { data } returns flowOf("")
+    },
     dynamicColorAvailability = dynamicColorAvailability,
     updateNotifier = mockk {
       every { update } returns MutableStateFlow(null)
