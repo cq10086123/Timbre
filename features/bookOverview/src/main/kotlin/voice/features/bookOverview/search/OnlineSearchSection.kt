@@ -63,6 +63,9 @@ internal fun OnlineSearchSection(
 
   val sources by produceState(initialValue = emptyList()) {
     val intf = runCatching { service.sources() }.getOrDefault(emptyList())
+      // "official" interfaces need a VIP account + browser automation on the
+      // server for chapter access, so their results can never be played here
+      .filterNot { it.type == "official" }
     value = listOf(
       voice.core.online.OnlineSourceInfo(
         name = OnlineSourceClient.SOURCE_MAIN,
@@ -296,24 +299,54 @@ private fun OnlineChaptersDialog(
             style = MaterialTheme.typography.bodySmall,
           )
         } else {
-          LazyColumn(
-            modifier = Modifier.size(width = 280.dp, height = 360.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-          ) {
-            items(state.chapters) { chapter ->
+          var page by remember { mutableIntStateOf(0) }
+          val pageCount = (state.chapters.size + CHAPTERS_PAGE_SIZE - 1) / CHAPTERS_PAGE_SIZE
+          val safePage = page.coerceIn(0, pageCount - 1)
+          val pageChapters = state.chapters.drop(safePage * CHAPTERS_PAGE_SIZE).take(CHAPTERS_PAGE_SIZE)
+          Column(modifier = Modifier.fillMaxWidth()) {
+            Text(
+              modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 8.dp),
+              text = stringResource(StringsR.string.search_online_chapters_count, state.chapters.size),
+              style = MaterialTheme.typography.bodyMedium,
+            )
+            if (pageCount > 1) {
               Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                  .fillMaxWidth()
+                  .horizontalScroll(rememberScrollState())
+                  .padding(bottom = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
               ) {
-                Text(
-                  text = chapter.title,
-                  maxLines = 1,
-                  overflow = TextOverflow.Ellipsis,
-                  modifier = Modifier.weight(1f),
-                )
-                if (chapter.durationSeconds > 0) {
-                  Spacer(modifier = Modifier.width(8.dp))
-                  Text(text = formatDuration(chapter.durationSeconds))
+                repeat(pageCount) { index ->
+                  FilterChip(
+                    selected = index == safePage,
+                    onClick = { page = index },
+                    label = { Text(pageLabel(index, state.chapters.size)) },
+                  )
+                }
+              }
+            }
+            LazyColumn(
+              modifier = Modifier.size(width = 280.dp, height = 360.dp),
+              verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+              items(pageChapters) { chapter ->
+                Row(
+                  modifier = Modifier.fillMaxWidth(),
+                  verticalAlignment = Alignment.CenterVertically,
+                ) {
+                  Text(
+                    text = chapter.title,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                  )
+                  if (chapter.durationSeconds > 0) {
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(text = formatDuration(chapter.durationSeconds))
+                  }
                 }
               }
             }
@@ -327,6 +360,17 @@ private fun OnlineChaptersDialog(
       }
     },
   )
+}
+
+private const val CHAPTERS_PAGE_SIZE = 50
+
+private fun pageLabel(
+  page: Int,
+  total: Int,
+): String {
+  val start = page * CHAPTERS_PAGE_SIZE + 1
+  val end = minOf((page + 1) * CHAPTERS_PAGE_SIZE, total)
+  return "$start-$end"
 }
 
 private fun formatDuration(seconds: Int): String {
