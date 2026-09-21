@@ -1,12 +1,12 @@
 package voice.core.online
 
 import androidx.datastore.core.DataStore
-import kotlinx.serialization.builtins.ListSerializer
 import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.ContributesTo
 import dev.zacsweers.metro.Provides
 import dev.zacsweers.metro.Qualifier
 import dev.zacsweers.metro.SingleIn
+import kotlinx.serialization.builtins.ListSerializer
 
 @Qualifier
 public annotation class OnlineSourceEnabledStore
