@@ -168,8 +168,14 @@ class BookPlayViewModel(
     val book = baseBook ?: return null
     val overlaid = livePlaybackState?.let { book.overlay(it) } ?: book
     val isPlaying = livePlaybackState?.isPlaying ?: (managerPlayState == PlayStateManager.PlayState.Playing)
+    // the synthesized online book carries no local cover file; the remote
+    // cover url from the shelf or search stash is shown instead
+    var onlineCover by remember(bookId) { mutableStateOf<String?>(null) }
+    LaunchedEffect(bookId) {
+      onlineCover = onlinePlaybackCatalog.onlineCover(bookId)
+    }
 
-    return bookPlayViewState(book = overlaid, isPlaying = isPlaying, loading = resolving)
+    return bookPlayViewState(book = overlaid, isPlaying = isPlaying, loading = resolving, coverOverride = onlineCover)
   }
 
   @Composable
@@ -177,6 +183,7 @@ class BookPlayViewModel(
     book: Book,
     isPlaying: Boolean,
     loading: Boolean = false,
+    coverOverride: String? = null,
   ): BookPlayViewState {
     val currentMark = book.currentChapter.markForPosition(book.content.positionInChapter)
     val positionInCurrentMark = if (isPlaying && currentMark.durationMs > 0) {
@@ -196,7 +203,7 @@ class BookPlayViewModel(
       chapterName = currentMark.name.takeIf { hasMoreThanOneChapter },
       duration = currentMark.durationMs.milliseconds,
       playedTime = positionInCurrentMark.milliseconds,
-      cover = book.content.coverUrl,
+      cover = coverOverride ?: book.content.coverUrl,
       skipSilence = book.content.skipSilence,
       loading = loading,
     )

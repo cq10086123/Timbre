@@ -71,8 +71,17 @@ public class OnlinePlaybackCatalog(
    * Books whose chapters were fetched in the search dialog and whose playback
    * was started without adding them to the shelf: the player can still
    * assemble the book from here, the shelf simply does not show them.
+   * Entries are also consulted by [resolveMain] (for the book title) because
+   * the shelf lookup misses for books that were never added.
    */
   private val pendingBooks = ConcurrentHashMap<String, OnlineBook>()
+
+  /**
+   * Books assembled for playback in this session (shelf or stash). The resolve
+   * step runs after assembly on the player thread; without this the title of
+   * a search-stashed book would be lost once [book] consumed the stash.
+   */
+  private val assembledBooks = ConcurrentHashMap<String, OnlineBook>()
 
   /** True while a stream url is being resolved (may download chapters). */
   private val _resolving = MutableStateFlow(false)
@@ -131,7 +140,7 @@ public class OnlinePlaybackCatalog(
       positions[bookRef.key] = OnlinePosition(chapterRef.chapterId, positionMs)
     }
     if (durationMs > 0L) {
-      recordMeasuredDuration(bookRef.bookId, chapterRef.chapterId, durationMs)
+      recordMeasuredDuration(bookRef.source, bookRef.bookId, chapterRef.chapterId, durationMs)
     }
   }
 
@@ -139,15 +148,38 @@ public class OnlinePlaybackCatalog(
    * Keeps a book around for playback without adding it to the shelf.
    */
   public fun stashForPlayback(book: OnlineBook) {
+    if (pendingBooks.size >= STASH_CAP) {
+      pendingBooks.keys.firstOrNull()?.let { pendingBooks.remove(it) }
+    }
     pendingBooks[OnlineBookRef(book.source, book.bookId).key] = book
+  }
+
+  /**
+   * The remote cover url of an online book (shelf, search stash or assembled
+   * copy), or null when unknown. The synthesized [Book] carries no cover, so
+   * the player UI and notification use this instead.
+   */
+  public suspend fun onlineCover(bookId: BookId): String? {
+    val bookRef = OnlineUri.parseBookUri(bookId.value) ?: return null
+    pendingBooks[bookRef.key]?.cover
+      ?.takeIf { it.isNotBlank() }?.let { return it }
+    assembledBooks[bookRef.key]?.cover
+      ?.takeIf { it.isNotBlank() }?.let { return it }
+    return service.shelfBook(bookRef.key)?.cover?.takeIf { it.isNotBlank() }
   }
 
   /** Synthesizes the [Book] of an online book, or null when [bookId] is not one. */
   public suspend fun book(bookId: BookId): Book? {
     val bookRef = OnlineUri.parseBookUri(bookId.value) ?: return null
-    val onlineBook = pendingBooks.remove(bookRef.key)
-      ?: service.shelfBook(bookRef.key)
+    // shelf first: it is the fresher persisted copy. The search stash is only
+    // a fallback for books never added - and it must be peeked, not removed:
+    // both the player and the player screen assemble the book, a one-shot
+    // stash would starve whichever runs second (search playback that never
+    // starts, or a black player screen).
+    val onlineBook = service.shelfBook(bookRef.key)
+      ?: pendingBooks[bookRef.key]
       ?: return null
+    rememberAssembled(bookRef.key, onlineBook)
     val chapters = onlineBook.chapters.ifEmpty {
       runCatching { service.chapters(bookRef.source, bookRef.bookId) }.getOrDefault(emptyList())
     }
@@ -252,16 +284,19 @@ public class OnlinePlaybackCatalog(
 
   /**
    * Records a duration measured from the real stream (mp3 header analysis at
-   * playback start) and persists it, so the next assembly of the book uses
-   * the correct value instead of the source-reported or placeholder one.
+   * playback start, or the player-reported duration) and persists it, so the
+   * next assembly of the book uses the correct value instead of the
+   * source-reported or placeholder one. Keyed by the full chapter uri, so
+   * every source keeps its own measurements.
    */
   public fun recordMeasuredDuration(
+    source: String,
     bookId: String,
     chapterId: String,
     durationMs: Long,
   ) {
     if (durationMs <= 0L) return
-    val uri = OnlineUri.build(OnlineSourceClient.SOURCE_MAIN, bookId, chapterId)
+    val uri = OnlineUri.build(source, bookId, chapterId)
     if (measuredDurations[uri] == durationMs) return
     measuredDurations[uri] = durationMs
     _durationsVersion.value += 1
@@ -269,7 +304,7 @@ public class OnlinePlaybackCatalog(
       try {
         booksStore.updateData { books ->
           books.map { book ->
-            if (book.source != OnlineSourceClient.SOURCE_MAIN || book.bookId != bookId) {
+            if (book.source != source || book.bookId != bookId) {
               book
             } else {
               book.copy(
@@ -339,7 +374,12 @@ public class OnlinePlaybackCatalog(
    */
   private suspend fun resolveMain(ref: OnlineChapterRef): String? {
     val bookRef = OnlineBookRef(ref.source, ref.bookId)
+    // books started from the search dialog live in the session maps, not on
+    // the shelf: without them the title below is blank and the file about to
+    // be downloaded can never be matched (always "connection failed").
     val onlineBook = service.shelfBook(bookRef.key)
+      ?: pendingBooks[bookRef.key]
+      ?: assembledBooks[bookRef.key]
     val chapters = onlineBook?.chapters?.takeIf { it.isNotEmpty() }
       ?: service.chapters(ref.source, ref.bookId)
     if (chapters.isEmpty()) {
@@ -376,8 +416,18 @@ public class OnlinePlaybackCatalog(
     episode: Int,
   ): String? {
     val albums = cachedDownloadedAlbums() ?: return null
-    val album = albums.firstOrNull { titleSimilar(it.name, bookTitle) }
-      ?: albums.singleOrNull { album -> album.files.any { fileMatchesEpisode(it.name, episode) } }
+    val candidates = albums.mapNotNull { album ->
+      val file = album.files
+        .filter { fileMatchesEpisode(it.name, episode) }
+        .minByOrNull { it.name.length }
+        ?: return@mapNotNull null
+      album to file
+    }
+    if (candidates.isEmpty()) return null
+    // a single candidate is unambiguous; with several, only a title match may
+    // decide - picking blindly would play another book's episode
+    val album = candidates.firstOrNull { titleSimilar(it.first.name, bookTitle) }?.first
+      ?: candidates.singleOrNull()?.first
       ?: return null
     val file = album.files
       .filter { fileMatchesEpisode(it.name, episode) }
@@ -396,6 +446,17 @@ public class OnlinePlaybackCatalog(
       albumsCache = now to albums
     }
     return albums
+  }
+
+  /** Remembers an assembled book so the resolve step can still see its title. */
+  private fun rememberAssembled(
+    key: String,
+    book: OnlineBook,
+  ) {
+    if (assembledBooks.size >= STASH_CAP) {
+      assembledBooks.keys.firstOrNull()?.let { assembledBooks.remove(it) }
+    }
+    assembledBooks[key] = book
   }
 
   private fun fail(
@@ -438,6 +499,9 @@ public class OnlinePlaybackCatalog(
     private const val ALBUMS_CACHE_MS = 10_000L
     private const val ERROR_DEDUPE_MS = 30_000L
     private const val PLACEHOLDER_CHAPTER_DURATION_MS = 30 * 60_000L
+
+    /** Session stash is user-tap driven; the cap only guards runaway growth. */
+    private const val STASH_CAP = 64
 
     /** The first digit run of the title, falling back to the playlist position. */
     internal fun episodeNumber(

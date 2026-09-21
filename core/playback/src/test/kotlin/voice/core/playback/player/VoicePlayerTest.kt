@@ -115,6 +115,8 @@ class VoicePlayerTest {
     mediaItemProvider = mediaItemProvider,
     onlinePlaybackCatalog = mockk {
       coEvery { book(any()) } returns null
+      every { isOnlineBookId(any()) } returns false
+      coEvery { onlineCover(any()) } returns null
     },
     volumeGain = mockk(relaxed = true),
     sleepTimer = sleepTimer,
