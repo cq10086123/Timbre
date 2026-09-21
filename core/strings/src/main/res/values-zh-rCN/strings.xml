@@ -101,6 +101,10 @@
     <string name="search.online.source.main">主源</string>
     <string name="search.online.error">无法连接在线书源</string>
     <string name="search.online.no_results">该源没有搜到结果</string>
+    <string name="search.online.chapters.loading">正在获取章节列表…</string>
+    <string name="search.online.chapters.loading_count">正在获取章节列表（共 %1$d 集）…</string>
+    <string name="search.online.chapters.loading_hint">长书在主源可能需要 10~20 秒，稍安勿躁</string>
+    <string name="search.online.retry">重试</string>
     <string name="settings.online_source.error.invalid">密钥无效或无法连接服务器</string>
     <string name="settings.online_source.error.need_base_url">请先设置服务器地址</string>
     <string name="settings.online_source.error.invalid_url">地址必须以 http:// 或 https:// 开头</string>

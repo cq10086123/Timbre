@@ -16,11 +16,13 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -210,34 +212,74 @@ private fun OnlineResultRow(
   }
 }
 
+private data class ChaptersUiState(
+  val loading: Boolean = true,
+  val failed: Boolean = false,
+  val chapters: List<OnlineChapter> = emptyList(),
+)
+
 @Composable
 private fun OnlineChaptersDialog(
   service: OnlineSourceService,
   book: OnlineSearchResult,
   onDismiss: () -> Unit,
 ) {
-  val chaptersState by produceState(initialValue = emptyList<OnlineChapter>(), book) {
-    value = runCatching { service.chapters(book.source, book.bookId) }.getOrDefault(emptyList())
+  var reloadKey by remember { mutableIntStateOf(0) }
+  val state by produceState(initialValue = ChaptersUiState(), book, reloadKey) {
+    value = ChaptersUiState(loading = true)
+    val chapters = runCatching { service.chapters(book.source, book.bookId) }
+    value = chapters.fold(
+      onSuccess = { ChaptersUiState(loading = false, chapters = it) },
+      onFailure = { ChaptersUiState(loading = false, failed = true) },
+    )
   }
   AlertDialog(
     onDismissRequest = onDismiss,
     title = { Text(book.title, maxLines = 3, overflow = TextOverflow.Ellipsis) },
     text = {
-      if (chaptersState.isEmpty()) {
-        Row(
+      if (state.loading) {
+        Column(
           modifier = Modifier
             .fillMaxWidth()
-            .padding(24.dp),
-          horizontalArrangement = Arrangement.Center,
+            .padding(vertical = 16.dp),
+          horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-          CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+          CircularProgressIndicator(modifier = Modifier.size(28.dp), strokeWidth = 2.dp)
+          Text(
+            modifier = Modifier.padding(top = 12.dp),
+            text = if (book.trackCount > 0) {
+              stringResource(StringsR.string.search_online_chapters_loading_count, book.trackCount)
+            } else {
+              stringResource(StringsR.string.search_online_chapters_loading)
+            },
+          )
+          Text(
+            modifier = Modifier.padding(top = 4.dp),
+            text = stringResource(StringsR.string.search_online_chapters_loading_hint),
+            style = MaterialTheme.typography.bodySmall,
+          )
+        }
+      } else if (state.failed) {
+        Column(
+          modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 16.dp),
+          horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+          Text(stringResource(StringsR.string.search_online_error))
+          TextButton(
+            modifier = Modifier.padding(top = 8.dp),
+            onClick = { reloadKey++ },
+          ) {
+            Text(stringResource(StringsR.string.search_online_retry))
+          }
         }
       } else {
         LazyColumn(
           modifier = Modifier.size(width = 280.dp, height = 360.dp),
           verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-          items(chaptersState) { chapter ->
+          items(state.chapters) { chapter ->
             Row(
               modifier = Modifier.fillMaxWidth(),
               verticalAlignment = Alignment.CenterVertically,
