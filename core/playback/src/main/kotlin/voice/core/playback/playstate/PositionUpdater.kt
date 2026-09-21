@@ -133,7 +133,14 @@ class PositionUpdater(
     }
     Logger.d("$positionInChapter is the new position! (persist=$persist)")
     // online books have no room row: the catalog keeps their position itself
-    onlinePlaybackCatalog.updatePosition(bookId, chapterId, positionInChapter)
+    // the player reports the real stream duration; the catalog persists it so
+    // chapters without a source-reported length stop using placeholders
+    onlinePlaybackCatalog.updatePosition(
+      bookId = bookId,
+      chapterId = chapterId,
+      positionMs = positionInChapter,
+      durationMs = player.duration.takeIf { it > 0 } ?: 0L,
+    )
     bookRepo.updatePlaybackPosition(
       id = bookId,
       currentChapter = chapterId,

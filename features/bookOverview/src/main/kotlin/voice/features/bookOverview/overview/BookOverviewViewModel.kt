@@ -42,6 +42,7 @@ import voice.core.logging.api.Logger
 import voice.core.online.OnlineBook
 import voice.core.online.OnlinePlaybackCatalog
 import voice.core.online.OnlineSourceBooksStore
+import voice.core.online.OnlineUri
 import voice.core.playback.LivePlaybackState
 import voice.core.playback.PlayerController
 import voice.core.playback.overlay
@@ -157,6 +158,9 @@ class BookOverviewViewModel(
       remember { mutableStateOf(null) }
     }
 
+    val onlineCovers = storedOnlineBooks.associate {
+      BookId(OnlineUri.buildBookUri(it.source, it.bookId)) to it.cover
+    }
     val groupedBooks = books
       .groupBy {
         it.category
@@ -165,12 +169,19 @@ class BookOverviewViewModel(
         books
           .sortedWith(category.comparator)
           .associate { book ->
-            book.id to book.itemViewState(
+            val itemVs = book.itemViewState(
               currentBookId = currentBookId,
               livePlaybackState = { livePlaybackState.value },
               importProgress = importingBooks[book.id],
               importError = scanErrors[book.id],
             )
+            val cover: String? = onlineCovers[book.id]
+            val finalItemVs = if (cover.isNullOrBlank()) {
+              itemVs
+            } else {
+              remember(cover) { derivedStateOf { itemVs.value.copy(cover = cover) } }
+            }
+            book.id to finalItemVs
           }
       }
       .toSortedMap()

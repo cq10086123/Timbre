@@ -69,6 +69,7 @@ internal fun BookPlayContent(
           onPlayClick = onPlayClick,
           onRewindClick = onRewindClick,
           onFastForwardClick = onFastForwardClick,
+          loading = viewState.loading,
         )
       }
     }
@@ -106,6 +107,7 @@ internal fun BookPlayContent(
         onPlayClick = onPlayClick,
         onRewindClick = onRewindClick,
         onFastForwardClick = onFastForwardClick,
+        loading = viewState.loading,
       )
       Spacer(modifier = Modifier.size(24.dp))
     }

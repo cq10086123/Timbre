@@ -251,9 +251,22 @@ private fun OnlineChaptersDialog(
   LaunchedEffect(book, reloadKey) {
     shelfState = service.shelfBook(shelfKey) != null
   }
-  fun playFromChapter(chapter: OnlineChapter) {
-    // playback starts at the tapped chapter; the catalog keeps it until the
-    // first position update arrives
+  fun playFromChapter(
+    chapters: List<OnlineChapter>,
+    chapter: OnlineChapter,
+  ) {
+    // playback without adding to the shelf: hand the fetched book to the
+    // catalog so the player can assemble it from memory
+    catalog.stashForPlayback(
+      OnlineBook(
+        source = book.source,
+        bookId = book.bookId,
+        title = book.title,
+        author = book.author,
+        cover = book.cover,
+        chapters = chapters,
+      ),
+    )
     catalog.requestStartAt(book.source, book.bookId, chapter.id)
     onBookClick(BookId(OnlineUri.buildBookUri(book.source, book.bookId)))
   }
@@ -391,7 +404,7 @@ private fun OnlineChaptersDialog(
                   modifier = Modifier
                     .fillMaxWidth()
                     .clickable {
-                      playFromChapter(chapter)
+                      playFromChapter(state.chapters, chapter)
                     },
                   verticalAlignment = Alignment.CenterVertically,
                 ) {

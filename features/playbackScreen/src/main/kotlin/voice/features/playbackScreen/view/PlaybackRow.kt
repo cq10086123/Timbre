@@ -18,6 +18,7 @@ internal fun PlaybackRow(
   onPlayClick: () -> Unit,
   onRewindClick: () -> Unit,
   onFastForwardClick: () -> Unit,
+  loading: Boolean = false,
 ) {
   Row(
     modifier = Modifier
@@ -28,13 +29,21 @@ internal fun PlaybackRow(
     SkipButton(forward = false, onClick = onRewindClick)
     Spacer(modifier = Modifier.size(16.dp))
 
-    PlayButton(
-      playing = playing,
-      fabSize = 80.dp,
-      iconSize = 36.dp,
-      onPlayClick = onPlayClick,
-      sharedElementModifier = Modifier.playButtonSharedBoundsModifier(),
-    )
+    androidx.compose.foundation.layout.Box {
+      PlayButton(
+        playing = playing,
+        fabSize = 80.dp,
+        iconSize = 36.dp,
+        onPlayClick = onPlayClick,
+        sharedElementModifier = Modifier.playButtonSharedBoundsModifier(),
+      )
+      if (loading) {
+        androidx.compose.material3.CircularProgressIndicator(
+          modifier = Modifier.size(88.dp),
+          strokeWidth = 3.dp,
+        )
+      }
+    }
     Spacer(modifier = Modifier.size(16.dp))
     SkipButton(forward = true, onClick = onFastForwardClick)
   }
