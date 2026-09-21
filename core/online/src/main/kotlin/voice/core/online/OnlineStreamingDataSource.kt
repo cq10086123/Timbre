@@ -17,6 +17,8 @@ import java.io.IOException
  */
 public class OnlineStreamingDataSource internal constructor(
   private val okHttpClient: OkHttpClient,
+  private val baseUrlProvider: () -> String,
+  private val tokenProvider: () -> String,
   private val urlResolver: (OnlineChapterRef) -> String?,
 ) : BaseDataSource(false) {
 
@@ -39,6 +41,13 @@ public class OnlineStreamingDataSource internal constructor(
         ByteArray(0),
       )
     val requestBuilder = Request.Builder().url(requestUrl)
+    // the site's file streaming endpoint requires the bearer token; third
+    // party cdn links must not receive it
+    val base = baseUrlProvider().trim().trimEnd('/')
+    val token = tokenProvider().trim()
+    if (token.isNotEmpty() && requestUrl.startsWith(base)) {
+      requestBuilder.header("Authorization", "Bearer $token")
+    }
     val rangeStart = dataSpec.position
     if (rangeStart > 0 || dataSpec.length != C.LENGTH_UNSET.toLong()) {
       val end = if (dataSpec.length == C.LENGTH_UNSET.toLong()) "" else "/${rangeStart + dataSpec.length - 1}"
@@ -107,10 +116,12 @@ public class OnlineStreamingDataSource internal constructor(
 /** Factory mirroring the webdav module's data source factory. */
 public class OnlineDataSourceFactory internal constructor(
   private val okHttpClient: OkHttpClient,
+  private val baseUrlProvider: () -> String,
+  private val tokenProvider: () -> String,
   private val urlResolver: (OnlineChapterRef) -> String?,
 ) : DataSource.Factory {
 
   override fun createDataSource(): DataSource {
-    return OnlineStreamingDataSource(okHttpClient, urlResolver)
+    return OnlineStreamingDataSource(okHttpClient, baseUrlProvider, tokenProvider, urlResolver)
   }
 }

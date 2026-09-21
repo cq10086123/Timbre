@@ -6,6 +6,7 @@ import dev.zacsweers.metro.ContributesTo
 import dev.zacsweers.metro.Provides
 import dev.zacsweers.metro.Qualifier
 import dev.zacsweers.metro.SingleIn
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.builtins.ListSerializer
 import okhttp3.OkHttpClient
@@ -98,11 +99,17 @@ public interface OnlineSourceGraph {
   @SingleIn(AppScope::class)
   public fun onlineDataSourceFactory(
     catalog: OnlinePlaybackCatalog,
+    @OnlineSourceBaseUrlStore baseUrlStore: DataStore<String>,
+    @OnlineSourceTokenStore tokenStore: DataStore<String>,
     @OnlineSourceStreamingClient streamingClient: OkHttpClient,
   ): OnlineDataSourceFactory {
     // open() runs on the exoplayer loading thread, where a blocking bridge is
     // fine (the webdav data source does its blocking network work there too)
-    return OnlineDataSourceFactory(streamingClient) { ref ->
+    return OnlineDataSourceFactory(
+      streamingClient,
+      baseUrlProvider = { runBlocking { baseUrlStore.data.first() } },
+      tokenProvider = { runBlocking { tokenStore.data.first() } },
+    ) { ref ->
       runBlocking { catalog.resolveStreamUrl(ref) }
     }
   }
