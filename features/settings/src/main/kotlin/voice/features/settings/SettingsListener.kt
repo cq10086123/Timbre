@@ -28,6 +28,11 @@ interface SettingsListener {
   fun setBtSkipToChapter(checked: Boolean)
   fun onImportParallelismRowClick()
   fun importParallelismChanged(level: Int)
+  fun setOnlineSourceEnabled(checked: Boolean)
+  fun onOnlineSourceBaseUrlRowClick()
+  fun onOnlineSourceCredentialRowClick()
+  fun onlineSourceBaseUrlChanged(value: String)
+  fun onlineSourceCredentialChanged(value: String)
   fun onAppVersionClick()
 
   fun openDeveloperMenu()
@@ -47,6 +52,11 @@ interface SettingsListener {
       override fun setBtSkipToChapter(checked: Boolean) {}
       override fun onImportParallelismRowClick() {}
       override fun importParallelismChanged(level: Int) {}
+      override fun setOnlineSourceEnabled(checked: Boolean) {}
+      override fun onOnlineSourceBaseUrlRowClick() {}
+      override fun onOnlineSourceCredentialRowClick() {}
+      override fun onlineSourceBaseUrlChanged(value: String) {}
+      override fun onlineSourceCredentialChanged(value: String) {}
       override fun dismissDialog() {}
       override fun openProjectRepository() {}
       override fun openSupportVoice() {}

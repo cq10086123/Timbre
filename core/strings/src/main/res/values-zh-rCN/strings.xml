@@ -89,6 +89,13 @@
     <string name="settings.playback.seek_time.title">跳过时间</string>
     <string name="settings.playback.bt_skip_chapter.title">蓝牙上一集/下一集切换章节</string>
     <string name="settings.playback.import_parallelism.title">导入并发度</string>
+    <string name="settings.online_source.title">在线书源</string>
+    <string name="settings.online_source.summary">搜索并在线收听你自己下载服务器上的有声书。默认关闭。</string>
+    <string name="settings.online_source.base_url_title">服务器地址</string>
+    <string name="settings.online_source.base_url_hint">http://192.168.1.10:6500</string>
+    <string name="settings.online_source.credential_title">鉴权密钥</string>
+    <string name="settings.online_source.credential_hint">粘贴服务器的访问密钥</string>
+    <string name="settings.online_source.not_set">未设置</string>
     <string name="settings.playback.import_parallelism.summary">同时解析的章节数。调大导入更快，但边听边导时切章响应会变慢。</string>
     <string name="settings.playback.import_parallelism.value">同时 %1$d 章</string>
     <string name="settings.playback.import_parallelism.option">同时解析 %1$d 章</string>

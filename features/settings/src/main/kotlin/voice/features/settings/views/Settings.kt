@@ -11,6 +11,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -22,13 +23,18 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.retain.retain
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.navigation3.runtime.NavEntry
@@ -130,6 +136,72 @@ private fun Settings(
           },
         ) {
           Text(stringResource(StringsR.string.webdav_title))
+        }
+      }
+      item {
+        ListItem(
+          modifier = Modifier.clickable { listener.setOnlineSourceEnabled(!viewState.onlineSourceEnabled) },
+          leadingContent = {
+            Icon(
+              imageVector = VoiceIcons.Language,
+              contentDescription = stringResource(StringsR.string.settings_online_source_title),
+            )
+          },
+          supportingContent = {
+            Text(stringResource(StringsR.string.settings_online_source_summary))
+          },
+          trailingContent = {
+            Switch(
+              checked = viewState.onlineSourceEnabled,
+              onCheckedChange = listener::setOnlineSourceEnabled,
+            )
+          },
+        ) {
+          Text(stringResource(StringsR.string.settings_online_source_title))
+        }
+      }
+      if (viewState.onlineSourceEnabled) {
+        item {
+          ListItem(
+            modifier = Modifier.clickable { listener.onOnlineSourceBaseUrlRowClick() },
+            leadingContent = {
+              Icon(
+                imageVector = VoiceIcons.Language,
+                contentDescription = stringResource(StringsR.string.settings_online_source_base_url_title),
+              )
+            },
+            supportingContent = {
+              Text(
+                text = viewState.onlineSourceBaseUrl.ifBlank {
+                  stringResource(StringsR.string.settings_online_source_not_set)
+                },
+              )
+            },
+          ) {
+            Text(stringResource(StringsR.string.settings_online_source_base_url_title))
+          }
+        }
+        item {
+          ListItem(
+            modifier = Modifier.clickable { listener.onOnlineSourceCredentialRowClick() },
+            leadingContent = {
+              Icon(
+                imageVector = VoiceIcons.LockOpen,
+                contentDescription = stringResource(StringsR.string.settings_online_source_credential_title),
+              )
+            },
+            supportingContent = {
+              Text(
+                text = if (viewState.onlineSourceCredential.isBlank()) {
+                  stringResource(StringsR.string.settings_online_source_not_set)
+                } else {
+                  "••••••••"
+                },
+              )
+            },
+          ) {
+            Text(stringResource(StringsR.string.settings_online_source_credential_title))
+          }
         }
       }
       item {
@@ -391,6 +463,26 @@ private fun Dialog(
         onDismiss = listener::dismissDialog,
       )
     }
+    SettingsViewState.Dialog.OnlineSourceBaseUrl -> {
+      OnlineSourceTextDialog(
+        title = stringResource(StringsR.string.settings_online_source_base_url_title),
+        hint = stringResource(StringsR.string.settings_online_source_base_url_hint),
+        currentValue = viewState.onlineSourceBaseUrl,
+        maskInput = false,
+        onConfirm = listener::onlineSourceBaseUrlChanged,
+        onDismiss = listener::dismissDialog,
+      )
+    }
+    SettingsViewState.Dialog.OnlineSourceCredential -> {
+      OnlineSourceTextDialog(
+        title = stringResource(StringsR.string.settings_online_source_credential_title),
+        hint = stringResource(StringsR.string.settings_online_source_credential_hint),
+        currentValue = viewState.onlineSourceCredential,
+        maskInput = true,
+        onConfirm = listener::onlineSourceCredentialChanged,
+        onDismiss = listener::dismissDialog,
+      )
+    }
     SettingsViewState.Dialog.ImportParallelism -> {
       ImportParallelismDialog(
         currentLevel = viewState.importParallelism,
@@ -461,6 +553,45 @@ internal fun ImportParallelismDialog(
       }
     },
     confirmButton = {},
+    dismissButton = {
+      TextButton(onClick = onDismiss) {
+        Text(stringResource(StringsR.string.common_dialog_cancel))
+      }
+    },
+  )
+}
+
+@Composable
+private fun OnlineSourceTextDialog(
+  title: String,
+  hint: String,
+  currentValue: String,
+  maskInput: Boolean,
+  onConfirm: (String) -> Unit,
+  onDismiss: () -> Unit,
+) {
+  var text by remember(currentValue) { mutableStateOf(currentValue) }
+  AlertDialog(
+    onDismissRequest = onDismiss,
+    title = { Text(title) },
+    text = {
+      OutlinedTextField(
+        modifier = Modifier.fillMaxWidth(),
+        value = text,
+        onValueChange = { text = it },
+        placeholder = { Text(hint) },
+        singleLine = true,
+        visualTransformation = if (maskInput) PasswordVisualTransformation() else VisualTransformation.None,
+      )
+    },
+    confirmButton = {
+      TextButton(
+        onClick = { onConfirm(text) },
+        enabled = text.isNotBlank(),
+      ) {
+        Text(stringResource(StringsR.string.common_dialog_confirm))
+      }
+    },
     dismissButton = {
       TextButton(onClick = onDismiss) {
         Text(stringResource(StringsR.string.common_dialog_cancel))
