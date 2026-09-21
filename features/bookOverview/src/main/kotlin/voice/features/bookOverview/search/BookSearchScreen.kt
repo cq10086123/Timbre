@@ -2,8 +2,10 @@ package voice.features.bookOverview.search
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -73,48 +75,50 @@ internal fun BookSearchContent(
       }
     }
     is BookSearchViewState.SearchResults -> {
-      when (viewState.layoutMode) {
-        BookOverviewLayoutMode.List -> {
-          LazyColumn(
-            contentPadding = PaddingValues(vertical = 16.dp),
-            modifier = Modifier
-              .padding(contentPadding)
-              .padding(horizontal = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            content = {
-              items(viewState.books) { book ->
-                ListBookRow(
-                  book = book,
-                  onBookClick = onBookClick,
-                  onBookLongClick = onBookClick,
-                  // search results never carry an import error, so there is
-                  // nothing to retry here
-                  onRetryImport = {},
-                )
-              }
-            },
-          )
+      Column(modifier = Modifier.padding(contentPadding)) {
+        when (viewState.layoutMode) {
+          BookOverviewLayoutMode.List -> {
+            LazyColumn(
+              modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp),
+              verticalArrangement = Arrangement.spacedBy(8.dp),
+              content = {
+                items(viewState.books) { book ->
+                  ListBookRow(
+                    book = book,
+                    onBookClick = onBookClick,
+                    onBookLongClick = onBookClick,
+                    // search results never carry an import error, so there is
+                    // nothing to retry here
+                    onRetryImport = {},
+                  )
+                }
+              },
+            )
+          }
+          BookOverviewLayoutMode.Grid -> {
+            LazyVerticalGrid(
+              columns = GridCells.Fixed(gridColumnCount()),
+              verticalArrangement = Arrangement.spacedBy(8.dp),
+              horizontalArrangement = Arrangement.spacedBy(8.dp),
+              contentPadding = PaddingValues(start = 8.dp, end = 8.dp, top = 24.dp, bottom = 4.dp),
+              content = {
+                items(viewState.books) { book ->
+                  GridBook(
+                    book = book,
+                    onBookClick = onBookClick,
+                    onBookLongClick = onBookClick,
+                    // search results never carry an import error, so there is
+                    // nothing to retry here
+                    onRetryImport = {},
+                  )
+                }
+              },
+            )
+          }
         }
-        BookOverviewLayoutMode.Grid -> {
-          LazyVerticalGrid(
-            columns = GridCells.Fixed(gridColumnCount()),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            contentPadding = contentPadding + PaddingValues(start = 8.dp, end = 8.dp, top = 24.dp, bottom = 4.dp),
-            content = {
-              items(viewState.books) { book ->
-                GridBook(
-                  book = book,
-                  onBookClick = onBookClick,
-                  onBookLongClick = onBookClick,
-                  // search results never carry an import error, so there is
-                  // nothing to retry here
-                  onRetryImport = {},
-                )
-              }
-            },
-          )
-        }
+        OnlineSearchSection(query = viewState.query)
       }
     }
   }
