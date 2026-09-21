@@ -8,6 +8,7 @@ import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
 import io.mockk.verify
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import okhttp3.MediaType.Companion.toMediaType
@@ -78,7 +79,7 @@ class OnlineDurationProbeAheadTest {
     },
   )
 
-  private fun probeAhead(
+  private fun TestScope.probeAhead(
     catalog: OnlinePlaybackCatalog,
     metered: Boolean,
   ): OnlineDurationProbeAhead {
@@ -88,6 +89,13 @@ class OnlineDurationProbeAheadTest {
     val context = mockk<Application> {
       every { getSystemService(ConnectivityManager::class.java) } returns manager
     }
+    // all dispatchers explicit: DispatcherProvider defaults touch
+    // Dispatchers.Main, which does not exist in plain JVM unit tests
+    val dispatcherProvider = DispatcherProvider(
+      io = UnconfinedTestDispatcher(testScheduler),
+      main = UnconfinedTestDispatcher(testScheduler),
+      mainImmediate = UnconfinedTestDispatcher(testScheduler),
+    )
     return OnlineDurationProbeAhead(
       service = mockk {
         coEvery { resolveDirectUrl("A", "b", any()) } answers {
@@ -97,7 +105,7 @@ class OnlineDurationProbeAheadTest {
       catalog = catalog,
       context = context,
       httpClient = httpClient,
-      dispatcherProvider = DispatcherProvider(io = UnconfinedTestDispatcher()),
+      dispatcherProvider = dispatcherProvider,
     )
   }
 
