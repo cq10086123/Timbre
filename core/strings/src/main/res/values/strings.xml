@@ -262,6 +262,10 @@
     <string name="search.online.source.main">Main</string>
     <string name="search.online.error">Failed to reach the online source</string>
     <string name="search.online.no_results">No online results for this source</string>
+    <string name="search.online.chapters.loading">Loading chapter list…</string>
+    <string name="search.online.chapters.loading_count">Loading chapter list (%1$d chapters)…</string>
+    <string name="search.online.chapters.loading_hint">Long books can take 10-20 seconds on the main source</string>
+    <string name="search.online.retry">Retry</string>
     <string name="settings.online_source.error.invalid">Invalid key or server unreachable</string>
     <string name="settings.online_source.error.need_base_url">Set the server address first</string>
     <string name="settings.online_source.error.invalid_url">Address must start with http:// or https://</string>

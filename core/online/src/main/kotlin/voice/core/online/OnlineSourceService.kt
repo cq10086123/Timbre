@@ -27,6 +27,11 @@ public class OnlineSourceService internal constructor(
 
   private val loginMutex = Mutex()
   private var cachedToken: String? = null
+  private val chaptersCache = object : LinkedHashMap<String, List<OnlineChapter>>(0, 0.75f, true) {
+    override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, List<OnlineChapter>>): Boolean {
+      return size > 24
+    }
+  }
 
   /** Emits whether the online source is configured and switched on. */
   public val enabledFlow: Flow<Boolean> = enabledStore.data
@@ -65,14 +70,22 @@ public class OnlineSourceService internal constructor(
     source: String,
     bookId: String,
   ): List<OnlineChapter> {
+    val cacheKey = "$source::$bookId"
+    synchronized(chaptersCache) {
+      chaptersCache[cacheKey]?.let { return it }
+    }
     val (base, _) = authed()
-    return withRelogin {
+    val chapters = withRelogin {
       if (source == OnlineSourceClient.SOURCE_MAIN) {
         client.mainAlbumList(base, it, bookId)
       } else {
         client.sourceAlbumList(base, it, source, bookId)
       }
     }
+    synchronized(chaptersCache) {
+      chaptersCache[cacheKey] = chapters
+    }
+    return chapters
   }
 
   /** Resolves a temporary direct streaming url for one chapter (pluggable sources). */
