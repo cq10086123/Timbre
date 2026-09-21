@@ -1,6 +1,7 @@
 package voice.core.online
 
 import android.os.SystemClock
+import androidx.datastore.core.DataStore
 import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
@@ -8,6 +9,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.runBlocking
 import voice.core.data.Book
 import voice.core.data.BookContent
 import voice.core.data.BookId
@@ -16,6 +18,7 @@ import voice.core.data.ChapterId
 import voice.core.logging.api.Logger
 import java.io.IOException
 import java.time.Instant
+import java.util.concurrent.ConcurrentHashMap
 
 /** Why the playback of an online chapter could not be resolved. */
 public enum class OnlinePlaybackErrorKind {
@@ -49,7 +52,10 @@ public data class OnlinePlaybackError(
  */
 @Inject
 @SingleIn(AppScope::class)
-public class OnlinePlaybackCatalog(private val service: OnlineSourceService) {
+public class OnlinePlaybackCatalog(
+  private val service: OnlineSourceService,
+  @OnlineSourceBooksStore private val booksStore: DataStore<List<OnlineBook>>,
+) {
 
   private val stateLock = Any()
 
@@ -58,6 +64,13 @@ public class OnlinePlaybackCatalog(private val service: OnlineSourceService) {
 
   /** Last known playback position per book key, so re-assembly resumes. */
   private val positions = mutableMapOf<String, OnlinePosition>()
+
+  /**
+   * Durations measured from the actual stream, keyed by the canonical chapter
+   * uri. Sources that do not report durations get corrected here after the
+   * first play of a chapter.
+   */
+  private val measuredDurations = ConcurrentHashMap<String, Long>()
 
   /** Downloaded albums with a timestamp, so resolver loops do not refetch per poll. */
   private var albumsCache: Pair<Long, List<FilesAlbum>>? = null
@@ -144,18 +157,105 @@ public class OnlinePlaybackCatalog(private val service: OnlineSourceService) {
       part = null,
     )
     val dataChapters = chapters.map { chapter ->
+      val uri = OnlineUri.build(bookRef.source, bookRef.bookId, chapter.id)
       Chapter(
-        id = ChapterId(OnlineUri.build(bookRef.source, bookRef.bookId, chapter.id)),
+        id = ChapterId(uri),
         name = chapter.title,
-        // the stream itself reports the real duration; this only feeds the
-        // chapter timeline and must never clip playback to nothing
-        duration = (chapter.durationSeconds * 1_000L).coerceAtLeast(MIN_CHAPTER_DURATION_MS),
+        // prefer a duration measured from the actual stream; sources that do
+        // not report one fall back to a placeholder so the player never clips
+        // the chapter away - it gets corrected after the first play
+        duration = measuredDurations[uri]
+          ?: (chapter.durationSeconds.takeIf { it > 0 }?.let { it * 1_000L } ?: PLACEHOLDER_CHAPTER_DURATION_MS),
         fileLastModified = Instant.EPOCH,
         fileSize = 0,
         markData = emptyList(),
       )
     }
     return Book(content, dataChapters)
+  }
+
+  /**
+   * Builds a display [Book] purely from the locally stored [OnlineBook] (no
+   * network), so the shelf can show online books. Playback still goes through
+   * [book], which may fetch fresher chapters.
+   */
+  public fun localBook(onlineBook: OnlineBook): Book {
+    val bookRef = OnlineBookRef(onlineBook.source, onlineBook.bookId)
+    val bookId = BookId(OnlineUri.buildBookUri(onlineBook.source, onlineBook.bookId))
+    val chapters = onlineBook.chapters.ifEmpty {
+      listOf(OnlineChapter(id = onlineBook.bookId, title = onlineBook.title, durationSeconds = 0, order = 1))
+    }
+    val chapterIds = chapters.map { ChapterId(OnlineUri.build(bookRef.source, bookRef.bookId, it.id)) }
+    val content = BookContent(
+      id = bookId,
+      playbackSpeed = 1f,
+      skipSilence = false,
+      isActive = false,
+      lastPlayedAt = Instant.ofEpochMilli(onlineBook.addedAt),
+      author = onlineBook.author.ifBlank { null },
+      name = onlineBook.title,
+      addedAt = Instant.ofEpochMilli(onlineBook.addedAt),
+      chapters = chapterIds,
+      currentChapter = chapterIds.first(),
+      positionInChapter = 0L,
+      cover = null,
+      gain = 0f,
+      genre = null,
+      narrator = null,
+      series = null,
+      part = null,
+    )
+    val dataChapters = chapters.map { chapter ->
+      val uri = OnlineUri.build(bookRef.source, bookRef.bookId, chapter.id)
+      Chapter(
+        id = ChapterId(uri),
+        name = chapter.title,
+        duration = measuredDurations[uri]
+          ?: (chapter.durationSeconds.takeIf { it > 0 }?.let { it * 1_000L } ?: PLACEHOLDER_CHAPTER_DURATION_MS),
+        fileLastModified = Instant.EPOCH,
+        fileSize = 0,
+        markData = emptyList(),
+      )
+    }
+    return Book(content, dataChapters)
+  }
+
+  /**
+   * Records a duration measured from the real stream (mp3 header analysis at
+   * playback start) and persists it, so the next assembly of the book uses
+   * the correct value instead of the source-reported or placeholder one.
+   */
+  public fun recordMeasuredDuration(
+    bookId: String,
+    chapterId: String,
+    durationMs: Long,
+  ) {
+    if (durationMs <= 0L) return
+    val uri = OnlineUri.build(OnlineSourceClient.SOURCE_MAIN, bookId, chapterId)
+    measuredDurations[uri] = durationMs
+    runBlocking {
+      try {
+        booksStore.updateData { books ->
+          books.map { book ->
+            if (book.source != OnlineSourceClient.SOURCE_MAIN || book.bookId != bookId) {
+              book
+            } else {
+              book.copy(
+                chapters = book.chapters.map { chapter ->
+                  if (chapter.id == chapterId) {
+                    chapter.copy(durationSeconds = (durationMs / 1_000L).toInt())
+                  } else {
+                    chapter
+                  }
+                },
+              )
+            }
+          }
+        }
+      } catch (e: Exception) {
+        Logger.w("Failed to persist measured online chapter duration: $e")
+      }
+    }
   }
 
   /** The synthesized [BookContent] of an online book, or null when not one. */
@@ -296,7 +396,7 @@ public class OnlinePlaybackCatalog(private val service: OnlineSourceService) {
     private const val POLL_INTERVAL_MS = 1_500L
     private const val ALBUMS_CACHE_MS = 10_000L
     private const val ERROR_DEDUPE_MS = 30_000L
-    private const val MIN_CHAPTER_DURATION_MS = 1_000L
+    private const val PLACEHOLDER_CHAPTER_DURATION_MS = 30 * 60_000L
 
     /** The first digit run of the title, falling back to the playlist position. */
     internal fun episodeNumber(

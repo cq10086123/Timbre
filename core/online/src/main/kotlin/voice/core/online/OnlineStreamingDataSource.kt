@@ -20,7 +20,13 @@ public class OnlineStreamingDataSource internal constructor(
   private val baseUrlProvider: () -> String,
   private val tokenProvider: () -> String,
   private val urlResolver: (OnlineChapterRef) -> String?,
+  private val onDurationResolved: (OnlineChapterRef, Long) -> Unit = { _, _ -> },
 ) : BaseDataSource(false) {
+
+  private companion object {
+    /** Enough to cover an id3 tag plus a few audio frames for the probe. */
+    const val PROBE_BUFFER_BYTES = 256 * 1024
+  }
 
   private var response: okhttp3.Response? = null
   private var inputStream: java.io.InputStream? = null
@@ -50,8 +56,9 @@ public class OnlineStreamingDataSource internal constructor(
     }
     val rangeStart = dataSpec.position
     if (rangeStart > 0 || dataSpec.length != C.LENGTH_UNSET.toLong()) {
-      val end = if (dataSpec.length == C.LENGTH_UNSET.toLong()) "" else "/${rangeStart + dataSpec.length - 1}"
-      requestBuilder.header("Range", "bytes=$rangeStart-$end")
+      // some cdns answer closed ranges (bytes=start-end) with an empty body,
+      // so always request an open ended range and cap the read length here
+      requestBuilder.header("Range", "bytes=$rangeStart-")
     }
     val response = okHttpClient.newCall(requestBuilder.build()).execute()
     if (!response.isSuccessful && response.code != 206) {
@@ -69,14 +76,58 @@ public class OnlineStreamingDataSource internal constructor(
     this.response = response
     openedUri = Uri.parse(requestUrl)
     val body = response.body
-    inputStream = body.byteStream()
+    // buffer the stream so the duration probe can peek at the first frames
+    // and reset before regular reads start
+    val buffered = java.io.BufferedInputStream(body.byteStream(), PROBE_BUFFER_BYTES)
     val contentLength = body.contentLength()
-    bytesRemaining = if (contentLength >= 0) contentLength else -1L
+    if (contentLength > 0) {
+      probeDuration(dataSpec, ref, contentLength, buffered)
+    }
+    inputStream = buffered
+    // the open ended range returns the full remaining stream; cap it to the
+    // requested window so read() stops exactly at dataSpec.length
+    bytesRemaining = when {
+      dataSpec.length != C.LENGTH_UNSET.toLong() -> dataSpec.length
+      contentLength >= 0 -> contentLength
+      else -> -1L
+    }
     transferStarted(dataSpec)
     return when {
       dataSpec.length != C.LENGTH_UNSET.toLong() -> dataSpec.length
       bytesRemaining >= 0 -> bytesRemaining
       else -> -1L
+    }
+  }
+
+  /**
+   * Peeks at the first frames of a fresh full-chapter stream to measure the
+   * real duration; sources that do not report durations would otherwise clip
+   * playback to a placeholder. Only runs once per chapter open from position
+   * zero, where Content-Length covers the whole file.
+   */
+  private fun probeDuration(
+    dataSpec: DataSpec,
+    ref: OnlineChapterRef,
+    contentLength: Long,
+    stream: java.io.BufferedInputStream,
+  ) {
+    try {
+      if (dataSpec.position != 0L || dataSpec.length != C.LENGTH_UNSET.toLong()) return
+      stream.mark(PROBE_BUFFER_BYTES)
+      val head = ByteArray(PROBE_BUFFER_BYTES)
+      var read = 0
+      while (read < head.size) {
+        val n = stream.read(head, read, head.size - read)
+        if (n == -1) break
+        read += n
+      }
+      stream.reset()
+      val durationMs = OnlineStreamDurationProbe.estimateDurationMs(contentLength, head.copyOf(read))
+      if (durationMs != null && durationMs > 0) {
+        onDurationResolved(ref, durationMs)
+      }
+    } catch (_: Exception) {
+      // probing is best effort; never break playback over it
     }
   }
 
@@ -119,9 +170,10 @@ public class OnlineDataSourceFactory internal constructor(
   private val baseUrlProvider: () -> String,
   private val tokenProvider: () -> String,
   private val urlResolver: (OnlineChapterRef) -> String?,
+  private val onDurationResolved: (OnlineChapterRef, Long) -> Unit = { _, _ -> },
 ) : DataSource.Factory {
 
   override fun createDataSource(): DataSource {
-    return OnlineStreamingDataSource(okHttpClient, baseUrlProvider, tokenProvider, urlResolver)
+    return OnlineStreamingDataSource(okHttpClient, baseUrlProvider, tokenProvider, urlResolver, onDurationResolved)
   }
 }

@@ -22,6 +22,8 @@
     <string name="common.action.more">更多</string>
     <string name="common.action.remove">删除</string>
     <string name="common.dialog.cancel">取消</string>
+  <string name="online.shelf.add">加入书架</string>
+  <string name="online.shelf.remove">移出书架</string>
     <string name="common.dialog.confirm">设置</string>
     <string name="common.error.generic.message">发生了错误😢</string>
     <string name="common.error.generic.retry">重试</string>

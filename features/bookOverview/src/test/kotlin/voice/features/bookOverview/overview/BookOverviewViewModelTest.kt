@@ -27,6 +27,7 @@ import voice.core.data.repo.BookContentRepo
 import voice.core.data.repo.BookRepository
 import voice.core.data.repo.internals.dao.RecentBookSearchDao
 import voice.core.featureflag.MemoryFeatureFlag
+import voice.core.online.OnlinePlaybackCatalog
 import voice.core.playback.LivePlaybackState
 import voice.core.playback.PlayerController
 import voice.core.playback.overlay
@@ -91,6 +92,11 @@ class BookOverviewViewModelTest {
       },
       folderPickerInSettingsFeatureFlag = MemoryFeatureFlag(false),
       experimentalPlaybackPersistenceFeatureFlag = MemoryFeatureFlag(true),
+      onlineBooksStore = MemoryDataStore(emptyList()),
+      onlinePlaybackCatalog = OnlinePlaybackCatalog(
+        mockk(),
+        MemoryDataStore(emptyList()),
+      ),
       kioskModeFeatureFlag = MemoryFeatureFlag(false),
       dispatcherProvider = dispatcherProvider,
     )
@@ -268,6 +274,11 @@ class BookOverviewViewModelTest {
       },
       folderPickerInSettingsFeatureFlag = MemoryFeatureFlag(false),
       experimentalPlaybackPersistenceFeatureFlag = MemoryFeatureFlag(false),
+      onlineBooksStore = MemoryDataStore(emptyList()),
+      onlinePlaybackCatalog = OnlinePlaybackCatalog(
+        mockk(),
+        MemoryDataStore(emptyList()),
+      ),
       kioskModeFeatureFlag = MemoryFeatureFlag(true),
       dispatcherProvider = dispatcherProvider,
     )
@@ -383,6 +394,11 @@ class BookOverviewViewModelTest {
       },
       folderPickerInSettingsFeatureFlag = folderPickerInSettingsFeatureFlag,
       experimentalPlaybackPersistenceFeatureFlag = MemoryFeatureFlag(false),
+      onlineBooksStore = MemoryDataStore(emptyList()),
+      onlinePlaybackCatalog = OnlinePlaybackCatalog(
+        mockk(),
+        MemoryDataStore(emptyList()),
+      ),
       kioskModeFeatureFlag = MemoryFeatureFlag(false),
       dispatcherProvider = dispatcherProvider,
     )

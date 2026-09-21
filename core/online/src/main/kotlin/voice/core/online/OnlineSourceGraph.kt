@@ -109,8 +109,12 @@ public interface OnlineSourceGraph {
       streamingClient,
       baseUrlProvider = { runBlocking { baseUrlStore.data.first() } },
       tokenProvider = { runBlocking { tokenStore.data.first() } },
-    ) { ref ->
-      runBlocking { catalog.resolveStreamUrl(ref) }
-    }
+      urlResolver = { ref ->
+        runBlocking { catalog.resolveStreamUrl(ref) }
+      },
+      onDurationResolved = { ref, durationMs ->
+        catalog.recordMeasuredDuration(ref.bookId, ref.chapterId, durationMs)
+      },
+    )
   }
 }
