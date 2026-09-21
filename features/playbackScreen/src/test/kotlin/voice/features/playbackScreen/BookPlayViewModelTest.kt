@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.yield
 import voice.core.common.DispatcherProvider
@@ -49,6 +50,10 @@ import kotlin.uuid.Uuid
 class BookPlayViewModelTest {
 
   private val scope = TestScope()
+
+  // the view model collects the online error flow forever: give it its own
+  // scheduler so runTest does not see the suspended collector
+  private val viewModelScope = TestScope(UnconfinedTestDispatcher())
   private val sleepTimerDataStore = MemoryDataStore(SleepTimerPreference.Default.copy(duration = 5.minutes))
   private val book = book()
   private val sleepTimer = mockk<SleepTimer> {
@@ -112,7 +117,11 @@ class BookPlayViewModelTest {
     batteryOptimization = mockk(),
     sleepTimerPreferenceStore = sleepTimerDataStore,
     bookId = book.id,
-    dispatcherProvider = DispatcherProvider(scope.coroutineContext, scope.coroutineContext, scope.coroutineContext),
+    dispatcherProvider = DispatcherProvider(
+      viewModelScope.coroutineContext,
+      viewModelScope.coroutineContext,
+      viewModelScope.coroutineContext,
+    ),
     experimentalPlaybackPersistenceFeatureFlag = MemoryFeatureFlag(false),
     kioskModeFeatureFlag = MemoryFeatureFlag(false),
   )
@@ -141,7 +150,11 @@ class BookPlayViewModelTest {
     batteryOptimization = mockk(),
     sleepTimerPreferenceStore = sleepTimerDataStore,
     bookId = book.id,
-    dispatcherProvider = DispatcherProvider(scope.coroutineContext, scope.coroutineContext, scope.coroutineContext),
+    dispatcherProvider = DispatcherProvider(
+      viewModelScope.coroutineContext,
+      viewModelScope.coroutineContext,
+      viewModelScope.coroutineContext,
+    ),
     experimentalPlaybackPersistenceFeatureFlag = MemoryFeatureFlag(false),
     kioskModeFeatureFlag = MemoryFeatureFlag(false),
   )
@@ -418,7 +431,11 @@ class BookPlayViewModelTest {
       batteryOptimization = mockk(),
       sleepTimerPreferenceStore = sleepTimerDataStore,
       bookId = book.id,
-      dispatcherProvider = DispatcherProvider(scope.coroutineContext, scope.coroutineContext, scope.coroutineContext),
+      dispatcherProvider = DispatcherProvider(
+        viewModelScope.coroutineContext,
+        viewModelScope.coroutineContext,
+        viewModelScope.coroutineContext,
+      ),
       experimentalPlaybackPersistenceFeatureFlag = MemoryFeatureFlag(experimentalPlaybackPersistence),
       kioskModeFeatureFlag = MemoryFeatureFlag(kioskMode),
     )
