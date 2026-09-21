@@ -175,6 +175,52 @@ public class OnlinePlaybackCatalog(
   }
 
   /**
+   * Builds a display [Book] purely from the locally stored [OnlineBook] (no
+   * network), so the shelf can show online books. Playback still goes through
+   * [book], which may fetch fresher chapters.
+   */
+  public fun localBook(onlineBook: OnlineBook): Book {
+    val bookRef = OnlineBookRef(onlineBook.source, onlineBook.bookId)
+    val bookId = BookId(OnlineUri.buildBookUri(onlineBook.source, onlineBook.bookId))
+    val chapters = onlineBook.chapters.ifEmpty {
+      listOf(OnlineChapter(id = onlineBook.bookId, title = onlineBook.title, durationSeconds = 0, order = 1))
+    }
+    val chapterIds = chapters.map { ChapterId(OnlineUri.build(bookRef.source, bookRef.bookId, it.id)) }
+    val content = BookContent(
+      id = bookId,
+      playbackSpeed = 1f,
+      skipSilence = false,
+      isActive = false,
+      lastPlayedAt = Instant.ofEpochMilli(onlineBook.addedAt),
+      author = onlineBook.author.ifBlank { null },
+      name = onlineBook.title,
+      addedAt = Instant.ofEpochMilli(onlineBook.addedAt),
+      chapters = chapterIds,
+      currentChapter = chapterIds.first(),
+      positionInChapter = 0L,
+      cover = null,
+      gain = 0f,
+      genre = null,
+      narrator = null,
+      series = null,
+      part = null,
+    )
+    val dataChapters = chapters.map { chapter ->
+      val uri = OnlineUri.build(bookRef.source, bookRef.bookId, chapter.id)
+      Chapter(
+        id = ChapterId(uri),
+        name = chapter.title,
+        duration = measuredDurations[uri]
+          ?: (chapter.durationSeconds.takeIf { it > 0 }?.let { it * 1_000L } ?: PLACEHOLDER_CHAPTER_DURATION_MS),
+        fileLastModified = Instant.EPOCH,
+        fileSize = 0,
+        markData = emptyList(),
+      )
+    }
+    return Book(content, dataChapters)
+  }
+
+  /**
    * Records a duration measured from the real stream (mp3 header analysis at
    * playback start) and persists it, so the next assembly of the book uses
    * the correct value instead of the source-reported or placeholder one.

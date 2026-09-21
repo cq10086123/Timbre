@@ -44,6 +44,8 @@
     <string name="common.action.remove">Remove</string>
     <!-- Generic action for dismissing a dialog without applying changes. -->
     <string name="common.dialog.cancel">Cancel</string>
+  <string name="online.shelf.add">Add to shelf</string>
+  <string name="online.shelf.remove">Remove from shelf</string>
     <!-- Generic confirmation action in dialogs that apply a value. -->
     <string name="common.dialog.confirm">Set</string>
     <!-- Generic error message shown when cover search or loading fails. -->

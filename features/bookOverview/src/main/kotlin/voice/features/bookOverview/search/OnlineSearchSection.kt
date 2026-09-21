@@ -39,6 +39,7 @@ import kotlinx.coroutines.launch
 import voice.core.common.rootGraphAs
 import voice.core.data.BookId
 import voice.core.online.OnlineBook
+import voice.core.online.OnlineBookRef
 import voice.core.online.OnlineChapter
 import voice.core.online.OnlinePlaybackCatalog
 import voice.core.online.OnlineSearchResult
@@ -242,30 +243,37 @@ private fun OnlineChaptersDialog(
   onBookClick: (BookId) -> Unit,
 ) {
   var reloadKey by remember { mutableIntStateOf(0) }
-  var addedToShelf by remember { mutableStateOf(false) }
   val scope = rememberCoroutineScope()
-  fun playFromChapter(
-    chapters: List<OnlineChapter>,
-    chapter: OnlineChapter,
-  ) {
+  // shelf membership is explicit: the dialog checks the stored books once and
+  // the button toggles add/remove; tapping a chapter only starts playback
+  val shelfKey = OnlineBookRef(book.source, book.bookId).key
+  var shelfState by remember(book) { mutableStateOf<Boolean?>(null) }
+  LaunchedEffect(book, reloadKey) {
+    shelfState = service.shelfBook(shelfKey) != null
+  }
+  fun playFromChapter(chapter: OnlineChapter) {
+    // playback starts at the tapped chapter; the catalog keeps it until the
+    // first position update arrives
+    catalog.requestStartAt(book.source, book.bookId, chapter.id)
+    onBookClick(BookId(OnlineUri.buildBookUri(book.source, book.bookId)))
+  }
+  fun toggleShelf(chapters: List<OnlineChapter>) {
     scope.launch {
-      if (!addedToShelf) {
-        service.addToShelf(
-          OnlineBook(
-            source = book.source,
-            bookId = book.bookId,
-            title = book.title,
-            author = book.author,
-            cover = book.cover,
-            chapters = chapters,
-          ),
-        )
-        addedToShelf = true
+      val stored = OnlineBook(
+        source = book.source,
+        bookId = book.bookId,
+        title = book.title,
+        author = book.author,
+        cover = book.cover,
+        chapters = chapters,
+      )
+      if (shelfState == true) {
+        service.removeFromShelf(shelfKey)
+        shelfState = false
+      } else {
+        service.addToShelf(stored)
+        shelfState = true
       }
-      // playback starts at the tapped chapter; the catalog keeps it until the
-      // first position update arrives
-      catalog.requestStartAt(book.source, book.bookId, chapter.id)
-      onBookClick(BookId(OnlineUri.buildBookUri(book.source, book.bookId)))
     }
   }
   val state by produceState(initialValue = ChaptersUiState(), book, reloadKey) {
@@ -350,7 +358,7 @@ private fun OnlineChaptersDialog(
               text = stringResource(StringsR.string.search_online_chapters_count, state.chapters.size),
               style = MaterialTheme.typography.bodyMedium,
             )
-            if (addedToShelf) {
+            if (shelfState == true) {
               Text(
                 modifier = Modifier.padding(bottom = 8.dp),
                 text = stringResource(StringsR.string.search_online_added_to_shelf),
@@ -383,7 +391,7 @@ private fun OnlineChaptersDialog(
                   modifier = Modifier
                     .fillMaxWidth()
                     .clickable {
-                      playFromChapter(state.chapters, chapter)
+                      playFromChapter(chapter)
                     },
                   verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -405,8 +413,24 @@ private fun OnlineChaptersDialog(
       }
     },
     confirmButton = {
-      TextButton(onClick = onDismiss) {
-        Text(stringResource(StringsR.string.common_dialog_cancel))
+      Row {
+        TextButton(
+          enabled = !state.loading && !state.failed,
+          onClick = { toggleShelf(state.chapters) },
+        ) {
+          Text(
+            stringResource(
+              if (shelfState == true) {
+                StringsR.string.online_shelf_remove
+              } else {
+                StringsR.string.online_shelf_add
+              },
+            ),
+          )
+        }
+        TextButton(onClick = onDismiss) {
+          Text(stringResource(StringsR.string.common_dialog_cancel))
+        }
       }
     },
   )

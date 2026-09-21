@@ -39,6 +39,9 @@ import voice.core.featureflag.FeatureFlag
 import voice.core.featureflag.FolderPickerInSettingsFeatureFlagQualifier
 import voice.core.featureflag.KioskModeFeatureFlagQualifier
 import voice.core.logging.api.Logger
+import voice.core.online.OnlineBook
+import voice.core.online.OnlinePlaybackCatalog
+import voice.core.online.OnlineSourceBooksStore
 import voice.core.playback.LivePlaybackState
 import voice.core.playback.PlayerController
 import voice.core.playback.overlay
@@ -80,6 +83,8 @@ class BookOverviewViewModel(
   @KioskModeFeatureFlagQualifier
   private val kioskModeFeatureFlag: FeatureFlag<Boolean>,
   val updateNotifier: UpdateNotifier,
+  @OnlineSourceBooksStore private val onlineBooksStore: DataStore<List<OnlineBook>>,
+  private val onlinePlaybackCatalog: OnlinePlaybackCatalog,
   dispatcherProvider: DispatcherProvider,
 ) {
 
@@ -100,8 +105,13 @@ class BookOverviewViewModel(
       .collectAsState(initial = PlayStateManager.PlayState.Paused).value
     val hasStoragePermissionBug = remember { deviceHasStoragePermissionBug.hasBug }
       .collectAsState().value
-    val books = remember { repo.flow() }
+    val localBooks = remember { repo.flow() }
       .collectAsState(initial = emptyList()).value
+    val storedOnlineBooks = remember { onlineBooksStore.data }
+      .collectAsState(initial = emptyList()).value
+    // online books live in their own store; synthesize display books so they
+    // show up on the shelf and open the player like any other book
+    val books = localBooks + storedOnlineBooks.map { onlinePlaybackCatalog.localBook(it) }
     val currentBookId = remember { currentBookStoreDataStore.data }
       .collectAsState(initial = null).value
     val scannerActive = remember { mediaScanner.scannerActive }
