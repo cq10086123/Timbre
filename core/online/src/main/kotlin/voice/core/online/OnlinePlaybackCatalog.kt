@@ -147,9 +147,14 @@ public class OnlinePlaybackCatalog(private val service: OnlineSourceService) {
       Chapter(
         id = ChapterId(OnlineUri.build(bookRef.source, bookRef.bookId, chapter.id)),
         name = chapter.title,
-        // the stream itself reports the real duration; this only feeds the
-        // chapter timeline and must never clip playback to nothing
-        duration = (chapter.durationSeconds * 1_000L).coerceAtLeast(MIN_CHAPTER_DURATION_MS),
+        // some sources report no duration; use a generous default because a
+        // tiny value clips playback to seconds (the stream keeps playing, the
+        // player just believes the chapter is over). real duration comes from
+        // the stream itself once analyzed
+        duration = when {
+          chapter.durationSeconds > 0 -> chapter.durationSeconds * 1_000L
+          else -> DEFAULT_CHAPTER_DURATION_MS
+        },
         fileLastModified = Instant.EPOCH,
         fileSize = 0,
         markData = emptyList(),
@@ -296,7 +301,7 @@ public class OnlinePlaybackCatalog(private val service: OnlineSourceService) {
     private const val POLL_INTERVAL_MS = 1_500L
     private const val ALBUMS_CACHE_MS = 10_000L
     private const val ERROR_DEDUPE_MS = 30_000L
-    private const val MIN_CHAPTER_DURATION_MS = 1_000L
+    private const val DEFAULT_CHAPTER_DURATION_MS = 30 * 60_000L
 
     /** The first digit run of the title, falling back to the playlist position. */
     internal fun episodeNumber(

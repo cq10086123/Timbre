@@ -50,8 +50,9 @@ public class OnlineStreamingDataSource internal constructor(
     }
     val rangeStart = dataSpec.position
     if (rangeStart > 0 || dataSpec.length != C.LENGTH_UNSET.toLong()) {
-      val end = if (dataSpec.length == C.LENGTH_UNSET.toLong()) "" else "/${rangeStart + dataSpec.length - 1}"
-      requestBuilder.header("Range", "bytes=$rangeStart-$end")
+      // some cdns answer closed ranges (bytes=start-end) with an empty body,
+      // so always request an open ended range and cap the read length here
+      requestBuilder.header("Range", "bytes=$rangeStart-")
     }
     val response = okHttpClient.newCall(requestBuilder.build()).execute()
     if (!response.isSuccessful && response.code != 206) {
@@ -71,7 +72,13 @@ public class OnlineStreamingDataSource internal constructor(
     val body = response.body
     inputStream = body.byteStream()
     val contentLength = body.contentLength()
-    bytesRemaining = if (contentLength >= 0) contentLength else -1L
+    // the open ended range returns the full remaining stream; cap it to the
+    // requested window so read() stops exactly at dataSpec.length
+    bytesRemaining = when {
+      dataSpec.length != C.LENGTH_UNSET.toLong() -> dataSpec.length
+      contentLength >= 0 -> contentLength
+      else -> -1L
+    }
     transferStarted(dataSpec)
     return when {
       dataSpec.length != C.LENGTH_UNSET.toLong() -> dataSpec.length

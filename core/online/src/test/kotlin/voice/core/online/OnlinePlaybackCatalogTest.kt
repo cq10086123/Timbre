@@ -62,8 +62,9 @@ class OnlinePlaybackCatalogTest {
       book.content.currentChapter.value,
     )
     assertEquals(1_800_000L, book.chapters[0].duration)
-    // an unknown duration must never clip playback away
-    assertEquals(1_000L, book.chapters[2].duration)
+    // an unknown duration falls back to a generous default so the player
+    // never believes the chapter is over after a second
+    assertEquals(30 * 60_000L, book.chapters[2].duration)
     assertEquals(0L, book.content.positionInChapter)
   }
 
