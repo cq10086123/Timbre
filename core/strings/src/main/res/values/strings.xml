@@ -257,6 +257,10 @@
     <string name="settings.online_source.credential_title">Access key</string>
     <string name="settings.online_source.credential_hint">Paste the access key of your server</string>
     <string name="settings.online_source.not_set">Not set</string>
+    <string name="settings.online_source.verifying">Verifying…</string>
+    <string name="settings.online_source.error.invalid">Invalid key or server unreachable</string>
+    <string name="settings.online_source.error.need_base_url">Set the server address first</string>
+    <string name="settings.online_source.error.invalid_url">Address must start with http:// or https://</string>
     <string name="settings.playback.import_parallelism.summary">Chapters analyzed at the same time. Higher imports faster, but chapter switches respond slower while importing.</string>
     <string name="settings.playback.import_parallelism.value">Concurrency: %1$d</string>
     <string name="settings.playback.import_parallelism.option">Analyze chapters in parallel: %1$d</string>

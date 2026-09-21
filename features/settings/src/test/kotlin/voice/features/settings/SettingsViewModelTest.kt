@@ -90,6 +90,7 @@ class SettingsViewModelTest {
     onlineSourceCredentialStore = mockk {
       every { data } returns flowOf("")
     },
+    onlineSourceService = mockk(relaxed = true),
     dynamicColorAvailability = dynamicColorAvailability,
     updateNotifier = mockk {
       every { update } returns MutableStateFlow(null)

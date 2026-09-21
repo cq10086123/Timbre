@@ -34,6 +34,8 @@ import voice.core.featureflag.KioskModeFeatureFlagQualifier
 import voice.core.online.OnlineSourceBaseUrlStore
 import voice.core.online.OnlineSourceCredentialStore
 import voice.core.online.OnlineSourceEnabledStore
+import voice.core.online.OnlineSourceException
+import voice.core.online.OnlineSourceService
 import voice.core.ui.DynamicColorAvailability
 import voice.core.ui.GridCount
 import voice.core.update.UpdateNotifier
@@ -41,6 +43,7 @@ import voice.navigation.Destination
 import voice.navigation.Navigator
 import voice.navigation.Origin
 import java.time.LocalTime
+import voice.core.strings.R as StringsR
 
 @Inject
 class SettingsViewModel(
@@ -77,6 +80,7 @@ class SettingsViewModel(
   private val onlineSourceBaseUrlStore: DataStore<String>,
   @OnlineSourceCredentialStore
   private val onlineSourceCredentialStore: DataStore<String>,
+  private val onlineSourceService: OnlineSourceService,
   private val dynamicColorAvailability: DynamicColorAvailability,
   private val updateNotifier: UpdateNotifier,
   dispatcherProvider: DispatcherProvider,
@@ -86,6 +90,8 @@ class SettingsViewModel(
   internal val viewEffects: SharedFlow<SettingsViewEffect>
     field = MutableSharedFlow<SettingsViewEffect>(extraBufferCapacity = 1)
   private val dialog = mutableStateOf<SettingsViewState.Dialog?>(null)
+  private val onlineSourceVerifyState = mutableStateOf(false)
+  private val onlineSourceVerifyError = mutableStateOf<Int?>(null)
   private var appVersionTapCount = 0
 
   @Composable
@@ -109,6 +115,8 @@ class SettingsViewModel(
     val onlineSourceEnabled by remember { onlineSourceEnabledStore.data }.collectAsState(initial = false)
     val onlineSourceBaseUrl by remember { onlineSourceBaseUrlStore.data }.collectAsState(initial = "")
     val onlineSourceCredential by remember { onlineSourceCredentialStore.data }.collectAsState(initial = "")
+    val onlineSourceVerifying = onlineSourceVerifyState.value
+    val onlineSourceVerifyError = onlineSourceVerifyError.value
     val showThemeColorSchemePref = remember {
       dynamicColorAvailability.isSupported()
     }
@@ -140,6 +148,8 @@ class SettingsViewModel(
       onlineSourceEnabled = onlineSourceEnabled,
       onlineSourceBaseUrl = onlineSourceBaseUrl,
       onlineSourceCredential = onlineSourceCredential,
+      onlineSourceVerifying = onlineSourceVerifying,
+      onlineSourceVerifyError = onlineSourceVerifyError,
       showSupportDevelopment = appInfoProvider.supportDevelopmentIncluded,
       kioskMode = kioskMode,
     )
@@ -254,17 +264,65 @@ class SettingsViewModel(
   }
 
   override fun onlineSourceBaseUrlChanged(value: String) {
-    dialog.value = null
+    val base = value.trim().removeSuffix("/")
+    if (!base.startsWith("http://") && !base.startsWith("https://")) {
+      onlineSourceVerifyError.value = verifyErrorText(needBaseUrl = false, invalidUrl = true)
+      return
+    }
     mainScope.launch {
-      onlineSourceBaseUrlStore.updateData { value.trim() }
+      val credential = onlineSourceCredentialStore.data.first()
+      if (credential.isBlank()) {
+        // nothing to validate yet: accept and let the key dialog verify both
+        onlineSourceBaseUrlStore.updateData { base }
+        onlineSourceService.invalidateToken()
+        dialog.value = null
+      } else {
+        saveVerified(base = base, credential = credential, keepCredential = true)
+      }
     }
   }
 
   override fun onlineSourceCredentialChanged(value: String) {
-    dialog.value = null
     mainScope.launch {
-      onlineSourceCredentialStore.updateData { value.trim() }
+      val base = onlineSourceBaseUrlStore.data.first()
+      if (base.isBlank()) {
+        onlineSourceVerifyError.value = verifyErrorText(needBaseUrl = true, invalidUrl = false)
+        return@launch
+      }
+      saveVerified(base = base, credential = value.trim(), keepCredential = false)
     }
+  }
+
+  private suspend fun saveVerified(
+    base: String,
+    credential: String,
+    keepCredential: Boolean,
+  ) {
+    onlineSourceVerifyState.value = true
+    onlineSourceVerifyError.value = null
+    try {
+      onlineSourceService.verify(base, credential).let { /* token persisted inside the service */ }
+      onlineSourceBaseUrlStore.updateData { base }
+      if (!keepCredential) {
+        onlineSourceCredentialStore.updateData { credential }
+      }
+      dialog.value = null
+    } catch (e: OnlineSourceException) {
+      onlineSourceVerifyError.value = verifyErrorText(needBaseUrl = false, invalidUrl = false)
+    } catch (e: Exception) {
+      onlineSourceVerifyError.value = verifyErrorText(needBaseUrl = false, invalidUrl = false)
+    } finally {
+      onlineSourceVerifyState.value = false
+    }
+  }
+
+  private fun verifyErrorText(
+    needBaseUrl: Boolean,
+    invalidUrl: Boolean,
+  ): Int? = when {
+    needBaseUrl -> StringsR.string.settings_online_source_error_need_base_url
+    invalidUrl -> StringsR.string.settings_online_source_error_invalid_url
+    else -> StringsR.string.settings_online_source_error_invalid
   }
 
   override fun onImportParallelismRowClick() {
