@@ -155,6 +155,31 @@ public class OnlinePlaybackCatalog(
   }
 
   /**
+   * The online book behind [source]/[bookId]: shelf first, then the session
+   * maps (search stash, assembled copy). Used by resolve and prefetch paths
+   * that run after assembly and cannot rely on the one-shot stash.
+   */
+  internal suspend fun lookupOnlineBook(
+    source: String,
+    bookId: String,
+  ): OnlineBook? {
+    val key = "$source::$bookId"
+    service.shelfBook(key)?.let { return it }
+    pendingBooks[key]?.let { return it }
+    assembledBooks[key]?.let { return it }
+    return null
+  }
+
+  /** A measured stream duration in ms, or null when the chapter was never probed. */
+  public fun measuredDurationMs(
+    source: String,
+    bookId: String,
+    chapterId: String,
+  ): Long? {
+    return measuredDurations[OnlineUri.build(source, bookId, chapterId)]
+  }
+
+  /**
    * The remote cover url of an online book (shelf, search stash or assembled
    * copy), or null when unknown. The synthesized [Book] carries no cover, so
    * the player UI and notification use this instead.
@@ -377,9 +402,7 @@ public class OnlinePlaybackCatalog(
     // books started from the search dialog live in the session maps, not on
     // the shelf: without them the title below is blank and the file about to
     // be downloaded can never be matched (always "connection failed").
-    val onlineBook = service.shelfBook(bookRef.key)
-      ?: pendingBooks[bookRef.key]
-      ?: assembledBooks[bookRef.key]
+    val onlineBook = lookupOnlineBook(bookRef.source, bookRef.bookId)
     val chapters = onlineBook?.chapters?.takeIf { it.isNotEmpty() }
       ?: service.chapters(ref.source, ref.bookId)
     if (chapters.isEmpty()) {

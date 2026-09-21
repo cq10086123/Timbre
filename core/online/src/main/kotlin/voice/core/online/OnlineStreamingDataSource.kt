@@ -25,7 +25,7 @@ public class OnlineStreamingDataSource internal constructor(
 
   private companion object {
     /** Enough to cover an id3 tag plus a few audio frames for the probe. */
-    const val PROBE_BUFFER_BYTES = 256 * 1024
+    const val PROBE_BUFFER_BYTES = 64 * 1024
   }
 
   private var response: okhttp3.Response? = null

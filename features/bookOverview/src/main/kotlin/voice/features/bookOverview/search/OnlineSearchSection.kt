@@ -22,6 +22,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -250,6 +251,9 @@ private fun OnlineChaptersDialog(
   // the button toggles add/remove; tapping a chapter only starts playback
   val shelfKey = OnlineBookRef(book.source, book.bookId).key
   var shelfState by remember(book) { mutableStateOf<Boolean?>(null) }
+  // measured stream durations land after playback or the probe-ahead: refresh
+  // the displayed per-chapter durations when they do
+  val durationsVersion by remember { catalog.durationsVersion }.collectAsState()
   LaunchedEffect(book, reloadKey) {
     shelfState = service.shelfBook(shelfKey) != null
   }
@@ -416,6 +420,11 @@ private fun OnlineChaptersDialog(
               verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
               items(pageChapters) { chapter ->
+                val shownSeconds = remember(chapter.id, durationsVersion) {
+                  catalog.measuredDurationMs(book.source, book.bookId, chapter.id)
+                    ?.div(1_000L)?.toInt()
+                    ?: chapter.durationSeconds
+                }
                 Row(
                   modifier = Modifier
                     .fillMaxWidth()
@@ -430,9 +439,9 @@ private fun OnlineChaptersDialog(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                   )
-                  if (chapter.durationSeconds > 0) {
+                  if (shownSeconds > 0) {
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text(text = formatDuration(chapter.durationSeconds))
+                    Text(text = formatDuration(shownSeconds))
                   }
                 }
               }

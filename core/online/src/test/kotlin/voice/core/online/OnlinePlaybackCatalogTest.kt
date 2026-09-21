@@ -172,9 +172,10 @@ class OnlineStreamDurationProbeTest {
 
   @Test
   fun `estimates cbr duration from size and bitrate`() {
-    // mpeg1 layer III, 128 kbps, 44100 Hz: FF FB 90 00
+    // mpeg1 layer III, 128 kbps, 44100 Hz: FF FB 90 00. The 128 byte id3v1
+    // trailer is excluded from the audio bytes.
     val plain = byteArrayOf(0xFF.toByte(), 0xFB.toByte(), 0x90.toByte(), 0x00, 0, 0, 0, 0)
-    assertEquals(62_500L, OnlineStreamDurationProbe.estimateDurationMs(1_000_000L, plain))
+    assertEquals(62_492L, OnlineStreamDurationProbe.estimateDurationMs(1_000_000L, plain))
   }
 
   @Test
@@ -195,5 +196,57 @@ class OnlineStreamDurationProbeTest {
     val head = ByteArray(64) { it.toByte() }
     head[0] = 0x12
     assertNull(OnlineStreamDurationProbe.estimateDurationMs(1_000_000L, head))
+  }
+
+  @Test
+  fun `uses vbri frame count when present`() {
+    // mpeg1 stereo frame, then a VBRI tag at frame + 36 with 1000 frames at +14
+    val head = ByteArray(64)
+    head[0] = 0xFF.toByte()
+    head[1] = 0xFB.toByte()
+    head[2] = 0x90.toByte()
+    "VBRI".forEachIndexed { i, c -> head[36 + i] = c.code.toByte() }
+    head[50] = 0x00
+    head[51] = 0x00
+    head[52] = 0x03.toByte()
+    head[53] = 0xE8.toByte()
+    // 1000 frames * 1152 samples * 1000 / 44100 Hz
+    assertEquals(26_122L, OnlineStreamDurationProbe.estimateDurationMs(1_000_000L, head))
+  }
+
+  @Test
+  fun `exact xing offset wins over a misplaced tag`() {
+    // mpeg1 stereo frame: the real Xing header lives at frame + 36. A tag
+    // without a frame count earlier in the window must not shadow it.
+    val head = ByteArray(64)
+    head[0] = 0xFF.toByte()
+    head[1] = 0xFB.toByte()
+    head[2] = 0x90.toByte()
+    "Xing".forEachIndexed { i, c -> head[10 + i] = c.code.toByte() }
+    "Xing".forEachIndexed { i, c -> head[36 + i] = c.code.toByte() }
+    head[40] = 0x00
+    head[41] = 0x00
+    head[42] = 0x00
+    head[43] = 0x03
+    head[44] = 0x00
+    head[45] = 0x00
+    head[46] = 0x03.toByte()
+    head[47] = 0xE8.toByte()
+    assertEquals(26_122L, OnlineStreamDurationProbe.estimateDurationMs(1_000_000L, head))
+  }
+
+  @Test
+  fun `cbr estimate excludes the id3v2 tag`() {
+    // id3v2 with a 100 byte body, then a 128 kbps mpeg1 frame
+    val head = ByteArray(110 + 8)
+    head[0] = 'I'.code.toByte()
+    head[1] = 'D'.code.toByte()
+    head[2] = '3'.code.toByte()
+    head[9] = 100.toByte()
+    head[110] = 0xFF.toByte()
+    head[111] = 0xFB.toByte()
+    head[112] = 0x90.toByte()
+    // (1_000_000 - 110 - 128) * 8 / 128
+    assertEquals(62_485L, OnlineStreamDurationProbe.estimateDurationMs(1_000_000L, head))
   }
 }
