@@ -1,7 +1,10 @@
 package voice.core.online
 
+import androidx.datastore.core.DataStore
 import io.mockk.coEvery
 import io.mockk.mockk
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
 import voice.core.data.BookId
 import kotlin.test.Test
@@ -14,7 +17,7 @@ import kotlin.test.assertTrue
 class OnlinePlaybackCatalogTest {
 
   private val service = mockk<OnlineSourceService>()
-  private val catalog = OnlinePlaybackCatalog(service)
+  private val catalog = OnlinePlaybackCatalog(service, FakeBooksStore())
 
   private fun shelfBook() = OnlineBook(
     source = SOURCE,
@@ -113,5 +116,48 @@ class OnlinePlaybackCatalogTest {
   private companion object {
     const val SOURCE = "main"
     const val BOOK_ID = "42"
+  }
+}
+
+/** In-memory books store; updateData runs the transform synchronously. */
+private class FakeBooksStore : DataStore<List<OnlineBook>> {
+  private val state = MutableStateFlow(emptyList<OnlineBook>())
+
+  override val data: Flow<List<OnlineBook>> = state
+
+  override suspend fun updateData(transform: suspend (List<OnlineBook>) -> List<OnlineBook>): List<OnlineBook> {
+    val next = transform(state.value)
+    state.value = next
+    return next
+  }
+}
+
+class OnlineStreamDurationProbeTest {
+
+  @Test
+  fun `estimates cbr duration from size and bitrate`() {
+    // mpeg1 layer III, 128 kbps, 44100 Hz: FF FB 90 00
+    val plain = byteArrayOf(0xFF.toByte(), 0xFB.toByte(), 0x90.toByte(), 0x00, 0, 0, 0, 0)
+    assertEquals(62_500L, OnlineStreamDurationProbe.estimateDurationMs(1_000_000L, plain))
+  }
+
+  @Test
+  fun `uses xing frame count when present`() {
+    val head = mutableListOf<Byte>()
+    head += listOf(0xFF.toByte(), 0xFB.toByte(), 0x90.toByte(), 0x00)
+    head += "Xing".map { it.code.toByte() }
+    head += listOf(0x00, 0x00, 0x00, 0x03) // flags: frames + bytes
+    head += listOf(0x00, 0x00, 0x03, 0xE8.toByte()) // 1000 frames
+    head += listOf(0, 0, 0, 0)
+    val duration = OnlineStreamDurationProbe.estimateDurationMs(1_000_000L, head.toByteArray())
+    // 1000 frames * 1152 samples * 1000 / 44100 Hz
+    assertEquals(26_122L, duration)
+  }
+
+  @Test
+  fun `returns null for garbage`() {
+    val head = ByteArray(64) { it.toByte() }
+    head[0] = 0x12
+    assertNull(OnlineStreamDurationProbe.estimateDurationMs(1_000_000L, head))
   }
 }
