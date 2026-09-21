@@ -55,6 +55,7 @@ internal data class InterfacesResponse(
 @Serializable
 internal data class MainAlbumListResponse(
   val success: Boolean = false,
+  val error: String? = null,
   val tracks: List<MainAlbumTrack> = emptyList(),
 )
 
@@ -68,6 +69,7 @@ internal data class MainAlbumTrack(
 @Serializable
 internal data class IntfAlbumListResponse(
   val success: Boolean = false,
+  val error: String? = null,
   val tracks: List<IntfAlbumTrack> = emptyList(),
 )
 

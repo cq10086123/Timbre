@@ -77,9 +77,17 @@ public class OnlineSourceService internal constructor(
     val (base, _) = authed()
     val chapters = withRelogin {
       if (source == OnlineSourceClient.SOURCE_MAIN) {
-        client.mainAlbumList(base, it, bookId)
+        val response = client.mainAlbumListResponse(base, it, bookId)
+        if (!response.first) {
+          throw OnlineSourceException(response.second ?: "the source returned no chapter list")
+        }
+        response.third
       } else {
-        client.sourceAlbumList(base, it, source, bookId)
+        val response = client.sourceAlbumListResponse(base, it, source, bookId)
+        if (!response.first) {
+          throw OnlineSourceException(response.second ?: "the source returned no chapter list")
+        }
+        response.third
       }
     }
     synchronized(chaptersCache) {
