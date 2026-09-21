@@ -5,6 +5,7 @@ plugins {
 }
 
 dependencies {
+  implementation(projects.core.online)
   implementation(projects.navigation)
   implementation(projects.core.common)
   implementation(projects.core.search)
