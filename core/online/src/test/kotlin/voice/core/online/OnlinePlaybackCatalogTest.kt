@@ -113,6 +113,42 @@ class OnlinePlaybackCatalogTest {
     assertFalse(OnlinePlaybackCatalog.titleSimilar("", "凡人修仙传"))
   }
 
+  @Test
+  fun `search stashed book plays without a shelf entry`() = runTest {
+    coEvery { service.shelfBook(any()) } returns null
+    catalog.stashForPlayback(shelfBook().copy(cover = "https://example.com/cover.jpg"))
+
+    // both the player and the player screen assemble the book: the stash
+    // must survive the first assembly
+    assertNotNull(catalog.book(bookId()))
+    val book = assertNotNull(catalog.book(bookId()))
+    assertEquals(3, book.chapters.size)
+    assertEquals("https://example.com/cover.jpg", catalog.onlineCover(bookId()))
+  }
+
+  @Test
+  fun `shelf book wins over a stale search stash`() = runTest {
+    coEvery { service.shelfBook(any()) } returns shelfBook().copy(title = "书架上的新版")
+    catalog.stashForPlayback(shelfBook().copy(title = "搜索时的旧版"))
+
+    assertEquals("书架上的新版", assertNotNull(catalog.book(bookId())).content.name)
+  }
+
+  @Test
+  fun `measured durations are keyed by source`() = runTest {
+    coEvery { service.shelfBook(any()) } returns null
+    val thirdPartyId = BookId(OnlineUri.buildBookUri("A", BOOK_ID))
+    catalog.stashForPlayback(shelfBook().copy(source = "A", cover = "https://example.com/a.jpg"))
+
+    // a measurement for the main catalog must not leak into source A books
+    catalog.recordMeasuredDuration("main", BOOK_ID, "c3", 120_000L)
+    assertEquals(30 * 60_000L, assertNotNull(catalog.book(thirdPartyId)).chapters[2].duration)
+
+    catalog.recordMeasuredDuration("A", BOOK_ID, "c3", 90_000L)
+    catalog.stashForPlayback(shelfBook().copy(source = "A"))
+    assertEquals(90_000L, assertNotNull(catalog.book(thirdPartyId)).chapters[2].duration)
+  }
+
   private companion object {
     const val SOURCE = "main"
     const val BOOK_ID = "42"

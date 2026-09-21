@@ -113,7 +113,7 @@ public interface OnlineSourceGraph {
         runBlocking { catalog.resolveStreamUrl(ref) }
       },
       onDurationResolved = { ref, durationMs ->
-        catalog.recordMeasuredDuration(ref.bookId, ref.chapterId, durationMs)
+        catalog.recordMeasuredDuration(ref.source, ref.bookId, ref.chapterId, durationMs)
       },
     )
   }

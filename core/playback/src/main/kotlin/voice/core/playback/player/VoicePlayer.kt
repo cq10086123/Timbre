@@ -394,8 +394,27 @@ class VoicePlayer(
           chapterId = book.content.currentChapter,
           positionInChapterMs = book.content.positionInChapter,
         ) ?: return@measureTime
+        val onlineCover = if (onlinePlaybackCatalog.isOnlineBookId(book.id)) {
+          onlinePlaybackCatalog.onlineCover(book.id)?.takeIf { it.isNotBlank() }?.let(android.net.Uri::parse)
+        } else {
+          null
+        }
         val mediaItems = withContext(dispatcherProvider.io) {
           mediaItemProvider.playbackItems(book)
+        }.let { items ->
+          // online books have no local cover file; the remote cover url still
+          // feeds the notification and Android Auto artwork
+          if (onlineCover == null) {
+            items
+          } else {
+            items.map { item ->
+              item.buildUpon()
+                .setMediaMetadata(
+                  item.mediaMetadata.buildUpon().setArtworkUri(onlineCover).build(),
+                )
+                .build()
+            }
+          }
         }
         player.setMediaItems(
           mediaItems,
