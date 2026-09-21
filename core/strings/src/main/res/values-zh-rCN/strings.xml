@@ -110,6 +110,7 @@
     <string name="search.online.chapters.empty">该源没有返回这本书的章节</string>
     <string name="search.online.chapters.count">共 %1$d 集</string>
     <string name="search.online.added_to_shelf">已加入书架，点按章节开始播放</string>
+    <string name="search.online.join_shelf_first">请先加入书架，再点按章节播放</string>
     <string name="playback.online.error.network">无法连接在线书源，请检查网络与服务器地址</string>
     <string name="playback.online.error.auth">在线书源密钥未通过验证，请在设置中更新</string>
     <string name="playback.online.error.content">在线书源上没有这一章的音频</string>
