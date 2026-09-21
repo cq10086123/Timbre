@@ -1,5 +1,6 @@
 package voice.features.bookOverview.search
 
+import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -30,6 +31,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -270,6 +272,20 @@ private fun OnlineChaptersDialog(
     catalog.requestStartAt(book.source, book.bookId, chapter.id)
     onBookClick(BookId(OnlineUri.buildBookUri(book.source, book.bookId)))
   }
+  // chapters only play from the shelf: tapping one without adding resolves
+  // nothing and used to end in a connection error
+  val context = LocalContext.current
+  val joinShelfFirst = stringResource(StringsR.string.search_online_join_shelf_first)
+  fun onChapterClick(
+    chapters: List<OnlineChapter>,
+    chapter: OnlineChapter,
+  ) {
+    if (shelfState == true) {
+      playFromChapter(chapters, chapter)
+    } else {
+      Toast.makeText(context, joinShelfFirst, Toast.LENGTH_SHORT).show()
+    }
+  }
   fun toggleShelf(chapters: List<OnlineChapter>) {
     scope.launch {
       val stored = OnlineBook(
@@ -404,7 +420,7 @@ private fun OnlineChaptersDialog(
                   modifier = Modifier
                     .fillMaxWidth()
                     .clickable {
-                      playFromChapter(state.chapters, chapter)
+                      onChapterClick(state.chapters, chapter)
                     },
                   verticalAlignment = Alignment.CenterVertically,
                 ) {
