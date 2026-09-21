@@ -16,6 +16,7 @@ import voice.core.data.repo.BookRepository
 import voice.core.featureflag.ExperimentalPlaybackPersistenceQualifier
 import voice.core.featureflag.FeatureFlag
 import voice.core.logging.api.Logger
+import voice.core.online.OnlineDurationProbeAhead
 import voice.core.online.OnlinePlaybackCatalog
 import voice.core.playback.di.PlaybackScope
 import voice.core.playback.session.bookId
@@ -30,6 +31,7 @@ import kotlin.time.Duration.Companion.minutes
 class PositionUpdater(
   private val bookRepo: BookRepository,
   private val onlinePlaybackCatalog: OnlinePlaybackCatalog,
+  private val durationProbeAhead: OnlineDurationProbeAhead,
   private val scope: CoroutineScope,
   private val playStateManager: PlayStateManager,
   @ExperimentalPlaybackPersistenceQualifier
@@ -102,6 +104,14 @@ class PositionUpdater(
     // a chapter change also reports a position discontinuity, which decides
     // whether the update has to be persisted
     flushPosition(force = false)
+    // measure the next unknown chapters ahead of playback, so sources that
+    // report no durations stop showing the placeholder one chapter at a time
+    val mediaId = mediaItem?.mediaId?.toMediaIdOrNull()
+    val bookId = mediaId?.bookId
+    val chapterId = mediaId?.realChapterId
+    if (bookId != null && chapterId != null) {
+      durationProbeAhead.probeUpcoming(bookId, chapterId)
+    }
   }
 
   private fun flushPosition(force: Boolean = true) {
