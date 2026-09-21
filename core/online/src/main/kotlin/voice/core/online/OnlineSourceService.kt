@@ -123,6 +123,12 @@ public class OnlineSourceService internal constructor(
     return withRelogin { client.batchStatus(base, it, taskId) }
   }
 
+  /** The albums already downloaded on the site (each with its files). */
+  public suspend fun downloadedAlbums(): List<FilesAlbum> {
+    val (base, _) = authed()
+    return withRelogin { client.downloadedAlbums(base, it) }
+  }
+
   /** The books added from the online source, most recently added first. */
   public fun shelf(): Flow<List<OnlineBook>> {
     return booksStore.data

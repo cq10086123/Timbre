@@ -105,10 +105,10 @@ public class OnlineStreamingDataSource internal constructor(
 }
 
 /** Factory mirroring the webdav module's data source factory. */
-public class OnlineDataSourceFactory internal constructor(private val okHttpClient: OkHttpClient) : DataSource.Factory {
-
-  /** Resolves an [OnlineChapterRef] to a streamable url. Set before playback. */
-  public var urlResolver: (OnlineChapterRef) -> String? = { null }
+public class OnlineDataSourceFactory internal constructor(
+  private val okHttpClient: OkHttpClient,
+  private val urlResolver: (OnlineChapterRef) -> String?,
+) : DataSource.Factory {
 
   override fun createDataSource(): DataSource {
     return OnlineStreamingDataSource(okHttpClient, urlResolver)

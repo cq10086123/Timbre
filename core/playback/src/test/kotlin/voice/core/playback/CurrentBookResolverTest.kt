@@ -43,6 +43,9 @@ class CurrentBookResolverTest {
         coEvery { get(book.id) } returns book
       },
       playerController = mockk(),
+      onlinePlaybackCatalog = mockk {
+        coEvery { book(any()) } returns null
+      },
       currentBookStore = currentBookStore,
       experimentalPlaybackPersistenceFeatureFlag = MemoryFeatureFlag(false),
     )
@@ -55,6 +58,9 @@ class CurrentBookResolverTest {
     val resolver = CurrentBookResolver(
       bookRepository = mockk {
         coEvery { get(book.id) } returns book
+      },
+      onlinePlaybackCatalog = mockk {
+        coEvery { book(any()) } returns null
       },
       playerController = mockk {
         coEvery { livePlaybackState(book.id) } returns LivePlaybackState(
@@ -78,6 +84,9 @@ class CurrentBookResolverTest {
     val resolver = CurrentBookResolver(
       bookRepository = mockk {
         coEvery { get(book.id) } returns book
+      },
+      onlinePlaybackCatalog = mockk {
+        coEvery { book(any()) } returns null
       },
       playerController = mockk {
         coEvery { livePlaybackState(book.id) } returns null

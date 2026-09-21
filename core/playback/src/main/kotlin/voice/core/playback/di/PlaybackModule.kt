@@ -1,10 +1,12 @@
 package voice.core.playback.di
 
 import android.content.Context
+import android.net.Uri
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionParameters
+import androidx.media3.datasource.DataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.MediaSource
@@ -19,6 +21,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import voice.core.featureflag.FeatureFlag
 import voice.core.featureflag.Media3AudioOffloadFeatureFlagQualifier
+import voice.core.online.OnlineDataSourceFactory
+import voice.core.online.OnlineUri
 import voice.core.playback.misc.VolumeGain
 import voice.core.playback.notification.MainActivityIntentProvider
 import voice.core.playback.player.DurationInconsistenciesUpdater
@@ -32,6 +36,7 @@ import voice.core.playback.playstate.PositionUpdater
 import voice.core.playback.session.BookPlaylistSynchronizer
 import voice.core.playback.session.LibrarySessionCallback
 import voice.core.playback.session.PlaybackService
+import voice.core.playback.session.RoutingDataSource
 import voice.core.webdav.WebDavDataSourceFactory
 import voice.core.webdav.WebDavPlaybackCache
 import voice.core.strings.R as StringsR
@@ -44,10 +49,20 @@ interface PlaybackModule {
   fun mediaSourceFactory(
     webDavPlaybackCache: WebDavPlaybackCache,
     webDavDataSourceFactory: WebDavDataSourceFactory,
+    onlineDataSourceFactory: OnlineDataSourceFactory,
   ): MediaSource.Factory {
     val extractorsFactory = DefaultExtractorsFactory()
       .setConstantBitrateSeekingEnabled(true)
-    return DefaultMediaSourceFactory(webDavPlaybackCache.dataSourceFactory(webDavDataSourceFactory), extractorsFactory)
+    val webDav = webDavPlaybackCache.dataSourceFactory(webDavDataSourceFactory)
+    val upstream = DataSource.Factory {
+      RoutingDataSource(
+        routes = listOf(
+          { uri: Uri -> OnlineUri.isOnlineUri(uri.toString()) } to onlineDataSourceFactory,
+        ),
+        fallback = webDav,
+      )
+    }
+    return DefaultMediaSourceFactory(upstream, extractorsFactory)
   }
 
   @Provides

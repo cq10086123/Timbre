@@ -8,6 +8,7 @@ interface AppGraph :
   voice.core.online.OnlineSourceServiceProvider {
 
   override val onlineSourceService: voice.core.online.OnlineSourceService
+  override val onlinePlaybackCatalog: voice.core.online.OnlinePlaybackCatalog
 
   fun inject(target: App)
   override fun inject(target: BaseWidgetProvider)

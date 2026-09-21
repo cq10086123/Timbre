@@ -107,7 +107,10 @@
     <string name="search.online.retry">重试</string>
     <string name="search.online.chapters.empty">该源没有返回这本书的章节</string>
     <string name="search.online.chapters.count">共 %1$d 集</string>
-    <string name="search.online.added_to_shelf">已加入书架（在线书），播放支持即将开放</string>
+    <string name="search.online.added_to_shelf">已加入书架，点按章节开始播放</string>
+    <string name="playback.online.error.network">无法连接在线书源，请检查网络与服务器地址</string>
+    <string name="playback.online.error.auth">在线书源密钥未通过验证，请在设置中更新</string>
+    <string name="playback.online.error.content">在线书源上没有这一章的音频</string>
     <string name="settings.online_source.error.invalid">密钥无效或无法连接服务器</string>
     <string name="settings.online_source.error.need_base_url">请先设置服务器地址</string>
     <string name="settings.online_source.error.invalid_url">地址必须以 http:// 或 https:// 开头</string>

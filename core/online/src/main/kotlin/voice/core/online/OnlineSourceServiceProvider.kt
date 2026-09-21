@@ -7,4 +7,5 @@ package voice.core.online
  */
 public interface OnlineSourceServiceProvider {
   public val onlineSourceService: OnlineSourceService
+  public val onlinePlaybackCatalog: OnlinePlaybackCatalog
 }

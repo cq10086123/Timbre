@@ -6,7 +6,10 @@ import dev.zacsweers.metro.ContributesTo
 import dev.zacsweers.metro.Provides
 import dev.zacsweers.metro.Qualifier
 import dev.zacsweers.metro.SingleIn
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.builtins.ListSerializer
+import okhttp3.OkHttpClient
+import java.util.concurrent.TimeUnit
 
 @Qualifier
 public annotation class OnlineSourceEnabledStore
@@ -22,6 +25,10 @@ public annotation class OnlineSourceTokenStore
 
 @Qualifier
 public annotation class OnlineSourceBooksStore
+
+/** The long-read OkHttpClient used for streaming audio playback. */
+@Qualifier
+public annotation class OnlineSourceStreamingClient
 
 @ContributesTo(AppScope::class)
 public interface OnlineSourceGraph {
@@ -69,5 +76,34 @@ public interface OnlineSourceGraph {
   @SingleIn(AppScope::class)
   public fun onlineSourceClient(): OnlineSourceClient {
     return OnlineSourceClient.create()
+  }
+
+  /**
+   * The client for streaming audio: no call timeout, because one call stays
+   * open for a whole chapter (the api client's 90s call timeout would kill it
+   * mid stream).
+   */
+  @Provides
+  @SingleIn(AppScope::class)
+  @OnlineSourceStreamingClient
+  public fun onlineStreamingClient(): OkHttpClient {
+    return OkHttpClient.Builder()
+      .connectTimeout(15, TimeUnit.SECONDS)
+      .readTimeout(60, TimeUnit.SECONDS)
+      .writeTimeout(60, TimeUnit.SECONDS)
+      .build()
+  }
+
+  @Provides
+  @SingleIn(AppScope::class)
+  public fun onlineDataSourceFactory(
+    catalog: OnlinePlaybackCatalog,
+    @OnlineSourceStreamingClient streamingClient: OkHttpClient,
+  ): OnlineDataSourceFactory {
+    // open() runs on the exoplayer loading thread, where a blocking bridge is
+    // fine (the webdav data source does its blocking network work there too)
+    return OnlineDataSourceFactory(streamingClient) { ref ->
+      runBlocking { catalog.resolveStreamUrl(ref) }
+    }
   }
 }

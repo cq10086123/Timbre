@@ -10,6 +10,7 @@ import io.mockk.just
 import io.mockk.mockk
 import io.mockk.verify
 import io.mockk.verifyOrder
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -90,6 +91,10 @@ class BookPlayViewModelTest {
     },
     sleepTimer = sleepTimer,
     playStateManager = playStateManager,
+    onlinePlaybackCatalog = mockk {
+      every { isOnlineBookId(any()) } returns false
+      every { playbackErrors } returns MutableSharedFlow()
+    },
     currentBookStoreId = currentBookStoreId,
     navigator = mockk(),
     bookmarkRepository = mockk {
@@ -125,6 +130,10 @@ class BookPlayViewModelTest {
     },
     sleepTimer = sleepTimer,
     playStateManager = playStateManager,
+    onlinePlaybackCatalog = mockk {
+      every { isOnlineBookId(any()) } returns false
+      every { playbackErrors } returns MutableSharedFlow()
+    },
     currentBookStoreId = MemoryDataStore(null),
     navigator = mockk(),
     bookmarkRepository = mockk(),
@@ -397,6 +406,10 @@ class BookPlayViewModelTest {
       playStateManager = mockk {
         every { this@mockk.playStateFlow } returns playStateFlow
         every { playState } returns playStateFlow.value
+      },
+      onlinePlaybackCatalog = mockk {
+        every { isOnlineBookId(any()) } returns false
+        every { playbackErrors } returns MutableSharedFlow()
       },
       currentBookStoreId = MemoryDataStore(null),
       navigator = mockk(),

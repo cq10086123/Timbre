@@ -18,6 +18,7 @@ dependencies {
   implementation(projects.core.data.api)
   implementation(projects.core.analytics.api)
   implementation(projects.core.webdav)
+  implementation(projects.core.online)
 
   implementation(libs.androidxCore)
   implementation(libs.coil)

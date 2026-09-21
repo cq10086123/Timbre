@@ -17,6 +17,7 @@ import dev.zacsweers.metro.IntoSet
 import dev.zacsweers.metro.Provides
 import voice.core.common.rootGraphAs
 import voice.core.data.BookId
+import voice.core.online.OnlinePlaybackErrorKind
 import voice.features.playbackScreen.view.BookPlayView
 import voice.features.sleepTimer.SleepTimerDialog
 import voice.navigation.Destination
@@ -37,6 +38,9 @@ fun BookPlayScreen(bookId: BookId) {
   val bookmarkAddedMessage = stringResource(StringsR.string.bookmark_added_snackbar)
   val batteryOptimizationMessage = stringResource(StringsR.string.playback_battery_optimization_rationale)
   val batteryOptimizationAction = stringResource(StringsR.string.playback_battery_optimization_action)
+  val onlineNetworkErrorMessage = stringResource(StringsR.string.playback_online_error_network)
+  val onlineAuthErrorMessage = stringResource(StringsR.string.playback_online_error_auth)
+  val onlineContentErrorMessage = stringResource(StringsR.string.playback_online_error_content)
   LaunchedEffect(viewModel) {
     viewModel.viewEffects.collect { viewEffect ->
       when (viewEffect) {
@@ -52,6 +56,14 @@ fun BookPlayScreen(bookId: BookId) {
           if (result == SnackbarResult.ActionPerformed) {
             viewModel.onBatteryOptimizationRequested()
           }
+        }
+        is BookPlayViewEffect.OnlineSourceError -> {
+          val message = when (viewEffect.kind) {
+            OnlinePlaybackErrorKind.NETWORK -> onlineNetworkErrorMessage
+            OnlinePlaybackErrorKind.AUTH -> onlineAuthErrorMessage
+            OnlinePlaybackErrorKind.CONTENT -> onlineContentErrorMessage
+          }
+          snackbarHostState.showSnackbar(message = message)
         }
       }
     }
