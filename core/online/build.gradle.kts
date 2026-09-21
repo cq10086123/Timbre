@@ -19,4 +19,5 @@ dependencies {
 
   testImplementation(libs.mockwebserver)
   testImplementation(libs.coroutines.test)
+  testImplementation(libs.mockk)
 }

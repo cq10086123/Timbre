@@ -16,6 +16,7 @@ import voice.core.data.repo.BookRepository
 import voice.core.featureflag.ExperimentalPlaybackPersistenceQualifier
 import voice.core.featureflag.FeatureFlag
 import voice.core.logging.api.Logger
+import voice.core.online.OnlinePlaybackCatalog
 import voice.core.playback.di.PlaybackScope
 import voice.core.playback.session.bookId
 import voice.core.playback.session.positionInChapter
@@ -28,6 +29,7 @@ import kotlin.time.Duration.Companion.minutes
 @SingleIn(PlaybackScope::class)
 class PositionUpdater(
   private val bookRepo: BookRepository,
+  private val onlinePlaybackCatalog: OnlinePlaybackCatalog,
   private val scope: CoroutineScope,
   private val playStateManager: PlayStateManager,
   @ExperimentalPlaybackPersistenceQualifier
@@ -130,6 +132,8 @@ class PositionUpdater(
       lastPersistedAt = now
     }
     Logger.d("$positionInChapter is the new position! (persist=$persist)")
+    // online books have no room row: the catalog keeps their position itself
+    onlinePlaybackCatalog.updatePosition(bookId, chapterId, positionInChapter)
     bookRepo.updatePlaybackPosition(
       id = bookId,
       currentChapter = chapterId,

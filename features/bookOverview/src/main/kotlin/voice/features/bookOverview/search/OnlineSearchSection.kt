@@ -37,12 +37,15 @@ import coil.compose.AsyncImage
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import voice.core.common.rootGraphAs
+import voice.core.data.BookId
 import voice.core.online.OnlineBook
 import voice.core.online.OnlineChapter
+import voice.core.online.OnlinePlaybackCatalog
 import voice.core.online.OnlineSearchResult
 import voice.core.online.OnlineSourceClient
 import voice.core.online.OnlineSourceService
 import voice.core.online.OnlineSourceServiceProvider
+import voice.core.online.OnlineUri
 import voice.core.strings.R as StringsR
 
 private const val SEARCH_DEBOUNCE_MILLIS = 500L
@@ -57,8 +60,11 @@ private const val SEARCH_DEBOUNCE_MILLIS = 500L
 internal fun OnlineSearchSection(
   query: String,
   modifier: Modifier = Modifier,
+  onBookClick: (BookId) -> Unit = {},
 ) {
-  val service = remember { rootGraphAs<OnlineSourceServiceProvider>().onlineSourceService }
+  val graph = remember { rootGraphAs<OnlineSourceServiceProvider>() }
+  val service = graph.onlineSourceService
+  val catalog = graph.onlinePlaybackCatalog
   val configured by produceState(initialValue = false) {
     value = runCatching { service.isConfigured() }.getOrDefault(false)
   }
@@ -175,8 +181,10 @@ internal fun OnlineSearchSection(
   chaptersFor?.let { book ->
     OnlineChaptersDialog(
       service = service,
+      catalog = catalog,
       book = book,
       onDismiss = { chaptersFor = null },
+      onBookClick = onBookClick,
     )
   }
 }
@@ -228,25 +236,36 @@ private data class ChaptersUiState(
 @Composable
 private fun OnlineChaptersDialog(
   service: OnlineSourceService,
+  catalog: OnlinePlaybackCatalog,
   book: OnlineSearchResult,
   onDismiss: () -> Unit,
+  onBookClick: (BookId) -> Unit,
 ) {
   var reloadKey by remember { mutableIntStateOf(0) }
   var addedToShelf by remember { mutableStateOf(false) }
   val scope = rememberCoroutineScope()
-  fun addToShelf(chapters: List<OnlineChapter>) {
+  fun playFromChapter(
+    chapters: List<OnlineChapter>,
+    chapter: OnlineChapter,
+  ) {
     scope.launch {
-      service.addToShelf(
-        OnlineBook(
-          source = book.source,
-          bookId = book.bookId,
-          title = book.title,
-          author = book.author,
-          cover = book.cover,
-          chapters = chapters,
-        ),
-      )
-      addedToShelf = true
+      if (!addedToShelf) {
+        service.addToShelf(
+          OnlineBook(
+            source = book.source,
+            bookId = book.bookId,
+            title = book.title,
+            author = book.author,
+            cover = book.cover,
+            chapters = chapters,
+          ),
+        )
+        addedToShelf = true
+      }
+      // playback starts at the tapped chapter; the catalog keeps it until the
+      // first position update arrives
+      catalog.requestStartAt(book.source, book.bookId, chapter.id)
+      onBookClick(BookId(OnlineUri.buildBookUri(book.source, book.bookId)))
     }
   }
   val state by produceState(initialValue = ChaptersUiState(), book, reloadKey) {
@@ -364,9 +383,7 @@ private fun OnlineChaptersDialog(
                   modifier = Modifier
                     .fillMaxWidth()
                     .clickable {
-                      if (!addedToShelf) {
-                        addToShelf(state.chapters)
-                      }
+                      playFromChapter(state.chapters, chapter)
                     },
                   verticalAlignment = Alignment.CenterVertically,
                 ) {

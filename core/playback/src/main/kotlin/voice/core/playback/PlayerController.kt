@@ -31,6 +31,7 @@ import voice.core.data.ChapterId
 import voice.core.data.repo.BookContentRepo
 import voice.core.data.store.CurrentBookStore
 import voice.core.logging.api.Logger
+import voice.core.online.OnlinePlaybackCatalog
 import voice.core.playback.misc.Decibel
 import voice.core.playback.session.CustomCommand
 import voice.core.playback.session.MediaItemProvider
@@ -55,6 +56,7 @@ class PlayerController(
   private val currentBookStoreId: DataStore<BookId?>,
   private val contentRepo: BookContentRepo,
   private val mediaItemProvider: MediaItemProvider,
+  private val onlinePlaybackCatalog: OnlinePlaybackCatalog,
 ) {
 
   private var _controller: Deferred<MediaController> = newControllerAsync()
@@ -145,7 +147,9 @@ class PlayerController(
     }
     // only the content is needed to start the book, resolving all of its
     // chapters here would delay the first playback of a big book
-    val content = contentRepo.get(bookId) ?: return false
+    val content = contentRepo.get(bookId)
+      ?: onlinePlaybackCatalog.content(bookId)
+      ?: return false
     controller.setMediaItem(mediaItemProvider.mediaItem(content))
     controller.prepare()
     return true

@@ -1,11 +1,13 @@
 package voice.features.playbackScreen
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.datastore.core.DataStore
 import dev.zacsweers.metro.Assisted
 import dev.zacsweers.metro.AssistedFactory
@@ -31,6 +33,7 @@ import voice.core.featureflag.ExperimentalPlaybackPersistenceQualifier
 import voice.core.featureflag.FeatureFlag
 import voice.core.featureflag.KioskModeFeatureFlagQualifier
 import voice.core.logging.api.Logger
+import voice.core.online.OnlinePlaybackCatalog
 import voice.core.playback.CurrentBookResolver
 import voice.core.playback.PlayerController
 import voice.core.playback.misc.Decibel
@@ -58,6 +61,7 @@ class BookPlayViewModel(
   private val player: PlayerController,
   private val sleepTimer: SleepTimer,
   private val playStateManager: PlayStateManager,
+  private val onlinePlaybackCatalog: OnlinePlaybackCatalog,
   @CurrentBookStore
   private val currentBookStoreId: DataStore<BookId?>,
   private val navigator: Navigator,
@@ -88,12 +92,23 @@ class BookPlayViewModel(
       player.pauseIfCurrentBookDifferentFrom(bookId)
       currentBookStoreId.updateData { bookId }
     }
+    scope.launch {
+      onlinePlaybackCatalog.playbackErrors.collect { error ->
+        if (error.bookUri == bookId.value) {
+          viewEffects.tryEmit(BookPlayViewEffect.OnlineSourceError(error.kind))
+        }
+      }
+    }
   }
 
   @Composable
   fun viewState(): BookPlayViewState? {
     val kioskMode = remember { kioskModeFeatureFlag.get() }
     if (kioskMode) return kioskModeViewState()
+
+    if (onlinePlaybackCatalog.isOnlineBookId(bookId)) {
+      return onlineViewState()
+    }
 
     val persistedBook = remember(bookId) {
       bookRepository.flow(bookId).filterNotNull()
@@ -117,6 +132,39 @@ class BookPlayViewModel(
     }
     val isPlaying = livePlaybackState?.isPlaying ?: (managerPlayState == PlayStateManager.PlayState.Playing)
 
+    return bookPlayViewState(book = book, isPlaying = isPlaying)
+  }
+
+  /**
+   * View state of an online book: it is not in room, so the book is fetched
+   * from the online catalog once and the live player state overlays it on
+   * every change (the live position is the only position an online book has).
+   */
+  @Composable
+  private fun onlineViewState(): BookPlayViewState? {
+    var baseBook by remember(bookId) { mutableStateOf<Book?>(null) }
+    LaunchedEffect(bookId) {
+      baseBook = onlinePlaybackCatalog.book(bookId)
+    }
+    val livePlaybackState = remember(bookId) {
+      player.livePlaybackStateFlow(bookId)
+    }.collectAsState(null).value
+    val managerPlayState by remember {
+      playStateManager.playStateFlow
+    }.collectAsState()
+
+    val book = baseBook ?: return null
+    val overlaid = livePlaybackState?.let { book.overlay(it) } ?: book
+    val isPlaying = livePlaybackState?.isPlaying ?: (managerPlayState == PlayStateManager.PlayState.Playing)
+
+    return bookPlayViewState(book = overlaid, isPlaying = isPlaying)
+  }
+
+  @Composable
+  private fun bookPlayViewState(
+    book: Book,
+    isPlaying: Boolean,
+  ): BookPlayViewState {
     val currentMark = book.currentChapter.markForPosition(book.content.positionInChapter)
     val positionInCurrentMark = if (isPlaying && currentMark.durationMs > 0) {
       val relativePosition = book.content.positionInChapter - currentMark.startMs

@@ -22,6 +22,7 @@ import voice.core.data.store.BtSkipToChapterStore
 import voice.core.data.store.CurrentBookStore
 import voice.core.data.store.SeekTimeStore
 import voice.core.logging.api.Logger
+import voice.core.online.OnlinePlaybackCatalog
 import voice.core.playback.misc.Decibel
 import voice.core.playback.misc.VolumeGain
 import voice.core.playback.session.MediaId
@@ -51,6 +52,7 @@ class VoicePlayer(
   @AutoRewindAmountStore
   private val autoRewindAmountStore: DataStore<Int>,
   private val mediaItemProvider: MediaItemProvider,
+  private val onlinePlaybackCatalog: OnlinePlaybackCatalog,
   private val scope: CoroutineScope,
   private val volumeGain: VolumeGain,
   private val sleepTimer: SleepTimer,
@@ -381,7 +383,9 @@ class VoicePlayer(
       var assembled = false
       val assemblyDuration = measureTime {
         val book = withContext(dispatcherProvider.io) {
-          repo.get(mediaId.id)
+          // books of the online source live in their own store: the room
+          // lookup misses, the online catalog synthesizes the book instead
+          repo.get(mediaId.id) ?: onlinePlaybackCatalog.book(mediaId.id)
         } ?: return@measureTime
         player.setPlaybackSpeed(book.content.playbackSpeed)
         setSkipSilenceEnabled(book.content.skipSilence)

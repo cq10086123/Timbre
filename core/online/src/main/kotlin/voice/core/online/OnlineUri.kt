@@ -8,11 +8,32 @@ import java.net.URLEncoder
  * The media pipeline hands these to [OnlineStreamingDataSource], which turns
  * them into real audio streams (direct link for script sources, downloaded
  * file for the main catalog).
+ *
+ * An online book itself is addressed by `online://book/<source>/<bookId>`,
+ * which serves as its [voice.core.data.BookId] without ever touching Room.
  */
 public object OnlineUri {
 
   public const val SCHEME: String = "online"
   public const val PLAY_HOST: String = "play"
+  public const val BOOK_HOST: String = "book"
+
+  /** Uri of the whole online book, usable as a [voice.core.data.BookId] value. */
+  public fun buildBookUri(
+    source: String,
+    bookId: String,
+  ): String {
+    return "$SCHEME://$BOOK_HOST/${enc(source)}/${enc(bookId)}"
+  }
+
+  /** Returns null for uris that are not online book uris. */
+  public fun parseBookUri(uri: String): OnlineBookRef? {
+    val prefix = "$SCHEME://$BOOK_HOST/"
+    if (!uri.startsWith(prefix)) return null
+    val parts = uri.removePrefix(prefix).split('/')
+    if (parts.size != 2) return null
+    return OnlineBookRef(source = dec(parts[0]), bookId = dec(parts[1]))
+  }
 
   public fun build(
     source: String,
@@ -51,3 +72,13 @@ public data class OnlineChapterRef(
   val bookId: String,
   val chapterId: String,
 )
+
+/** Reference to one online book, independent of any uri encoding. */
+public data class OnlineBookRef(
+  val source: String,
+  val bookId: String,
+) {
+  /** Same key [OnlineSourceService] uses for shelf entries. */
+  public val key: String
+    get() = "$source::$bookId"
+}

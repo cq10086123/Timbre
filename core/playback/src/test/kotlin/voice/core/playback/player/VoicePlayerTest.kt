@@ -113,6 +113,9 @@ class VoicePlayerTest {
     autoRewindAmountStore = autoRewindAmountStore,
     scope = scope,
     mediaItemProvider = mediaItemProvider,
+    onlinePlaybackCatalog = mockk {
+      coEvery { book(any()) } returns null
+    },
     volumeGain = mockk(relaxed = true),
     sleepTimer = sleepTimer,
     analytics = mockk(relaxed = true),

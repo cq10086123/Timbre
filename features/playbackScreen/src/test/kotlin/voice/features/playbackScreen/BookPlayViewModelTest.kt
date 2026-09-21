@@ -10,10 +10,12 @@ import io.mockk.just
 import io.mockk.mockk
 import io.mockk.verify
 import io.mockk.verifyOrder
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.yield
 import voice.core.common.DispatcherProvider
@@ -48,6 +50,10 @@ import kotlin.uuid.Uuid
 class BookPlayViewModelTest {
 
   private val scope = TestScope()
+
+  // the view model collects the online error flow forever: give it its own
+  // scheduler so runTest does not see the suspended collector
+  private val viewModelScope = TestScope(UnconfinedTestDispatcher())
   private val sleepTimerDataStore = MemoryDataStore(SleepTimerPreference.Default.copy(duration = 5.minutes))
   private val book = book()
   private val sleepTimer = mockk<SleepTimer> {
@@ -90,6 +96,10 @@ class BookPlayViewModelTest {
     },
     sleepTimer = sleepTimer,
     playStateManager = playStateManager,
+    onlinePlaybackCatalog = mockk {
+      every { isOnlineBookId(any()) } returns false
+      every { playbackErrors } returns MutableSharedFlow()
+    },
     currentBookStoreId = currentBookStoreId,
     navigator = mockk(),
     bookmarkRepository = mockk {
@@ -107,7 +117,11 @@ class BookPlayViewModelTest {
     batteryOptimization = mockk(),
     sleepTimerPreferenceStore = sleepTimerDataStore,
     bookId = book.id,
-    dispatcherProvider = DispatcherProvider(scope.coroutineContext, scope.coroutineContext, scope.coroutineContext),
+    dispatcherProvider = DispatcherProvider(
+      viewModelScope.coroutineContext,
+      viewModelScope.coroutineContext,
+      viewModelScope.coroutineContext,
+    ),
     experimentalPlaybackPersistenceFeatureFlag = MemoryFeatureFlag(false),
     kioskModeFeatureFlag = MemoryFeatureFlag(false),
   )
@@ -125,6 +139,10 @@ class BookPlayViewModelTest {
     },
     sleepTimer = sleepTimer,
     playStateManager = playStateManager,
+    onlinePlaybackCatalog = mockk {
+      every { isOnlineBookId(any()) } returns false
+      every { playbackErrors } returns MutableSharedFlow()
+    },
     currentBookStoreId = MemoryDataStore(null),
     navigator = mockk(),
     bookmarkRepository = mockk(),
@@ -132,7 +150,11 @@ class BookPlayViewModelTest {
     batteryOptimization = mockk(),
     sleepTimerPreferenceStore = sleepTimerDataStore,
     bookId = book.id,
-    dispatcherProvider = DispatcherProvider(scope.coroutineContext, scope.coroutineContext, scope.coroutineContext),
+    dispatcherProvider = DispatcherProvider(
+      viewModelScope.coroutineContext,
+      viewModelScope.coroutineContext,
+      viewModelScope.coroutineContext,
+    ),
     experimentalPlaybackPersistenceFeatureFlag = MemoryFeatureFlag(false),
     kioskModeFeatureFlag = MemoryFeatureFlag(false),
   )
@@ -398,6 +420,10 @@ class BookPlayViewModelTest {
         every { this@mockk.playStateFlow } returns playStateFlow
         every { playState } returns playStateFlow.value
       },
+      onlinePlaybackCatalog = mockk {
+        every { isOnlineBookId(any()) } returns false
+        every { playbackErrors } returns MutableSharedFlow()
+      },
       currentBookStoreId = MemoryDataStore(null),
       navigator = mockk(),
       bookmarkRepository = mockk(),
@@ -405,7 +431,11 @@ class BookPlayViewModelTest {
       batteryOptimization = mockk(),
       sleepTimerPreferenceStore = sleepTimerDataStore,
       bookId = book.id,
-      dispatcherProvider = DispatcherProvider(scope.coroutineContext, scope.coroutineContext, scope.coroutineContext),
+      dispatcherProvider = DispatcherProvider(
+        viewModelScope.coroutineContext,
+        viewModelScope.coroutineContext,
+        viewModelScope.coroutineContext,
+      ),
       experimentalPlaybackPersistenceFeatureFlag = MemoryFeatureFlag(experimentalPlaybackPersistence),
       kioskModeFeatureFlag = MemoryFeatureFlag(kioskMode),
     )

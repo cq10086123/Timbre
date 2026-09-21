@@ -118,7 +118,10 @@ internal fun BookSearchContent(
             )
           }
         }
-        OnlineSearchSection(query = viewState.query)
+        OnlineSearchSection(
+          query = viewState.query,
+          onBookClick = onBookClick,
+        )
       }
     }
   }
