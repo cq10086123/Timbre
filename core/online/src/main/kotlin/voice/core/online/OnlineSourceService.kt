@@ -101,6 +101,27 @@ public class OnlineSourceService internal constructor(
     return withRelogin { client.batchStatus(base, it, taskId) }
   }
 
+  /**
+   * Verifies a base url / credential pair by performing a real card key
+   * login. Throws [OnlineSourceException] on failure; on success the token
+   * is persisted so the next request is already authenticated.
+   */
+  public suspend fun verify(
+    baseUrl: String,
+    credential: String,
+  ): String {
+    val token = client.login(baseUrl, credential)
+    tokenStore.updateData { token }
+    cachedToken = token
+    return token
+  }
+
+  /** Drops the cached token (e.g. after the server address changed). */
+  public suspend fun invalidateToken() {
+    tokenStore.updateData { "" }
+    cachedToken = null
+  }
+
   /** Builds the streaming url for a file downloaded on the site. */
   public suspend fun downloadedFileUrl(path: String): String {
     val base = baseUrlStore.data.first()

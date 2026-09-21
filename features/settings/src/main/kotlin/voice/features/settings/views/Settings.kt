@@ -5,8 +5,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
@@ -469,6 +471,8 @@ private fun Dialog(
         hint = stringResource(StringsR.string.settings_online_source_base_url_hint),
         currentValue = viewState.onlineSourceBaseUrl,
         maskInput = false,
+        verifying = viewState.onlineSourceVerifying,
+        errorResId = viewState.onlineSourceVerifyError,
         onConfirm = listener::onlineSourceBaseUrlChanged,
         onDismiss = listener::dismissDialog,
       )
@@ -479,6 +483,8 @@ private fun Dialog(
         hint = stringResource(StringsR.string.settings_online_source_credential_hint),
         currentValue = viewState.onlineSourceCredential,
         maskInput = true,
+        verifying = viewState.onlineSourceVerifying,
+        errorResId = viewState.onlineSourceVerifyError,
         onConfirm = listener::onlineSourceCredentialChanged,
         onDismiss = listener::dismissDialog,
       )
@@ -567,33 +573,63 @@ private fun OnlineSourceTextDialog(
   hint: String,
   currentValue: String,
   maskInput: Boolean,
+  verifying: Boolean,
+  errorResId: Int?,
   onConfirm: (String) -> Unit,
   onDismiss: () -> Unit,
 ) {
   var text by remember(currentValue) { mutableStateOf(currentValue) }
   AlertDialog(
-    onDismissRequest = onDismiss,
+    onDismissRequest = { if (!verifying) onDismiss() },
     title = { Text(title) },
     text = {
-      OutlinedTextField(
-        modifier = Modifier.fillMaxWidth(),
-        value = text,
-        onValueChange = { text = it },
-        placeholder = { Text(hint) },
-        singleLine = true,
-        visualTransformation = if (maskInput) PasswordVisualTransformation() else VisualTransformation.None,
-      )
+      Column {
+        OutlinedTextField(
+          modifier = Modifier.fillMaxWidth(),
+          value = text,
+          onValueChange = { text = it },
+          placeholder = { Text(hint) },
+          singleLine = true,
+          enabled = !verifying,
+          isError = errorResId != null,
+          visualTransformation = if (maskInput) PasswordVisualTransformation() else VisualTransformation.None,
+        )
+        if (verifying) {
+          Row(
+            modifier = Modifier.padding(top = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+          ) {
+            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+            Text(
+              modifier = Modifier.padding(start = 10.dp),
+              text = stringResource(StringsR.string.settings_online_source_verifying),
+              style = MaterialTheme.typography.bodySmall,
+            )
+          }
+        }
+        if (errorResId != null) {
+          Text(
+            modifier = Modifier.padding(top = 12.dp),
+            text = stringResource(errorResId),
+            color = MaterialTheme.colorScheme.error,
+            style = MaterialTheme.typography.bodySmall,
+          )
+        }
+      }
     },
     confirmButton = {
       TextButton(
         onClick = { onConfirm(text) },
-        enabled = text.isNotBlank(),
+        enabled = text.isNotBlank() && !verifying,
       ) {
         Text(stringResource(StringsR.string.common_dialog_confirm))
       }
     },
     dismissButton = {
-      TextButton(onClick = onDismiss) {
+      TextButton(
+        onClick = onDismiss,
+        enabled = !verifying,
+      ) {
         Text(stringResource(StringsR.string.common_dialog_cancel))
       }
     },

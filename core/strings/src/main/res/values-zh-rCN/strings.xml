@@ -96,6 +96,10 @@
     <string name="settings.online_source.credential_title">鉴权密钥</string>
     <string name="settings.online_source.credential_hint">粘贴服务器的访问密钥</string>
     <string name="settings.online_source.not_set">未设置</string>
+    <string name="settings.online_source.verifying">正在验证…</string>
+    <string name="settings.online_source.error.invalid">密钥无效或无法连接服务器</string>
+    <string name="settings.online_source.error.need_base_url">请先设置服务器地址</string>
+    <string name="settings.online_source.error.invalid_url">地址必须以 http:// 或 https:// 开头</string>
     <string name="settings.playback.import_parallelism.summary">同时解析的章节数。调大导入更快，但边听边导时切章响应会变慢。</string>
     <string name="settings.playback.import_parallelism.value">同时 %1$d 章</string>
     <string name="settings.playback.import_parallelism.option">同时解析 %1$d 章</string>
