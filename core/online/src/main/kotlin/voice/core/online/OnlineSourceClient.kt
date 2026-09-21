@@ -139,6 +139,56 @@ public class OnlineSourceClient internal constructor(
     }
   }
 
+  /** Chapter list of a main-catalog book, keeping the server error message. */
+  public suspend fun mainAlbumListResponse(
+    baseUrl: String,
+    token: String,
+    bookId: String,
+  ): Triple<Boolean, String?, List<OnlineChapter>> {
+    val body = json.encodeToString(MainAlbumListRequest.serializer(), MainAlbumListRequest(albumId = bookId))
+    val response = post(
+      normalize(baseUrl) + "/api/download/album-list",
+      body,
+      MainAlbumListResponse.serializer(),
+      token,
+    )
+    return Triple(
+      response.success,
+      response.error,
+      response.tracks.mapIndexed { index, t ->
+        OnlineChapter(id = t.trackId, title = t.title, durationSeconds = t.duration, order = index + 1)
+      },
+    )
+  }
+
+  /** Chapter list of a pluggable-source book, keeping the server error message. */
+  public suspend fun sourceAlbumListResponse(
+    baseUrl: String,
+    token: String,
+    source: String,
+    bookId: String,
+  ): Triple<Boolean, String?, List<OnlineChapter>> {
+    val body = json.encodeToString(IntfBookRequest.serializer(), IntfBookRequest(bookId = bookId))
+    val response = post(
+      normalize(baseUrl) + "/api/intf/" + enc(source) + "/album-list",
+      body,
+      IntfAlbumListResponse.serializer(),
+      token,
+    )
+    return Triple(
+      response.success,
+      response.error,
+      response.tracks.mapIndexed { index, t ->
+        OnlineChapter(
+          id = t.trackId,
+          title = t.title,
+          durationSeconds = t.duration,
+          order = if (t.order > 0) t.order else index + 1,
+        )
+      },
+    )
+  }
+
   /** Full chapter list of a main-catalog book (cached by the caller). */
   public suspend fun mainAlbumList(
     baseUrl: String,
@@ -302,6 +352,20 @@ public class OnlineSourceClient internal constructor(
   private fun enc(value: String): String = URLEncoder.encode(value, Charsets.UTF_8.name()).replace("+", "%20")
 
   public companion object {
+
+    /**
+     * Chapter listings of the main catalog regularly take 15+ seconds for
+     * books with thousands of tracks - okhttp defaults (10s read) kill them.
+     */
+    internal fun defaultHttpClient(): OkHttpClient {
+      return OkHttpClient.Builder()
+        .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+        .readTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+        .writeTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+        .callTimeout(90, java.util.concurrent.TimeUnit.SECONDS)
+        .build()
+    }
+
     /** The main (account backed) catalog, addressed through /api/search. */
     public const val SOURCE_MAIN: String = "main"
     private const val CLIENT: String = "timbre"
@@ -311,7 +375,7 @@ public class OnlineSourceClient internal constructor(
      * Creates a client with default networking - the DI graph can also inject
      * its own [OkHttpClient].
      */
-    public fun create(okHttpClient: OkHttpClient = OkHttpClient.Builder().build()): OnlineSourceClient {
+    public fun create(okHttpClient: OkHttpClient = defaultHttpClient()): OnlineSourceClient {
       val json = Json {
         ignoreUnknownKeys = true
         isLenient = true

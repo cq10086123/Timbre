@@ -215,6 +215,7 @@ private fun OnlineResultRow(
 private data class ChaptersUiState(
   val loading: Boolean = true,
   val failed: Boolean = false,
+  val errorMessage: String? = null,
   val chapters: List<OnlineChapter> = emptyList(),
 )
 
@@ -227,10 +228,12 @@ private fun OnlineChaptersDialog(
   var reloadKey by remember { mutableIntStateOf(0) }
   val state by produceState(initialValue = ChaptersUiState(), book, reloadKey) {
     value = ChaptersUiState(loading = true)
-    val chapters = runCatching { service.chapters(book.source, book.bookId) }
-    value = chapters.fold(
+    val result = runCatching { service.chapters(book.source, book.bookId) }
+    value = result.fold(
       onSuccess = { ChaptersUiState(loading = false, chapters = it) },
-      onFailure = { ChaptersUiState(loading = false, failed = true) },
+      onFailure = {
+        ChaptersUiState(loading = false, failed = true, errorMessage = it.message)
+      },
     )
   }
   AlertDialog(
@@ -267,6 +270,15 @@ private fun OnlineChaptersDialog(
           horizontalAlignment = Alignment.CenterHorizontally,
         ) {
           Text(stringResource(StringsR.string.search_online_error))
+          state.errorMessage?.let { detail ->
+            Text(
+              modifier = Modifier.padding(top = 6.dp),
+              text = detail,
+              style = MaterialTheme.typography.bodySmall,
+              maxLines = 4,
+              overflow = TextOverflow.Ellipsis,
+            )
+          }
           TextButton(
             modifier = Modifier.padding(top = 8.dp),
             onClick = { reloadKey++ },
@@ -275,24 +287,34 @@ private fun OnlineChaptersDialog(
           }
         }
       } else {
-        LazyColumn(
-          modifier = Modifier.size(width = 280.dp, height = 360.dp),
-          verticalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-          items(state.chapters) { chapter ->
-            Row(
-              modifier = Modifier.fillMaxWidth(),
-              verticalAlignment = Alignment.CenterVertically,
-            ) {
-              Text(
-                text = chapter.title,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-              )
-              if (chapter.durationSeconds > 0) {
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(text = formatDuration(chapter.durationSeconds))
+        if (state.chapters.isEmpty()) {
+          Text(
+            modifier = Modifier
+              .fillMaxWidth()
+              .padding(vertical = 24.dp),
+            text = stringResource(StringsR.string.search_online_chapters_empty),
+            style = MaterialTheme.typography.bodySmall,
+          )
+        } else {
+          LazyColumn(
+            modifier = Modifier.size(width = 280.dp, height = 360.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+          ) {
+            items(state.chapters) { chapter ->
+              Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+              ) {
+                Text(
+                  text = chapter.title,
+                  maxLines = 1,
+                  overflow = TextOverflow.Ellipsis,
+                  modifier = Modifier.weight(1f),
+                )
+                if (chapter.durationSeconds > 0) {
+                  Spacer(modifier = Modifier.width(8.dp))
+                  Text(text = formatDuration(chapter.durationSeconds))
+                }
               }
             }
           }
