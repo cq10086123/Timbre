@@ -117,6 +117,24 @@ class OnlineSourceClientTest {
   }
 
   @Test
+  fun emptyDurationFieldsParseAsZero() = runTest {
+    server.enqueue(
+      ok(
+        """{"success":true,"tracks":[{"trackId":"t1","title":"c1","duration":"","order":1},
+           {"trackId":"t2","title":"c2","duration":null,"order":""}]}""",
+      ),
+    )
+
+    val chapters = client.sourceAlbumList(baseUrl(), token = "t", source = "B", bookId = "8117897634")
+
+    assertEquals(expected = 2, actual = chapters.size)
+    assertEquals(expected = 0, actual = chapters[0].durationSeconds)
+    assertEquals(expected = 1, actual = chapters[0].order)
+    // empty order falls back to index+1
+    assertEquals(expected = 2, actual = chapters[1].order)
+  }
+
+  @Test
   fun fileUrlPercentEncodesEachPathSegment() {
     val url = client.fileUrl(baseUrl(), "凡人修仙传/第1集.mp3")
     assertEquals(

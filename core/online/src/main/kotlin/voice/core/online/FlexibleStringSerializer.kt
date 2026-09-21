@@ -33,5 +33,30 @@ internal object FlexibleStringSerializer : KSerializer<String> {
   }
 }
 
+/**
+ * Accepts JSON numbers, numeric strings, empty strings and nulls as an Int
+ * (0 for anything unparsable): the script based sources return
+ * `"duration": ""` for tracks without a known length.
+ */
+internal object FlexibleIntSerializer : KSerializer<Int> {
+  override val descriptor = PrimitiveSerialDescriptor("FlexibleInt", PrimitiveKind.INT)
+
+  override fun deserialize(decoder: Decoder): Int {
+    if (decoder !is JsonDecoder) return decoder.decodeInt()
+    val primitive = decoder.decodeJsonElement().jsonPrimitive
+    return when {
+      primitive.isString -> primitive.content.trim().toIntOrNull() ?: 0
+      else -> primitive.content.toIntOrNull() ?: 0
+    }
+  }
+
+  override fun serialize(
+    encoder: Encoder,
+    value: Int,
+  ) {
+    encoder.encodeInt(value)
+  }
+}
+
 /** [String] serializer alias for store creation convenience. */
 internal val StringSerializer = String.serializer()

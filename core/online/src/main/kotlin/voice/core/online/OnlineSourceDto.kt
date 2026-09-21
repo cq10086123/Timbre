@@ -1,5 +1,6 @@
 package voice.core.online
 
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -27,7 +28,7 @@ internal data class MainSearchItem(
   val author: String? = null,
   val cover: String? = null,
   val intro: String? = null,
-  val tracks: Int = 0,
+  @Serializable(with = FlexibleIntSerializer::class) val tracks: Int = 0,
 )
 
 @Serializable
@@ -43,7 +44,7 @@ internal data class IntfSearchItem(
   val author: String? = null,
   val cover: String? = null,
   val intro: String? = null,
-  val trackCount: Int = 0,
+  @Serializable(with = FlexibleIntSerializer::class) val trackCount: Int = 0,
 )
 
 @Serializable
@@ -63,7 +64,7 @@ internal data class MainAlbumListResponse(
 internal data class MainAlbumTrack(
   @Serializable(with = FlexibleStringSerializer::class) val trackId: String = "",
   val title: String = "",
-  val duration: Int = 0,
+  @Serializable(with = FlexibleIntSerializer::class) val duration: Int = 0,
 )
 
 @Serializable
@@ -77,8 +78,8 @@ internal data class IntfAlbumListResponse(
 internal data class IntfAlbumTrack(
   @Serializable(with = FlexibleStringSerializer::class) val trackId: String = "",
   val title: String = "",
-  val duration: Int = 0,
-  val order: Int = 0,
+  @Serializable(with = FlexibleIntSerializer::class) val duration: Int = 0,
+  @Serializable(with = FlexibleIntSerializer::class) val order: Int = 0,
 )
 
 @Serializable
