@@ -8,6 +8,8 @@ import dev.zacsweers.metro.SingleIn
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.runBlocking
 import voice.core.data.Book
@@ -66,6 +68,21 @@ public class OnlinePlaybackCatalog(
   private val positions = mutableMapOf<String, OnlinePosition>()
 
   /**
+   * Books whose chapters were fetched in the search dialog and whose playback
+   * was started without adding them to the shelf: the player can still
+   * assemble the book from here, the shelf simply does not show them.
+   */
+  private val pendingBooks = ConcurrentHashMap<String, OnlineBook>()
+
+  /** True while a stream url is being resolved (may download chapters). */
+  private val _resolving = MutableStateFlow(false)
+  public val resolving: kotlinx.coroutines.flow.StateFlow<Boolean> get() = _resolving
+
+  /** Bumped whenever a measured duration lands, so the UI can rebuild. */
+  private val _durationsVersion = MutableStateFlow(0)
+  public val durationsVersion: kotlinx.coroutines.flow.StateFlow<Int> get() = _durationsVersion
+
+  /**
    * Durations measured from the actual stream, keyed by the canonical chapter
    * uri. Sources that do not report durations get corrected here after the
    * first play of a chapter.
@@ -105,6 +122,7 @@ public class OnlinePlaybackCatalog(
     bookId: BookId,
     chapterId: ChapterId,
     positionMs: Long,
+    durationMs: Long = 0L,
   ) {
     val bookRef = OnlineUri.parseBookUri(bookId.value) ?: return
     val chapterRef = OnlineUri.parse(chapterId.value) ?: return
@@ -112,12 +130,24 @@ public class OnlinePlaybackCatalog(
       pendingStarts.remove(bookRef.key)
       positions[bookRef.key] = OnlinePosition(chapterRef.chapterId, positionMs)
     }
+    if (durationMs > 0L) {
+      recordMeasuredDuration(bookRef.bookId, chapterRef.chapterId, durationMs)
+    }
+  }
+
+  /**
+   * Keeps a book around for playback without adding it to the shelf.
+   */
+  public fun stashForPlayback(book: OnlineBook) {
+    pendingBooks[OnlineBookRef(book.source, book.bookId).key] = book
   }
 
   /** Synthesizes the [Book] of an online book, or null when [bookId] is not one. */
   public suspend fun book(bookId: BookId): Book? {
     val bookRef = OnlineUri.parseBookUri(bookId.value) ?: return null
-    val onlineBook = service.shelfBook(bookRef.key) ?: return null
+    val onlineBook = pendingBooks.remove(bookRef.key)
+      ?: service.shelfBook(bookRef.key)
+      ?: return null
     val chapters = onlineBook.chapters.ifEmpty {
       runCatching { service.chapters(bookRef.source, bookRef.bookId) }.getOrDefault(emptyList())
     }
@@ -232,7 +262,9 @@ public class OnlinePlaybackCatalog(
   ) {
     if (durationMs <= 0L) return
     val uri = OnlineUri.build(OnlineSourceClient.SOURCE_MAIN, bookId, chapterId)
+    if (measuredDurations[uri] == durationMs) return
     measuredDurations[uri] = durationMs
+    _durationsVersion.value += 1
     runBlocking {
       try {
         booksStore.updateData { books ->
@@ -269,6 +301,15 @@ public class OnlinePlaybackCatalog(
    * and answered with null (which fails the load with a 404).
    */
   public suspend fun resolveStreamUrl(ref: OnlineChapterRef): String? {
+    _resolving.value = true
+    try {
+      return resolveStreamUrlInternal(ref)
+    } finally {
+      _resolving.value = false
+    }
+  }
+
+  private suspend fun resolveStreamUrlInternal(ref: OnlineChapterRef): String? {
     return try {
       if (ref.source == OnlineSourceClient.SOURCE_MAIN) {
         resolveMain(ref)

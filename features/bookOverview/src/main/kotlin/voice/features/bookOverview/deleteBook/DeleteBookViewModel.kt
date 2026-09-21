@@ -3,6 +3,7 @@ package voice.features.bookOverview.deleteBook
 import android.app.Application
 import androidx.compose.runtime.State
 import androidx.compose.runtime.mutableStateOf
+import androidx.datastore.core.DataStore
 import androidx.documentfile.provider.DocumentFile
 import dev.zacsweers.metro.ContributesIntoSet
 import dev.zacsweers.metro.SingleIn
@@ -14,6 +15,9 @@ import voice.core.data.folders.AudiobookFolders
 import voice.core.data.repo.BookRepository
 import voice.core.data.toUri
 import voice.core.logging.api.Logger
+import voice.core.online.OnlineBook
+import voice.core.online.OnlineSourceBooksStore
+import voice.core.online.OnlineUri
 import voice.core.scanner.MediaScanTrigger
 import voice.features.bookOverview.bottomSheet.BottomSheetItem
 import voice.features.bookOverview.bottomSheet.BottomSheetItemViewModel
@@ -26,6 +30,7 @@ class DeleteBookViewModel(
   private val audiobookFolders: AudiobookFolders,
   private val mediaScanTrigger: MediaScanTrigger,
   private val bookRepository: BookRepository,
+  @OnlineSourceBooksStore private val onlineBooksStore: DataStore<List<OnlineBook>>,
   dispatcherProvider: DispatcherProvider,
 ) : BottomSheetItemViewModel {
 
@@ -73,6 +78,16 @@ class DeleteBookViewModel(
     val state = _state.value
     if (state != null) {
       scope.launch {
+        // online books are not in room: dropping them from the online shelf
+        // store is the whole delete
+        if (state.id.value.startsWith("online://")) {
+          onlineBooksStore.updateData { books ->
+            books.filterNot { book ->
+              OnlineUri.buildBookUri(book.source, book.bookId) == state.id.value
+            }
+          }
+          return@launch
+        }
         // remote (webdav) books live on the server: there are no local files
         // to delete, and attempting it would only fail silently. Dropping the
         // shelf registration is enough; the book can be re-added any time from

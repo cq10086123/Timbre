@@ -12,6 +12,7 @@ import androidx.datastore.core.DataStore
 import dev.zacsweers.metro.Assisted
 import dev.zacsweers.metro.AssistedFactory
 import dev.zacsweers.metro.AssistedInject
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.filterNotNull
@@ -142,10 +143,21 @@ class BookPlayViewModel(
    */
   @Composable
   private fun onlineViewState(): BookPlayViewState? {
+    val durationsVersion = remember { onlinePlaybackCatalog.durationsVersion }
+      .collectAsState().value
     var baseBook by remember(bookId) { mutableStateOf<Book?>(null) }
-    LaunchedEffect(bookId) {
-      baseBook = onlinePlaybackCatalog.book(bookId)
+    LaunchedEffect(bookId, durationsVersion) {
+      // the book may need a moment when it comes from the search stash; the
+      // measured durations arrive right after the first stream open
+      var attempts = 0
+      while (baseBook == null && attempts < 10) {
+        baseBook = onlinePlaybackCatalog.book(bookId)
+        if (baseBook == null) delay(500)
+        attempts++
+      }
     }
+    val resolving = remember { onlinePlaybackCatalog.resolving }
+      .collectAsState().value
     val livePlaybackState = remember(bookId) {
       player.livePlaybackStateFlow(bookId)
     }.collectAsState(null).value
@@ -157,13 +169,14 @@ class BookPlayViewModel(
     val overlaid = livePlaybackState?.let { book.overlay(it) } ?: book
     val isPlaying = livePlaybackState?.isPlaying ?: (managerPlayState == PlayStateManager.PlayState.Playing)
 
-    return bookPlayViewState(book = overlaid, isPlaying = isPlaying)
+    return bookPlayViewState(book = overlaid, isPlaying = isPlaying, loading = resolving)
   }
 
   @Composable
   private fun bookPlayViewState(
     book: Book,
     isPlaying: Boolean,
+    loading: Boolean = false,
   ): BookPlayViewState {
     val currentMark = book.currentChapter.markForPosition(book.content.positionInChapter)
     val positionInCurrentMark = if (isPlaying && currentMark.durationMs > 0) {
@@ -185,6 +198,7 @@ class BookPlayViewModel(
       playedTime = positionInCurrentMark.milliseconds,
       cover = book.content.coverUrl,
       skipSilence = book.content.skipSilence,
+      loading = loading,
     )
   }
 
