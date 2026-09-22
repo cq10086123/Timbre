@@ -98,8 +98,8 @@ private fun OnlineSourceBadge(
         contentDescription = badgeDescription
       },
     shape = CircleShape,
-    color = MaterialTheme.colorScheme.tertiaryContainer,
-    contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+    color = MaterialTheme.colorScheme.secondaryContainer,
+    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
   ) {
     Text(
       text = label,
