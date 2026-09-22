@@ -18,6 +18,7 @@ import dev.zacsweers.metro.Provides
 import voice.core.common.rootGraphAs
 import voice.core.data.BookId
 import voice.core.online.OnlinePlaybackErrorKind
+import voice.features.playbackScreen.view.BookPlayLoading
 import voice.features.playbackScreen.view.BookPlayView
 import voice.features.sleepTimer.SleepTimerDialog
 import voice.navigation.Destination
@@ -34,7 +35,6 @@ fun BookPlayScreen(bookId: BookId) {
   val snackbarHostState = remember { SnackbarHostState() }
   val dialogState = viewModel.dialogState.value
   val viewState = viewModel.viewState()
-    ?: return
   val bookmarkAddedMessage = stringResource(StringsR.string.bookmark_added_snackbar)
   val batteryOptimizationMessage = stringResource(StringsR.string.playback_battery_optimization_rationale)
   val batteryOptimizationAction = stringResource(StringsR.string.playback_battery_optimization_action)
@@ -67,6 +67,12 @@ fun BookPlayScreen(bookId: BookId) {
         }
       }
     }
+  }
+  if (viewState == null) {
+    // the book is not there yet: without this the screen stays empty while it
+    // is assembled, and the errors of that fetch have no host to show up in
+    BookPlayLoading(snackbarHostState = snackbarHostState)
+    return
   }
   BookPlayView(
     viewState,

@@ -112,6 +112,9 @@ public interface OnlineSourceGraph {
       urlResolver = { ref ->
         runBlocking { catalog.resolveStreamUrl(ref) }
       },
+      // a rejected url (expired direct link) is dropped, so the retry inside
+      // the data source asks the source for a fresh one
+      onUrlRejected = { ref -> catalog.invalidateStreamUrl(ref) },
       onDurationResolved = { ref, durationMs ->
         catalog.recordMeasuredDuration(ref.source, ref.bookId, ref.chapterId, durationMs)
       },

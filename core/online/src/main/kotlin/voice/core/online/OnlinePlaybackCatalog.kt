@@ -83,9 +83,29 @@ public class OnlinePlaybackCatalog(
    */
   private val assembledBooks = ConcurrentHashMap<String, OnlineBook>()
 
-  /** True while a stream url is being resolved (may download chapters). */
-  private val _resolving = MutableStateFlow(false)
-  public val resolving: kotlinx.coroutines.flow.StateFlow<Boolean> get() = _resolving
+  /**
+   * Canonical book uris whose stream url is being resolved right now (a resolve
+   * may download the chapter first and can take a while). Counted per book: the
+   * player re-opens a chapter on every seek, and several books are resolved
+   * over a session, so a single flag would light up the loading ring of another
+   * book and would go off as soon as the first of two resolves returns.
+   */
+  private val resolvingCounts = mutableMapOf<String, Int>()
+  private val _resolvingBooks = MutableStateFlow<Set<String>>(emptySet())
+  public val resolvingBooks: StateFlow<Set<String>> get() = _resolvingBooks
+
+  /**
+   * Streaming urls the sources handed out, keyed by the canonical chapter uri.
+   * The player opens a chapter again on every seek (and the auto rewind seeks
+   * on pause), so without the cache each of those re-runs the resolution - an
+   * api round trip per seek, together with a loading ring for a chapter that
+   * already plays.
+   */
+  private val streamUrls = object : LinkedHashMap<String, CachedStreamUrl>(0, 0.75f, true) {
+    override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, CachedStreamUrl>): Boolean {
+      return size > MAX_CACHED_STREAM_URLS
+    }
+  }
 
   /** Bumped whenever a measured duration lands, so the UI can rebuild. */
   private val _durationsVersion = MutableStateFlow(0)
@@ -359,14 +379,66 @@ public class OnlinePlaybackCatalog(
    * Resolves a playable url for one online chapter. Runs on the playback
    * loading thread; network failures are reported through [playbackErrors]
    * and answered with null (which fails the load with a 404).
+   *
+   * A url that was resolved shortly before is reused, and [resolvingBooks]
+   * reports the book while one of its resolves is in flight.
    */
   public suspend fun resolveStreamUrl(ref: OnlineChapterRef): String? {
-    _resolving.value = true
+    val chapterUri = OnlineUri.build(ref.source, ref.bookId, ref.chapterId)
+    cachedStreamUrl(chapterUri)?.let { return it }
+    val bookUri = OnlineUri.buildBookUri(ref.source, ref.bookId)
+    beginResolving(bookUri)
     try {
-      return resolveStreamUrlInternal(ref)
+      val resolved = resolveStreamUrlInternal(ref) ?: return null
+      synchronized(stateLock) {
+        streamUrls[chapterUri] = CachedStreamUrl(resolved, SystemClock.elapsedRealtime())
+      }
+      return resolved
     } finally {
-      _resolving.value = false
+      endResolving(bookUri)
     }
+  }
+
+  /**
+   * Drops the url cached for [ref]. The data source calls this when the server
+   * rejects a url: direct links are signed and expire, so the next resolve has
+   * to ask the source for a fresh one. Returns whether a url was cached - only
+   * then is a retry likely to help.
+   */
+  public fun invalidateStreamUrl(ref: OnlineChapterRef): Boolean {
+    return synchronized(stateLock) {
+      streamUrls.remove(OnlineUri.build(ref.source, ref.bookId, ref.chapterId)) != null
+    }
+  }
+
+  private fun cachedStreamUrl(chapterUri: String): String? {
+    val cached = synchronized(stateLock) { streamUrls[chapterUri] } ?: return null
+    if (SystemClock.elapsedRealtime() - cached.resolvedAt <= STREAM_URL_TTL_MS) {
+      return cached.url
+    }
+    synchronized(stateLock) { streamUrls.remove(chapterUri) }
+    return null
+  }
+
+  private fun beginResolving(bookUri: String) {
+    val resolving = synchronized(stateLock) {
+      resolvingCounts[bookUri] = (resolvingCounts[bookUri] ?: 0) + 1
+      resolvingCounts.keys.toSet()
+    }
+    _resolvingBooks.value = resolving
+  }
+
+  private fun endResolving(bookUri: String) {
+    val resolving = synchronized(stateLock) {
+      val remaining = (resolvingCounts[bookUri] ?: 1) - 1
+      if (remaining <= 0) {
+        resolvingCounts.remove(bookUri)
+      } else {
+        resolvingCounts[bookUri] = remaining
+      }
+      resolvingCounts.keys.toSet()
+    }
+    _resolvingBooks.value = resolving
   }
 
   private suspend fun resolveStreamUrlInternal(ref: OnlineChapterRef): String? {
@@ -512,6 +584,11 @@ public class OnlinePlaybackCatalog(
     val positionMs: Long,
   )
 
+  private data class CachedStreamUrl(
+    val url: String,
+    val resolvedAt: Long,
+  )
+
   public companion object {
 
     /** When playing episode k, the server keeps downloading up to k + 3. */
@@ -522,6 +599,12 @@ public class OnlinePlaybackCatalog(
     private const val ALBUMS_CACHE_MS = 10_000L
     private const val ERROR_DEDUPE_MS = 30_000L
     private const val PLACEHOLDER_CHAPTER_DURATION_MS = 30 * 60_000L
+
+    /** How long a resolved url is reused before the source is asked again. */
+    private const val STREAM_URL_TTL_MS = 5 * 60_000L
+
+    /** Resolved urls kept for seeks; the lru drops the oldest beyond this. */
+    private const val MAX_CACHED_STREAM_URLS = 16
 
     /** Session stash is user-tap driven; the cap only guards runaway growth. */
     private const val STASH_CAP = 64

@@ -149,7 +149,10 @@ class PositionUpdater(
       bookId = bookId,
       chapterId = chapterId,
       positionMs = positionInChapter,
-      durationMs = player.duration.takeIf { it > 0 } ?: 0L,
+      durationMs = measuredStreamDurationMs(
+        reportedDurationMs = player.duration,
+        declaredDurationMs = mediaItem.mediaMetadata.durationMs,
+      ),
     )
     bookRepo.updatePlaybackPosition(
       id = bookId,

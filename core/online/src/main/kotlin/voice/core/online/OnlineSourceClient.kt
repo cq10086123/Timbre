@@ -11,6 +11,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.net.URLEncoder
+import java.util.concurrent.TimeUnit
 
 /** Thrown when the download site answers with an error or unexpected payload. */
 public class OnlineSourceException(
@@ -55,6 +56,17 @@ public class OnlineSourceClient internal constructor(
   private val okHttpClient: OkHttpClient,
   private val json: Json,
 ) {
+
+  /**
+   * Copy of the client with a bounded call timeout, used for lookups that run
+   * while the player waits for audio. `newBuilder` keeps the connection pool
+   * and the threads of the original client.
+   */
+  private val boundedClient: OkHttpClient by lazy {
+    okHttpClient.newBuilder()
+      .callTimeout(AUDIO_URL_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+      .build()
+  }
 
   /**
    * Card key login: fetches a captcha (the SVG carries its expected characters
@@ -234,6 +246,10 @@ public class OnlineSourceClient internal constructor(
   /**
    * Resolves a direct streaming url for one chapter of a pluggable-source
    * book. Returns null when the source cannot resolve the chapter.
+   *
+   * The lookup runs while the player waits for audio, so it is bounded: a
+   * source that does not answer fails the start of the chapter instead of
+   * holding the player until the client wide call timeout.
    */
   public suspend fun sourceAudio(
     baseUrl: String,
@@ -251,6 +267,7 @@ public class OnlineSourceClient internal constructor(
       body,
       IntfAudioResponse.serializer(),
       token,
+      client = boundedClient,
     )
     return if (response.success && response.url.isNotBlank()) response.url else null
   }
@@ -315,11 +332,13 @@ public class OnlineSourceClient internal constructor(
     body: String,
     serializer: KSerializer<T>,
     token: String?,
+    client: OkHttpClient = okHttpClient,
   ): T = execute(
     request(url, token)
       .post(body.toRequestBody(JSON_MEDIA_TYPE))
       .build(),
     serializer,
+    client,
   )
 
   private fun request(
@@ -334,8 +353,9 @@ public class OnlineSourceClient internal constructor(
   private suspend fun <T> execute(
     request: Request,
     serializer: KSerializer<T>,
+    client: OkHttpClient = okHttpClient,
   ): T = withContext(Dispatchers.IO) {
-    okHttpClient.newCall(request).execute().use { response ->
+    client.newCall(request).execute().use { response ->
       val bodyString = response.body.string().orEmpty()
       if (response.code == 401) {
         throw OnlineSourceException("Unauthorized (token expired)", requiresRelogin = true)
@@ -369,6 +389,13 @@ public class OnlineSourceClient internal constructor(
     /** The main (account backed) catalog, addressed through /api/search. */
     public const val SOURCE_MAIN: String = "main"
     private const val CLIENT: String = "timbre"
+
+    /**
+     * How long a source may take to hand out a playable url. Long enough for a
+     * slow interface, short enough that a dead one fails the chapter instead of
+     * keeping the player in buffering.
+     */
+    private const val AUDIO_URL_TIMEOUT_MS = 20_000L
     private val JSON_MEDIA_TYPE = "application/json".toMediaType()
 
     /**
