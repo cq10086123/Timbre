@@ -31,6 +31,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import voice.core.data.BookId
+import voice.core.online.OnlineSourceClient
+import voice.core.online.OnlineUri
 import voice.core.scanner.BookScanError
 import voice.core.scanner.BookScanProgress
 import voice.core.strings.R as StringsR
@@ -54,32 +56,83 @@ internal fun BookCard(
   ) {
     Box {
       content()
-      if (bookId.toUri().scheme.equals("http", ignoreCase = true) ||
-        bookId.toUri().scheme.equals("https", ignoreCase = true)
-      ) {
-        val remoteLabel = stringResource(StringsR.string.webdav_title)
-        Surface(
-          modifier = Modifier
-            .align(Alignment.TopEnd)
-            .padding(8.dp)
-            .size(28.dp)
-            .semantics {
-              contentDescription = remoteLabel
-            },
-          shape = CircleShape,
-          color = MaterialTheme.colorScheme.primaryContainer,
-          contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-        ) {
-          Text(
-            text = "☁",
-            modifier = Modifier.fillMaxSize().padding(top = 1.dp),
-            textAlign = TextAlign.Center,
-            fontSize = 17.sp,
-            fontWeight = FontWeight.Bold,
-          )
-        }
+      // scheme is null for scheme-less ids (e.g. the preview uuids), which is
+      // why this goes through the null safe String?.equals
+      val scheme: String? = bookId.toUri().scheme
+      val onlineBookRef = OnlineUri.parseBookUri(bookId.value)
+      when {
+        onlineBookRef != null -> OnlineSourceBadge(
+          source = onlineBookRef.source,
+          modifier = Modifier.align(Alignment.TopEnd),
+        )
+        scheme.equals("http", ignoreCase = true) ||
+          scheme.equals("https", ignoreCase = true) -> WebDavBadge(
+          modifier = Modifier.align(Alignment.TopEnd),
+        )
       }
     }
+  }
+}
+
+/**
+ * The badge that marks a book of the online source with the source it
+ * streams from - the main catalog or one of the interfaces (A, B, ...) - so
+ * an online book is told apart from a local or a WebDAV one at a glance,
+ * like the WebDAV cloud does it.
+ */
+@Composable
+private fun OnlineSourceBadge(
+  source: String,
+  modifier: Modifier = Modifier,
+) {
+  val label = if (source == OnlineSourceClient.SOURCE_MAIN) {
+    stringResource(StringsR.string.search_online_source_main)
+  } else {
+    source
+  }
+  val badgeDescription = stringResource(StringsR.string.library_online_source_badge, label)
+  Surface(
+    modifier = modifier
+      .padding(8.dp)
+      .semantics {
+        contentDescription = badgeDescription
+      },
+    shape = CircleShape,
+    color = MaterialTheme.colorScheme.tertiaryContainer,
+    contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+  ) {
+    Text(
+      text = label,
+      modifier = Modifier.padding(start = 10.dp, top = 5.dp, end = 10.dp, bottom = 5.dp),
+      style = MaterialTheme.typography.labelMedium,
+      fontWeight = FontWeight.Bold,
+      maxLines = 1,
+    )
+  }
+}
+
+/** The cloud that marks a book streamed from a WebDAV server. */
+@Composable
+private fun WebDavBadge(modifier: Modifier = Modifier) {
+  val remoteLabel = stringResource(StringsR.string.webdav_title)
+  Surface(
+    modifier = modifier
+      .padding(8.dp)
+      .size(28.dp)
+      .semantics {
+        contentDescription = remoteLabel
+      },
+    shape = CircleShape,
+    color = MaterialTheme.colorScheme.primaryContainer,
+    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+  ) {
+    Text(
+      text = "☁",
+      modifier = Modifier.fillMaxSize().padding(top = 1.dp),
+      textAlign = TextAlign.Center,
+      fontSize = 17.sp,
+      fontWeight = FontWeight.Bold,
+    )
   }
 }
 

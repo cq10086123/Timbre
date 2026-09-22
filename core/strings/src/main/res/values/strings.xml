@@ -114,6 +114,8 @@
     </plurals>
     <!-- Shown on the card of a book that was discovered by the scan but whose chapter count isn't known yet. -->
     <string name="library.import.preparing">Importing… reading files</string>
+    <!-- Content description of the badge that marks a book streamed from the online source. The argument is the source name, e.g. Main or A. -->
+    <string name="library.online.source.badge">Online book from source: %1$s</string>
     <!-- Hint text for searching books in the library. -->
     <string name="library.search.hint">What are you looking for?</string>
     <!-- Button label for granting the storage permission workaround. -->
