@@ -159,12 +159,14 @@ class OnlinePlaybackCatalogTest {
 
     assertEquals(STREAM_URL, catalog.resolveStreamUrl(ref))
     assertEquals(STREAM_URL, catalog.resolveStreamUrl(ref))
-    coVerify(exactly = 1) { service.resolveDirectUrl(THIRD_PARTY_SOURCE, BOOK_ID, "c1") }
+    coVerify(exactly = 1) { val _ = service.resolveDirectUrl(THIRD_PARTY_SOURCE, BOOK_ID, "c1") }
 
     // a signed link the server rejects is dropped, so the next resolve is fresh
     assertTrue(catalog.invalidateStreamUrl(ref))
     assertEquals(STREAM_URL, catalog.resolveStreamUrl(ref))
-    coVerify(exactly = 2) { service.resolveDirectUrl(THIRD_PARTY_SOURCE, BOOK_ID, "c1") }
+    coVerify(exactly = 2) {
+      val _ = service.resolveDirectUrl(THIRD_PARTY_SOURCE, BOOK_ID, "c1")
+    }
     assertFalse(catalog.invalidateStreamUrl(OnlineChapterRef(THIRD_PARTY_SOURCE, BOOK_ID, "unknown")))
   }
 
@@ -178,7 +180,7 @@ class OnlinePlaybackCatalogTest {
     }
 
     assertTrue(catalog.resolvingBooks.value.isEmpty())
-    catalog.resolveStreamUrl(ref)
+    assertEquals(STREAM_URL, catalog.resolveStreamUrl(ref))
 
     assertEquals(
       expected = setOf(OnlineUri.buildBookUri(THIRD_PARTY_SOURCE, BOOK_ID)),
