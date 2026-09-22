@@ -10,6 +10,7 @@ import androidx.media3.datasource.HttpDataSource
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
+import voice.core.logging.api.Logger
 import java.io.IOException
 
 /**
@@ -89,7 +90,7 @@ public class OnlineStreamingDataSource internal constructor(
   ): Response {
     val resolvedUrl = urlResolver(ref)
       ?: throw invalidResponse(404, dataSpec.uri.toString(), emptyMap(), dataSpec)
-    val response = okHttpClient.newCall(request(dataSpec, resolvedUrl)).execute()
+    val response = execute(dataSpec, resolvedUrl)
     if (response.isSuccessful) return response
     val code = response.code
     val headers = response.headers.toMultimap()
@@ -99,7 +100,7 @@ public class OnlineStreamingDataSource internal constructor(
     if (refreshedUrl == null || refreshedUrl == resolvedUrl) {
       throw invalidResponse(code, resolvedUrl, headers, dataSpec)
     }
-    val retryResponse = okHttpClient.newCall(request(dataSpec, refreshedUrl)).execute()
+    val retryResponse = execute(dataSpec, refreshedUrl)
     if (retryResponse.isSuccessful) return retryResponse
     val retryCode = retryResponse.code
     val retryHeaders = retryResponse.headers.toMultimap()
@@ -107,10 +108,38 @@ public class OnlineStreamingDataSource internal constructor(
     throw invalidResponse(retryCode, refreshedUrl, retryHeaders, dataSpec)
   }
 
+  /**
+   * Runs one request, healing hosts whose TLS certificate is unusable: the
+   * https handshake of such a host always fails, so the same address is retried
+   * over plain http (cleartext is allowed) and remembered for the session. The
+   * host list is learned at runtime, new broken hosts need no code change.
+   */
+  private fun execute(
+    dataSpec: DataSpec,
+    url: String,
+  ): Response {
+    return try {
+      okHttpClient.newCall(request(dataSpec, url)).execute()
+    } catch (e: IOException) {
+      val httpUrl = OnlineStreamUrlPolicy.downgradeToHttp(url)
+      if (httpUrl == null || !isCertificateProblem(e)) throw e
+      Logger.w("TLS handshake failed for source host, retrying over http: ${e.message}")
+      OnlineStreamUrlPolicy.rememberCertBroken(url)
+      okHttpClient.newCall(request(dataSpec, httpUrl)).execute()
+    }
+  }
+
+  private fun isCertificateProblem(e: Throwable): Boolean = generateSequence(e) { it.cause }
+    .take(8)
+    .any { it is javax.net.ssl.SSLException || it is java.security.cert.CertificateException }
+
   private fun request(
     dataSpec: DataSpec,
-    requestUrl: String,
+    url: String,
   ): Request {
+    // sources occasionally hand out links on hosts with broken certificates;
+    // those are served over http as well, so downgrade instead of failing
+    val requestUrl = OnlineStreamUrlPolicy.applyCertFallback(url)
     val requestBuilder = Request.Builder().url(requestUrl)
     // the site's file streaming endpoint requires the bearer token; third
     // party cdn links must not receive it
