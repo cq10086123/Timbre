@@ -94,6 +94,10 @@ class SleepTimerImpl internal constructor(
     playerController.setVolume(1f)
     state.value = SleepTimerState.Disabled
 
+    // Intentionally stacks with the auto rewind: pausing through the sleep
+    // timer moves the position back by the fade out duration, plus the auto
+    // rewind that VoicePlayer applies on every pause (setPlayWhenReady(false)).
+    // The extra seconds were accepted as the expected behavior.
     playerController.pauseWithRewind(fadeOutDuration)
 
     val shakeDetected = detectShakeWithTimeout()

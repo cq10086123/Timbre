@@ -6,11 +6,15 @@ import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import voice.core.data.Book
 import voice.core.data.BookContent
@@ -66,6 +70,22 @@ public class OnlinePlaybackCatalog(
 
   /** Last known playback position per book key, so re-assembly resumes. */
   private val positions = mutableMapOf<String, OnlinePosition>()
+
+  /**
+   * The position that was last written to the shelf store, keyed by book key.
+   * [positions] is the fresher in-memory copy; this one survives process death.
+   */
+  private val persistedPositions = HashMap<String, OnlinePosition>()
+
+  /** When the position of a book was persisted last, so writes can be throttled. */
+  private val lastPositionPersistAt = HashMap<String, Long>()
+
+  /**
+   * Owns the throttled position persistence. Positions arrive several times
+   * per second on the caller's thread (often main); the store write happens
+   * here instead of a blocking bridge.
+   */
+  private val persistenceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
   /**
    * Books whose chapters were fetched in the search dialog and whose playback
@@ -155,12 +175,58 @@ public class OnlinePlaybackCatalog(
   ) {
     val bookRef = OnlineUri.parseBookUri(bookId.value) ?: return
     val chapterRef = OnlineUri.parse(chapterId.value) ?: return
-    synchronized(stateLock) {
+    val position = OnlinePosition(chapterRef.chapterId, positionMs)
+    val shouldPersist = synchronized(stateLock) {
       pendingStarts.remove(bookRef.key)
-      positions[bookRef.key] = OnlinePosition(chapterRef.chapterId, positionMs)
+      positions[bookRef.key] = position
+      val persisted = persistedPositions[bookRef.key]
+      if (persisted == position) {
+        false
+      } else {
+        val due = SystemClock.elapsedRealtime() - (lastPositionPersistAt[bookRef.key] ?: 0L) >= POSITION_PERSIST_INTERVAL_MS
+        // a chapter change is persisted immediately, a position change at most
+        // once per interval: a killed process then loses a few seconds at most
+        due || persisted?.chapterId != position.chapterId
+      }
+    }
+    if (shouldPersist) {
+      persistPosition(bookRef, position)
     }
     if (durationMs > 0L) {
       recordMeasuredDuration(bookRef.source, bookRef.bookId, chapterRef.chapterId, durationMs)
+    }
+  }
+
+  /**
+   * Writes [position] into the shelf entry of [bookRef] off the caller thread.
+   * Books that only live in the search stash have no shelf entry: the update
+   * is a no-op for them (and DataStore skips the disk write when nothing
+   * changed).
+   */
+  private fun persistPosition(
+    bookRef: OnlineBookRef,
+    position: OnlinePosition,
+  ) {
+    persistenceScope.launch {
+      try {
+        booksStore.updateData { books ->
+          books.map { book ->
+            if (book.key == bookRef.key) {
+              book.copy(currentChapterId = position.chapterId, positionMs = position.positionMs)
+            } else {
+              book
+            }
+          }
+        }
+        synchronized(stateLock) {
+          persistedPositions[bookRef.key] = position
+          lastPositionPersistAt[bookRef.key] = SystemClock.elapsedRealtime()
+        }
+      } catch (e: CancellationException) {
+        throw e
+      } catch (e: Exception) {
+        Logger.w("Failed to persist the online playback position of ${bookRef.key}: $e")
+      }
     }
   }
 
@@ -235,10 +301,16 @@ public class OnlinePlaybackCatalog(
       val pendingIndex = pendingStarts[bookRef.key]
         ?.let { pending -> chapters.indexOfFirst { it.id == pending } }
       val saved = positions[bookRef.key]
+      // the position persisted on the shelf entry survives process death; the
+      // session maps win because they are fresher
+      val persisted = onlineBook.currentChapterId.takeIf { it.isNotBlank() && onlineBook.positionMs >= 0L }
       when {
         pendingIndex != null && pendingIndex >= 0 -> pendingIndex to 0L
         saved != null && chapters.any { it.id == saved.chapterId } -> {
           chapters.indexOfFirst { it.id == saved.chapterId } to saved.positionMs
+        }
+        persisted != null && chapters.any { it.id == persisted } -> {
+          chapters.indexOfFirst { it.id == persisted } to onlineBook.positionMs
         }
         else -> 0 to 0L
       }
@@ -293,6 +365,11 @@ public class OnlinePlaybackCatalog(
       listOf(OnlineChapter(id = onlineBook.bookId, title = onlineBook.title, durationSeconds = 0, order = 1))
     }
     val chapterIds = chapters.map { ChapterId(OnlineUri.build(bookRef.source, bookRef.bookId, it.id)) }
+    // the persisted position feeds the shelf card progress; without it a
+    // resumed book would always show "not started" until it was played again
+    val persistedIndex = onlineBook.currentChapterId.takeIf { it.isNotBlank() }
+      ?.let { id -> chapters.indexOfFirst { it.id == id } }
+      ?.takeIf { it >= 0 }
     val content = BookContent(
       id = bookId,
       playbackSpeed = 1f,
@@ -303,8 +380,8 @@ public class OnlinePlaybackCatalog(
       name = onlineBook.title,
       addedAt = Instant.ofEpochMilli(onlineBook.addedAt),
       chapters = chapterIds,
-      currentChapter = chapterIds.first(),
-      positionInChapter = 0L,
+      currentChapter = chapterIds[persistedIndex ?: 0],
+      positionInChapter = persistedIndex?.let { onlineBook.positionMs }?.coerceAtLeast(0L) ?: 0L,
       cover = null,
       gain = 0f,
       genre = null,
@@ -594,6 +671,8 @@ public class OnlinePlaybackCatalog(
     /** When playing episode k, the server keeps downloading up to k + 3. */
     internal const val DOWNLOAD_AHEAD: Int = 3
 
+    /** When the position of a book was persisted last, so writes can be throttled. */
+    private const val POSITION_PERSIST_INTERVAL_MS = 3_000L
     private const val RESOLVE_TIMEOUT_MS = 90_000L
     private const val POLL_INTERVAL_MS = 1_500L
     private const val ALBUMS_CACHE_MS = 10_000L

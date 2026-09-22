@@ -19,6 +19,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -61,19 +62,30 @@ public class PrefetchScheduler(
     if (started) return
     started = true
     scope.launch {
-      currentBookStore.data.collectLatest { bookId ->
-        if (bookId == null) {
-          playbackCache.markActiveBook(null)
-          return@collectLatest
-        }
-        // mark the active book even when it is a local one, so prefetched data
-        // of webdav books left halfway is recognized as inactive
-        playbackCache.markActiveBook(bookId.toUri().toString())
-        val book = bookRepository.get(bookId) ?: return@collectLatest
-        if (book.chapters.isEmpty()) return@collectLatest
-        if (!isWebDavUrl(book.id.toUri().toString())) return@collectLatest
-        prefetchBook(book)
+      // the settings are part of the collection: disabling the cache or the
+      // prefetch ends the loop, and re-enabling it must restart the loop.
+      // Collecting only the current book kept the loop dead after a
+      // disable/enable round trip until the user switched books.
+      combine(currentBookStore.data, playbackCache.settings().data) { bookId, settings ->
+        bookId to settings
       }
+        .collectLatest { (bookId, settings) ->
+          if (bookId == null) {
+            playbackCache.markActiveBook(null)
+            return@collectLatest
+          }
+          if (settings.maxBytes <= 0L || settings.prefetchMode == WebDavCacheSettings.PrefetchMode.Disabled) {
+            playbackCache.markActiveBook(bookId.toUri().toString())
+            return@collectLatest
+          }
+          // mark the active book even when it is a local one, so prefetched data
+          // of webdav books left halfway is recognized as inactive
+          playbackCache.markActiveBook(bookId.toUri().toString())
+          val book = bookRepository.get(bookId) ?: return@collectLatest
+          if (book.chapters.isEmpty()) return@collectLatest
+          if (!isWebDavUrl(book.id.toUri().toString())) return@collectLatest
+          prefetchBook(book)
+        }
     }
   }
 

@@ -38,8 +38,10 @@ public class Migration32to34 : Migration(32, 34) {
 
   @SuppressLint("Recycle")
   override fun migrate(db: SupportSQLiteDatabase) {
-    // retrieve old bookmarks
-    val cursor = db.query("SELECT * FROM BOOKMARK_TABLE_NAME")
+    // retrieve old bookmarks. The table name must be interpolated: a literal
+    // "BOOKMARK_TABLE_NAME" would query a table that does not exist and fail
+    // the upgrade for every user still on db version 32/33.
+    val cursor = db.query("SELECT * FROM $BOOKMARK_TABLE_NAME")
     val entries = cursor.mapRows {
       val path = getString(BM_PATH)
       val title = getString(BM_TITLE)

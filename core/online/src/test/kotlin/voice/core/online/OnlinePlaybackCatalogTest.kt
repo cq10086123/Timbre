@@ -4,10 +4,14 @@ import androidx.datastore.core.DataStore
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.mockk
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
 import voice.core.data.BookId
+import voice.core.data.ChapterId
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -197,6 +201,97 @@ class OnlinePlaybackCatalogTest {
     assertTrue(catalog.resolvingBooks.value.isEmpty())
   }
 
+  @Test
+  fun `a persisted shelf position resumes the book`() = runTest {
+    coEvery { service.shelfBook("main::$BOOK_ID") } returns
+      shelfBook().copy(currentChapterId = "c2", positionMs = 42_000L)
+    val catalog = OnlinePlaybackCatalog(service, FakeBooksStore())
+
+    val book = assertNotNull(catalog.book(bookId()))
+    assertEquals(OnlineUri.build(SOURCE, BOOK_ID, "c2"), book.content.currentChapter.value)
+    assertEquals(42_000L, book.content.positionInChapter)
+  }
+
+  @Test
+  fun `a session position wins over the persisted one`() = runTest {
+    coEvery { service.shelfBook("main::$BOOK_ID") } returns
+      shelfBook().copy(currentChapterId = "c2", positionMs = 42_000L)
+    val catalog = OnlinePlaybackCatalog(service, FakeBooksStore())
+
+    catalog.updatePosition(
+      bookId = bookId(),
+      chapterId = ChapterId(OnlineUri.build(SOURCE, BOOK_ID, "c3")),
+      positionMs = 5_000L,
+    )
+
+    val book = assertNotNull(catalog.book(bookId()))
+    assertEquals(OnlineUri.build(SOURCE, BOOK_ID, "c3"), book.content.currentChapter.value)
+    assertEquals(5_000L, book.content.positionInChapter)
+  }
+
+  @Test
+  fun `updatePosition persists to the shelf entry`() = runTest {
+    val store = FakeBooksStore(listOf(shelfBook()))
+    val catalog = OnlinePlaybackCatalog(service, store)
+
+    catalog.updatePosition(
+      bookId = bookId(),
+      chapterId = ChapterId(OnlineUri.build(SOURCE, BOOK_ID, "c2")),
+      positionMs = 42_000L,
+    )
+
+    // the write happens on the io dispatcher outside the test scheduler
+    val deadline = System.currentTimeMillis() + 5_000
+    while (store.data.first().firstOrNull()?.currentChapterId != "c2") {
+      check(System.currentTimeMillis() < deadline) { "the position was never persisted" }
+      Thread.sleep(10)
+    }
+    val stored = store.data.first().single()
+    assertEquals("c2", stored.currentChapterId)
+    assertEquals(42_000L, stored.positionMs)
+  }
+
+  @Test
+  fun `a chapter change persists immediately without waiting for the interval`() = runTest {
+    val store = FakeBooksStore(listOf(shelfBook()))
+    val catalog = OnlinePlaybackCatalog(service, store)
+
+    catalog.updatePosition(
+      bookId = bookId(),
+      chapterId = ChapterId(OnlineUri.build(SOURCE, BOOK_ID, "c2")),
+      positionMs = 1_000L,
+    )
+    awaitStoreChapter(store, "c2")
+
+    catalog.updatePosition(
+      bookId = bookId(),
+      chapterId = ChapterId(OnlineUri.build(SOURCE, BOOK_ID, "c3")),
+      positionMs = 2_000L,
+    )
+    awaitStoreChapter(store, "c3")
+  }
+
+  @Test
+  fun `localBook shows the persisted progress`() {
+    val book = catalog.localBook(
+      shelfBook().copy(currentChapterId = "c2", positionMs = 42_000L),
+    )
+    assertEquals(OnlineUri.build(SOURCE, BOOK_ID, "c2"), book.content.currentChapter.value)
+    assertEquals(42_000L, book.content.positionInChapter)
+  }
+
+  /** Waits for the io dispatcher to have persisted [chapterId]. */
+  private suspend fun awaitStoreChapter(
+    store: FakeBooksStore,
+    chapterId: String,
+  ) = withContext(Dispatchers.IO) {
+    val deadline = System.currentTimeMillis() + 5_000
+    while (store.data.first().firstOrNull()?.currentChapterId != chapterId) {
+      check(System.currentTimeMillis() < deadline) { "the position was never persisted to $chapterId" }
+      Thread.sleep(10)
+    }
+  }
+
   private companion object {
     const val SOURCE = "main"
     const val BOOK_ID = "42"
@@ -206,8 +301,8 @@ class OnlinePlaybackCatalogTest {
 }
 
 /** In-memory books store; updateData runs the transform synchronously. */
-private class FakeBooksStore : DataStore<List<OnlineBook>> {
-  private val state = MutableStateFlow(emptyList<OnlineBook>())
+private class FakeBooksStore(initial: List<OnlineBook> = emptyList()) : DataStore<List<OnlineBook>> {
+  private val state = MutableStateFlow(initial)
 
   override val data: Flow<List<OnlineBook>> = state
 
