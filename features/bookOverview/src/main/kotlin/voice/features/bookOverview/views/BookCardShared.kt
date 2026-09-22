@@ -67,8 +67,8 @@ internal fun BookCard(
         )
         scheme.equals("http", ignoreCase = true) ||
           scheme.equals("https", ignoreCase = true) -> WebDavBadge(
-            modifier = Modifier.align(Alignment.TopEnd),
-          )
+          modifier = Modifier.align(Alignment.TopEnd),
+        )
       }
     }
   }
@@ -113,9 +113,7 @@ private fun OnlineSourceBadge(
 
 /** The cloud that marks a book streamed from a WebDAV server. */
 @Composable
-private fun WebDavBadge(
-  modifier: Modifier = Modifier,
-) {
+private fun WebDavBadge(modifier: Modifier = Modifier) {
   val remoteLabel = stringResource(StringsR.string.webdav_title)
   Surface(
     modifier = modifier
