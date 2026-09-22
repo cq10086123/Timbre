@@ -414,7 +414,7 @@ class BookPlayViewModelTest {
       while (state == null) {
         state = awaitItem()
       }
-      assertEquals(expected = true, actual = state?.loading)
+      assertEquals(expected = true, actual = state.loading)
     }
   }
 
@@ -433,7 +433,7 @@ class BookPlayViewModelTest {
       while (state == null) {
         state = awaitItem()
       }
-      assertEquals(expected = false, actual = state?.loading)
+      assertEquals(expected = false, actual = state.loading)
     }
   }
 
@@ -453,7 +453,7 @@ class BookPlayViewModelTest {
       while (state == null) {
         state = awaitItem()
       }
-      assertEquals(expected = false, actual = state?.loading)
+      assertEquals(expected = false, actual = state.loading)
     }
   }
 
