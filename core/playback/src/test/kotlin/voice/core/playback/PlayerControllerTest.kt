@@ -97,4 +97,18 @@ class PlayerControllerTest {
       ),
     )
   }
+
+  @Test
+  fun `playlist of the book counts as loaded even beyond the item`() {
+    // a partially imported book keeps appending items: the seek belongs to it
+    assertTrue(playlistOfBookLoaded(currentMediaId = chapterMarkOf(bookId), bookId = bookId))
+  }
+
+  @Test
+  fun `placeholder and other books do not count as loaded`() {
+    assertFalse(playlistOfBookLoaded(currentMediaId = mediaIdOf(MediaId.Book(bookId)), bookId = bookId))
+    assertFalse(playlistOfBookLoaded(currentMediaId = chapterMarkOf(otherBookId), bookId = bookId))
+    assertFalse(playlistOfBookLoaded(currentMediaId = null, bookId = bookId))
+    assertFalse(playlistOfBookLoaded(currentMediaId = "not a media id", bookId = bookId))
+  }
 }

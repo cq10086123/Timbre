@@ -95,8 +95,9 @@ class PlayerController(
       chapterId = chapterId,
       positionInChapterMs = positionInChapterMs,
     ) ?: return@executeAfterPrepare
-    awaitAssembledPlaylist(controller, book.id, position.index)
-    controller.seekTo(position.index, position.positionInMediaItemMs)
+    if (awaitAssembledPlaylist(controller, book.id, position.index)) {
+      controller.seekTo(position.index, position.positionInMediaItemMs)
+    }
   }
 
   /**
@@ -108,14 +109,18 @@ class PlayerController(
    * chapter picked in the player screen kept starting at the book's saved
    * chapter, and only the second pick, with the playlist in place, jumped.
    * Waiting here until the target item exists makes the first pick work too.
+   *
+   * Returns false when no playlist of the book materialized in time, in which
+   * case the seek must not run: by this book's item index it would land
+   * inside the playlist of whatever other book is loaded and move that one.
    */
   private suspend fun awaitAssembledPlaylist(
     controller: MediaController,
     bookId: BookId,
     itemIndex: Int,
-  ) {
+  ): Boolean {
     if (playlistAssembled(controller.currentMediaItem?.mediaId, controller.mediaItemCount, bookId, itemIndex)) {
-      return
+      return true
     }
     val assembled = withTimeoutOrNull(PLAYLIST_ASSEMBLY_TIMEOUT_MS) {
       callbackFlow {
@@ -138,12 +143,13 @@ class PlayerController(
         awaitClose { controller.removeListener(listener) }
       }.first()
     } != null
-    if (!assembled) {
-      // the book could not be assembled (deleted, or the source failed): the
-      // seek below is the same lost cause it always was, but the wait is
-      // worth logging because everything else points at a working player
-      Logger.i("Playlist of $bookId was not assembled in time, seeking to item $itemIndex anyway")
-    }
+    if (assembled) return true
+    Logger.i("Playlist of $bookId was not assembled in time, item $itemIndex stays where it is")
+    // the book is still worth seeking into when a playlist of it exists that
+    // has not grown to the item yet (a partially imported book keeps
+    // appending chapters): the seek is dropped by the controller then, but
+    // never applied to another book
+    return playlistOfBookLoaded(controller.currentMediaItem?.mediaId, bookId)
   }
 
   fun pauseIfCurrentBookDifferentFrom(id: BookId) {
@@ -370,11 +376,20 @@ internal fun playlistAssembled(
   itemIndex: Int,
 ): Boolean {
   if (mediaItemCount <= itemIndex) return false
+  return playlistOfBookLoaded(currentMediaId, bookId)
+}
+
+/**
+ * True when the controller plays some playlist of [bookId], no matter which
+ * item: a chapter pick of a partially imported book can target an index its
+ * playlist has not grown to yet, and that seek still belongs to this book.
+ */
+internal fun playlistOfBookLoaded(
+  currentMediaId: String?,
+  bookId: BookId,
+): Boolean {
   val mediaId = currentMediaId?.toMediaIdOrNull() ?: return false
-  return when (mediaId) {
-    is MediaId.Chapter, is MediaId.ChapterMark -> mediaId.bookId == bookId
-    is MediaId.Book, MediaId.Recent, MediaId.Root -> false
-  }
+  return mediaId !is MediaId.Book && mediaId.bookId == bookId
 }
 
 /**
