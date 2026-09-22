@@ -11,6 +11,7 @@ import androidx.test.core.app.ApplicationProvider.getApplicationContext
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import io.mockk.every
 import io.mockk.mockk
+import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
@@ -91,6 +92,9 @@ class SkipIntroOutroTest {
 
     advanceTimeBy(2_000)
     assertEquals(expected = 5_000L, actual = internalPlayer.currentPosition)
+    // SkipIntroOutro keeps collecting the content repo; cancel it so runTest
+    // does not wait for a job that is alive by design
+    coroutineContext.cancelChildren()
   }
 
   @Test
@@ -109,6 +113,7 @@ class SkipIntroOutroTest {
     awaitReady()
     advanceTimeBy(2_000)
     assertEquals(expected = 5_000L, actual = internalPlayer.currentPosition)
+    coroutineContext.cancelChildren()
   }
 
   @Test
@@ -126,6 +131,7 @@ class SkipIntroOutroTest {
     internalPlayer.seekTo(1_000)
     advanceTimeBy(2_000)
     assertEquals(expected = 1_000L, actual = internalPlayer.currentPosition)
+    coroutineContext.cancelChildren()
   }
 
   private fun contentOf(
@@ -140,7 +146,9 @@ class SkipIntroOutroTest {
     currentChapters += chapters
     val currentBook: Book = book(chapters, bookId)
     val mediaItemProvider = MediaItemProvider(mockk(), mockk(), mockk(), mockk(), mockk(), mockk())
-    internalPlayer.setMediaItem(mediaItemProvider.mediaItem(currentBook))
+    // mediaItem(book) is the book level browse item; playback needs the
+    // chapter level items, whose mediaIds carry the real chapter ids
+    internalPlayer.setMediaItem(mediaItemProvider.playbackItems(currentBook).first())
     runCurrent()
   }
 

@@ -89,7 +89,10 @@ class PrefetchSchedulerTest {
     settingsStore.updateData { WebDavCacheSettings() }
     advanceUntilIdle()
 
-    coVerify(exactly = 1) { val _ = bookRepository.get(bookId) }
+    // one read to resolve the book for the new settings, plus the first round
+    // of the prefetch loop, which re-reads the book to see freshly imported
+    // chapters
+    coVerify(exactly = 2) { val _ = bookRepository.get(bookId) }
   }
 
   private fun webDavBook(): Book {
