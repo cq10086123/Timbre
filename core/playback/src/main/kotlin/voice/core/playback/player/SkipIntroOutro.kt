@@ -1,7 +1,6 @@
 package voice.core.playback.player
 
 import androidx.media3.common.C
-import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
@@ -11,6 +10,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import voice.core.data.BookContent
 import voice.core.data.BookId
 import voice.core.data.repo.BookContentRepo
 import voice.core.playback.di.PlaybackScope
@@ -24,6 +24,16 @@ import kotlin.time.Duration.Companion.milliseconds
  * Both values are stored per book, so the settings of one book never leak into
  * another one. The values are read from the repository instead of being passed
  * in, which keeps them live: changing them in the player applies immediately.
+ *
+ * The intro is skipped once per media item: the item id marks what has been
+ * handled, which survives the cases the previous "pending" flag lost:
+ * - a cold start latched the initial 0 before the content (with the real
+ *   skipIntro) arrived,
+ * - the player had no duration yet when the tick ran, so the pending value was
+ *   consumed without a skip ever happening.
+ * The values are only used once the content of the book that owns the current
+ * item was loaded, so a chapter is never skipped with the previous book's
+ * value.
  */
 @Inject
 @SingleIn(PlaybackScope::class)
@@ -36,32 +46,41 @@ class SkipIntroOutro(
   private var tickJob: Job? = null
   private var skipIntroMs = 0L
   private var skipOutroMs = 0L
-  private var pendingIntroSkip = 0L
+
+  /** The book whose content the values above were loaded from. */
+  private var loadedForBookId: BookId? = null
+
+  /**
+   * The most recent content snapshot. A snapshot that arrives while no media
+   * item is current yet (a cold start assembles the playlist after the content
+   * was loaded) must not be lost: the tick latches from here once the item
+   * shows up, instead of waiting for a re-emission that only playback brings.
+   */
+  private var latestContents: List<BookContent> = emptyList()
+
+  /** The media item whose intro skip has been fully handled (or found unnecessary). */
+  private var introHandledItemId: String? = null
 
   fun attachTo(player: Player) {
     this.player = player
     player.addListener(this)
     scope.launch {
       contentRepo.flow().collectLatest { contents ->
-        val bookId = player.currentBookId() ?: return@collectLatest
-        val content = contents.firstOrNull { it.id == bookId } ?: return@collectLatest
-        skipIntroMs = content.skipIntro.coerceAtLeast(0L)
-        skipOutroMs = content.skipOutro.coerceAtLeast(0L)
+        latestContents = contents
+        latchContentForCurrentItem()
       }
     }
     startTicking()
   }
 
-  /**
-   * Only the chapter that is entered gets its intro skipped. A seek back into
-   * the intro by the user is left alone, so this doesn't fight the auto rewind
-   * after a pause.
-   */
-  override fun onMediaItemTransition(
-    mediaItem: MediaItem?,
-    reason: Int,
-  ) {
-    pendingIntroSkip = skipIntroMs
+  /** Latches the values of the book that owns the current item, if its content is known. */
+  private fun latchContentForCurrentItem() {
+    val player = player ?: return
+    val bookId = player.currentBookId() ?: return
+    val content = latestContents.firstOrNull { it.id == bookId } ?: return
+    skipIntroMs = content.skipIntro.coerceAtLeast(0L)
+    skipOutroMs = content.skipOutro.coerceAtLeast(0L)
+    loadedForBookId = bookId
   }
 
   private fun startTicking() {
@@ -76,14 +95,48 @@ class SkipIntroOutro(
     }
   }
 
+  /**
+   * Only the chapter that is entered gets its intro skipped. A seek back into
+   * the intro by the user is left alone: once an item was handled (skipped or
+   * found unnecessary) it is never touched again, so this doesn't fight the
+   * auto rewind after a pause.
+   */
   private fun skipIntroIfPending(player: Player) {
-    val intro = pendingIntroSkip
-    if (intro <= 0L) return
-    pendingIntroSkip = 0L
-    val duration = player.duration.takeUnless { it == C.TIME_UNSET } ?: return
-    if (duration <= intro) return
-    val position = player.currentPosition.takeUnless { it == C.TIME_UNSET } ?: return
-    if (position >= intro) return
+    val mediaId = player.currentMediaItem?.mediaId ?: return
+    if (mediaId == introHandledItemId) return
+    val bookId = mediaId.toMediaIdOrNull()?.bookId
+    if (bookId == null) {
+      // not an app media id: nothing to skip, don't retry it forever
+      introHandledItemId = mediaId
+      return
+    }
+    if (bookId != loadedForBookId) {
+      // the content of this book may have arrived while no item was current
+      // yet; latch from the latest snapshot now, otherwise wait for it
+      latchContentForCurrentItem()
+      if (bookId != loadedForBookId) return
+    }
+    val intro = skipIntroMs
+    if (intro <= 0L) {
+      introHandledItemId = mediaId
+      return
+    }
+    val duration = player.duration.takeUnless { it == C.TIME_UNSET }
+      // the player has not resolved the chapter yet: retry on a later tick
+      // instead of consuming the attempt without effect
+      ?: return
+    if (duration <= intro) {
+      introHandledItemId = mediaId
+      return
+    }
+    val position = player.currentPosition.takeUnless { it == C.TIME_UNSET }
+      ?: return
+    if (position >= intro) {
+      // entered past the intro (resume or a user seek): nothing to skip
+      introHandledItemId = mediaId
+      return
+    }
+    introHandledItemId = mediaId
     player.seekTo(intro)
   }
 

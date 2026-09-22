@@ -18,6 +18,14 @@ public data class OnlineBook(
   val cover: String = "",
   val chapters: List<OnlineChapter> = emptyList(),
   val addedAt: Long = 0L,
+  /**
+   * The `OnlineChapter.id` that was played last, persisted so a killed process
+   * or a reboot resumes the book where the user left off instead of at the
+   * first chapter. Empty when the book was never played.
+   */
+  val currentChapterId: String = "",
+  /** The position inside [currentChapterId] in milliseconds. */
+  val positionMs: Long = 0L,
 ) {
   /** Stable unique key: source and bookId namespaces are independent per source. */
   public val key: String

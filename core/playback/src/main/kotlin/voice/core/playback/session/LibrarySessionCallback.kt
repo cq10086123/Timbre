@@ -28,6 +28,7 @@ import voice.core.data.BookId
 import voice.core.data.repo.BookContentRepo
 import voice.core.data.store.CurrentBookStore
 import voice.core.logging.api.Logger
+import voice.core.online.OnlinePlaybackCatalog
 import voice.core.playback.player.VoicePlayer
 import voice.core.playback.session.search.BookSearchHandler
 import voice.core.playback.session.search.BookSearchParser
@@ -42,6 +43,7 @@ class LibrarySessionCallback(
   @CurrentBookStore
   private val currentBookStoreId: DataStore<BookId?>,
   private val contentRepo: BookContentRepo,
+  private val onlinePlaybackCatalog: OnlinePlaybackCatalog,
 ) : MediaLibrarySession.Callback {
 
   override fun onAddMediaItems(
@@ -147,7 +149,12 @@ class LibrarySessionCallback(
       // resolve every chapter of a big book just to throw the result away
       val bookId = currentBookStoreId.data.first()
         ?: throw UnsupportedOperationException()
+      // online books have no room row: like VoicePlayer.setBook and
+      // PlayerController.maybePrepare, the catalog synthesizes their content,
+      // otherwise resuming them from the notification after a process death
+      // (or a reboot) fails instead of playing
       val content = contentRepo.get(bookId)
+        ?: onlinePlaybackCatalog.content(bookId)
         ?: throw UnsupportedOperationException()
       mediaItemProvider.mediaItemsWithStartPosition(content)
     }
