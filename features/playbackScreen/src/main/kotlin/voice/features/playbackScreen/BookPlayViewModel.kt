@@ -156,7 +156,7 @@ class BookPlayViewModel(
         attempts++
       }
     }
-    val resolving = remember { onlinePlaybackCatalog.resolving }
+    val resolvingBooks = remember { onlinePlaybackCatalog.resolvingBooks }
       .collectAsState().value
     val livePlaybackState = remember(bookId) {
       player.livePlaybackStateFlow(bookId)
@@ -164,10 +164,21 @@ class BookPlayViewModel(
     val managerPlayState by remember {
       playStateManager.playStateFlow
     }.collectAsState()
+    val buffering by remember {
+      playStateManager.bufferingFlow
+    }.collectAsState()
+
+    val isPlaying = livePlaybackState?.isPlaying ?: (managerPlayState == PlayStateManager.PlayState.Playing)
+    // the ring means "the player is waiting for audio": while this book is
+    // being resolved, or while playback stalls on the stream. A pause is
+    // neither, so it cannot light the ring up.
+    val loading = rememberWaitingForAudio(
+      resolving = bookId.value in resolvingBooks,
+      stalled = isPlaying && buffering,
+    )
 
     val book = baseBook ?: return null
     val overlaid = livePlaybackState?.let { book.overlay(it) } ?: book
-    val isPlaying = livePlaybackState?.isPlaying ?: (managerPlayState == PlayStateManager.PlayState.Playing)
     // the synthesized online book carries no local cover file; the remote
     // cover url from the shelf or search stash is shown instead
     var onlineCover by remember(bookId) { mutableStateOf<String?>(null) }
@@ -175,7 +186,28 @@ class BookPlayViewModel(
       onlineCover = onlinePlaybackCatalog.onlineCover(bookId)
     }
 
-    return bookPlayViewState(book = overlaid, isPlaying = isPlaying, loading = resolving, coverOverride = onlineCover)
+    return bookPlayViewState(book = overlaid, isPlaying = isPlaying, loading = loading, coverOverride = onlineCover)
+  }
+
+  /**
+   * True while [resolving] runs and after playback has been [stalled] for a
+   * moment. Short stalls - a seek, the first bytes of a chapter - stay
+   * invisible, so the ring only reports a stream that really is not keeping up.
+   */
+  @Composable
+  private fun rememberWaitingForAudio(
+    resolving: Boolean,
+    stalled: Boolean,
+  ): Boolean {
+    var waited: Boolean by remember { mutableStateOf(false) }
+    LaunchedEffect(stalled) {
+      waited = false
+      if (stalled) {
+        delay(WAITING_FOR_AUDIO_GRACE_MS)
+        waited = true
+      }
+    }
+    return resolving || waited
   }
 
   @Composable
@@ -495,3 +527,10 @@ private fun SleepTimerState.toViewState(): BookPlayViewState.SleepTimerViewState
   is SleepTimerState.Enabled.WithDuration -> BookPlayViewState.SleepTimerViewState.Enabled.WithDuration(this.leftDuration)
   SleepTimerState.Enabled.WithEndOfChapter -> BookPlayViewState.SleepTimerViewState.Enabled.WithEndOfChapter
 }
+
+/**
+ * How long playback may wait for the stream before the loading ring shows up.
+ * Seeks and chapter starts resolve after a few hundred milliseconds; a source
+ * that hangs keeps the ring on instead of looking like a pause.
+ */
+private const val WAITING_FOR_AUDIO_GRACE_MS = 700L

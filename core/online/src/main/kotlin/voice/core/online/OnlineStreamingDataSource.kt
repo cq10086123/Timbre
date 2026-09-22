@@ -1,6 +1,7 @@
 package voice.core.online
 
 import android.net.Uri
+import android.os.SystemClock
 import androidx.media3.common.C
 import androidx.media3.datasource.BaseDataSource
 import androidx.media3.datasource.DataSource
@@ -8,6 +9,7 @@ import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.HttpDataSource
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.Response
 import java.io.IOException
 
 /**
@@ -20,15 +22,26 @@ public class OnlineStreamingDataSource internal constructor(
   private val baseUrlProvider: () -> String,
   private val tokenProvider: () -> String,
   private val urlResolver: (OnlineChapterRef) -> String?,
+  private val onUrlRejected: (OnlineChapterRef) -> Boolean = { false },
   private val onDurationResolved: (OnlineChapterRef, Long) -> Unit = { _, _ -> },
-) : BaseDataSource(false) {
+) : BaseDataSource(true) {
 
   private companion object {
     /** Enough to cover an id3 tag plus a few audio frames for the probe. */
     const val PROBE_BUFFER_BYTES = 64 * 1024
+
+    /**
+     * The probe waits at most this long for the head of the stream. A source
+     * that trickles or stalls would otherwise delay the start of the chapter
+     * for as long as it takes to fill the probe buffer.
+     */
+    const val PROBE_TIMEOUT_MS = 2_000L
+
+    /** Bytes read per step while the probe waits for more of the stream. */
+    const val PROBE_STEP_BYTES = 8 * 1024
   }
 
-  private var response: okhttp3.Response? = null
+  private var response: Response? = null
   private var inputStream: java.io.InputStream? = null
   private var bytesRemaining: Long = -1L // unset
   private var openedUri: Uri? = null
@@ -37,44 +50,9 @@ public class OnlineStreamingDataSource internal constructor(
     transferInitializing(dataSpec)
     val ref = dataSpec.toOnlineChapterRef()
       ?: throw IOException("Not an online chapter uri: $uri")
-    val requestUrl = urlResolver(ref)
-      ?: throw HttpDataSource.InvalidResponseCodeException(
-        404,
-        dataSpec.uri.toString(),
-        null,
-        emptyMap(),
-        dataSpec,
-        ByteArray(0),
-      )
-    val requestBuilder = Request.Builder().url(requestUrl)
-    // the site's file streaming endpoint requires the bearer token; third
-    // party cdn links must not receive it
-    val base = baseUrlProvider().trim().trimEnd('/')
-    val token = tokenProvider().trim()
-    if (token.isNotEmpty() && requestUrl.startsWith(base)) {
-      requestBuilder.header("Authorization", "Bearer $token")
-    }
-    val rangeStart = dataSpec.position
-    if (rangeStart > 0 || dataSpec.length != C.LENGTH_UNSET.toLong()) {
-      // some cdns answer closed ranges (bytes=start-end) with an empty body,
-      // so always request an open ended range and cap the read length here
-      requestBuilder.header("Range", "bytes=$rangeStart-")
-    }
-    val response = okHttpClient.newCall(requestBuilder.build()).execute()
-    if (!response.isSuccessful && response.code != 206) {
-      val code = response.code
-      response.close()
-      throw HttpDataSource.InvalidResponseCodeException(
-        code,
-        requestUrl,
-        null,
-        response.headers.toMultimap(),
-        dataSpec,
-        ByteArray(0),
-      )
-    }
+    val response = openResponse(dataSpec, ref)
     this.response = response
-    openedUri = Uri.parse(requestUrl)
+    openedUri = Uri.parse(response.request.url.toString())
     val body = response.body
     // buffer the stream so the duration probe can peek at the first frames
     // and reset before regular reads start
@@ -100,6 +78,73 @@ public class OnlineStreamingDataSource internal constructor(
   }
 
   /**
+   * Runs the request for the resolved url. Direct links are signed and expire
+   * while a chapter is being listened to; when the server rejects a url that
+   * was served from the resolver's cache it is dropped and resolved once more,
+   * so an expired link does not turn into a failed chapter.
+   */
+  private fun openResponse(
+    dataSpec: DataSpec,
+    ref: OnlineChapterRef,
+  ): Response {
+    val resolvedUrl = urlResolver(ref)
+      ?: throw invalidResponse(404, dataSpec.uri.toString(), emptyMap(), dataSpec)
+    val response = okHttpClient.newCall(request(dataSpec, resolvedUrl)).execute()
+    if (response.isSuccessful) return response
+    val code = response.code
+    val headers = response.headers.toMultimap()
+    response.close()
+    if (!onUrlRejected(ref)) throw invalidResponse(code, resolvedUrl, headers, dataSpec)
+    val refreshedUrl = urlResolver(ref)
+    if (refreshedUrl == null || refreshedUrl == resolvedUrl) {
+      throw invalidResponse(code, resolvedUrl, headers, dataSpec)
+    }
+    val retryResponse = okHttpClient.newCall(request(dataSpec, refreshedUrl)).execute()
+    if (retryResponse.isSuccessful) return retryResponse
+    val retryCode = retryResponse.code
+    val retryHeaders = retryResponse.headers.toMultimap()
+    retryResponse.close()
+    throw invalidResponse(retryCode, refreshedUrl, retryHeaders, dataSpec)
+  }
+
+  private fun request(
+    dataSpec: DataSpec,
+    requestUrl: String,
+  ): Request {
+    val requestBuilder = Request.Builder().url(requestUrl)
+    // the site's file streaming endpoint requires the bearer token; third
+    // party cdn links must not receive it
+    val base = baseUrlProvider().trim().trimEnd('/')
+    val token = tokenProvider().trim()
+    if (token.isNotEmpty() && requestUrl.startsWith(base)) {
+      requestBuilder.header("Authorization", "Bearer $token")
+    }
+    val rangeStart = dataSpec.position
+    if (rangeStart > 0 || dataSpec.length != C.LENGTH_UNSET.toLong()) {
+      // some cdns answer closed ranges (bytes=start-end) with an empty body,
+      // so always request an open ended range and cap the read length here
+      requestBuilder.header("Range", "bytes=$rangeStart-")
+    }
+    return requestBuilder.build()
+  }
+
+  private fun invalidResponse(
+    code: Int,
+    url: String,
+    headers: Map<String, List<String>>,
+    dataSpec: DataSpec,
+  ): HttpDataSource.InvalidResponseCodeException {
+    return HttpDataSource.InvalidResponseCodeException(
+      code,
+      url,
+      null,
+      headers,
+      dataSpec,
+      ByteArray(0),
+    )
+  }
+
+  /**
    * Peeks at the first frames of a fresh full-chapter stream to measure the
    * real duration; sources that do not report durations would otherwise clip
    * playback to a placeholder. Only runs once per chapter open from position
@@ -116,8 +161,15 @@ public class OnlineStreamingDataSource internal constructor(
       stream.mark(PROBE_BUFFER_BYTES)
       val head = ByteArray(PROBE_BUFFER_BYTES)
       var read = 0
+      val deadline = SystemClock.elapsedRealtime() + PROBE_TIMEOUT_MS
       while (read < head.size) {
-        val n = stream.read(head, read, head.size - read)
+        // bytes the connection already buffered are free, waiting for the rest
+        // of the probe buffer is not: a slow source would hold up the start of
+        // the chapter by the seconds it needs to fill it
+        val available = stream.available()
+        if (available <= 0 && SystemClock.elapsedRealtime() >= deadline) break
+        val step = if (available > 0) available else PROBE_STEP_BYTES
+        val n = stream.read(head, read, minOf(step, head.size - read))
         if (n == -1) break
         read += n
       }
@@ -170,10 +222,18 @@ public class OnlineDataSourceFactory internal constructor(
   private val baseUrlProvider: () -> String,
   private val tokenProvider: () -> String,
   private val urlResolver: (OnlineChapterRef) -> String?,
+  private val onUrlRejected: (OnlineChapterRef) -> Boolean = { false },
   private val onDurationResolved: (OnlineChapterRef, Long) -> Unit = { _, _ -> },
 ) : DataSource.Factory {
 
   override fun createDataSource(): DataSource {
-    return OnlineStreamingDataSource(okHttpClient, baseUrlProvider, tokenProvider, urlResolver, onDurationResolved)
+    return OnlineStreamingDataSource(
+      okHttpClient = okHttpClient,
+      baseUrlProvider = baseUrlProvider,
+      tokenProvider = tokenProvider,
+      urlResolver = urlResolver,
+      onUrlRejected = onUrlRejected,
+      onDurationResolved = onDurationResolved,
+    )
   }
 }

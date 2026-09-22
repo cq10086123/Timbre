@@ -37,6 +37,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import voice.core.common.rootGraphAs
@@ -100,9 +101,16 @@ internal fun OnlineSearchSection(
     loading = true
     failed = false
     delay(SEARCH_DEBOUNCE_MILLIS)
-    results = runCatching { service.search(selectedSource, query) }
-      .onFailure { failed = true }
-      .getOrDefault(emptyList())
+    results = try {
+      service.search(selectedSource, query)
+    } catch (e: CancellationException) {
+      // another query or source replaced this one: a cancelled search is not a
+      // failed search, and its error must not flash up under the new one
+      throw e
+    } catch (e: Exception) {
+      failed = true
+      emptyList()
+    }
     loading = false
   }
 

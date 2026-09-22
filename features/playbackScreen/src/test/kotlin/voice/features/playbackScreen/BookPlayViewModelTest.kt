@@ -29,6 +29,7 @@ import voice.core.data.KioskModeDemoData
 import voice.core.data.MarkData
 import voice.core.data.sleeptimer.SleepTimerPreference
 import voice.core.featureflag.MemoryFeatureFlag
+import voice.core.online.OnlineUri
 import voice.core.playback.CurrentBookResolver
 import voice.core.playback.LivePlaybackState
 import voice.core.playback.PlayerController
@@ -398,6 +399,110 @@ class BookPlayViewModelTest {
     }
   }
 
+  @Test
+  fun `online playback reports loading while its own stream is resolved`() = scope.runTest {
+    val onlineBookId = BookId(OnlineUri.buildBookUri(SOURCE, ONLINE_BOOK_ID))
+    val viewModel = onlineViewModel(
+      onlineBookId = onlineBookId,
+      resolvingBooks = MutableStateFlow(setOf(onlineBookId.value)),
+    )
+
+    backgroundScope.launchMolecule(RecompositionMode.Immediate) {
+      viewModel.viewState()
+    }.test {
+      var state = awaitItem()
+      while (state == null) {
+        state = awaitItem()
+      }
+      assertEquals(expected = true, actual = state.loading)
+    }
+  }
+
+  @Test
+  fun `online playback does not report loading for a resolve of another book`() = scope.runTest {
+    val onlineBookId = BookId(OnlineUri.buildBookUri(SOURCE, ONLINE_BOOK_ID))
+    val viewModel = onlineViewModel(
+      onlineBookId = onlineBookId,
+      resolvingBooks = MutableStateFlow(setOf(OnlineUri.buildBookUri("A", "another"))),
+    )
+
+    backgroundScope.launchMolecule(RecompositionMode.Immediate) {
+      viewModel.viewState()
+    }.test {
+      var state = awaitItem()
+      while (state == null) {
+        state = awaitItem()
+      }
+      assertEquals(expected = false, actual = state.loading)
+    }
+  }
+
+  @Test
+  fun `a paused online book does not report loading while the player buffers`() = scope.runTest {
+    val onlineBookId = BookId(OnlineUri.buildBookUri(SOURCE, ONLINE_BOOK_ID))
+    val viewModel = onlineViewModel(
+      onlineBookId = onlineBookId,
+      buffering = MutableStateFlow(true),
+      playStateFlow = MutableStateFlow(PlayStateManager.PlayState.Paused),
+    )
+
+    backgroundScope.launchMolecule(RecompositionMode.Immediate) {
+      viewModel.viewState()
+    }.test {
+      var state = awaitItem()
+      while (state == null) {
+        state = awaitItem()
+      }
+      assertEquals(expected = false, actual = state.loading)
+    }
+  }
+
+  private fun onlineViewModel(
+    onlineBookId: BookId,
+    resolvingBooks: MutableStateFlow<Set<String>> = MutableStateFlow(emptySet()),
+    buffering: MutableStateFlow<Boolean> = MutableStateFlow(false),
+    playStateFlow: MutableStateFlow<PlayStateManager.PlayState> = MutableStateFlow(PlayStateManager.PlayState.Paused),
+    livePlaybackFlow: MutableStateFlow<LivePlaybackState?> = MutableStateFlow(null),
+  ): BookPlayViewModel {
+    val onlineBook = book().update { it.copy(id = onlineBookId) }
+    return BookPlayViewModel(
+      bookRepository = mockk(),
+      currentBookResolver = mockk(),
+      player = mockk {
+        every { pauseIfCurrentBookDifferentFrom(onlineBookId) } just Runs
+        every { livePlaybackStateFlow(onlineBookId) } returns livePlaybackFlow
+      },
+      sleepTimer = sleepTimer,
+      playStateManager = mockk {
+        every { this@mockk.playStateFlow } returns playStateFlow
+        every { playState } returns playStateFlow.value
+        every { bufferingFlow } returns buffering
+      },
+      onlinePlaybackCatalog = mockk {
+        every { isOnlineBookId(any()) } returns true
+        every { playbackErrors } returns MutableSharedFlow()
+        every { durationsVersion } returns MutableStateFlow(0)
+        every { this@mockk.resolvingBooks } returns resolvingBooks
+        coEvery { book(onlineBookId) } returns onlineBook
+        coEvery { onlineCover(onlineBookId) } returns null
+      },
+      currentBookStoreId = MemoryDataStore(null),
+      navigator = mockk(),
+      bookmarkRepository = mockk(),
+      volumeGainFormatter = mockk(),
+      batteryOptimization = mockk(),
+      sleepTimerPreferenceStore = sleepTimerDataStore,
+      bookId = onlineBookId,
+      dispatcherProvider = DispatcherProvider(
+        viewModelScope.coroutineContext,
+        viewModelScope.coroutineContext,
+        viewModelScope.coroutineContext,
+      ),
+      experimentalPlaybackPersistenceFeatureFlag = MemoryFeatureFlag(false),
+      kioskModeFeatureFlag = MemoryFeatureFlag(false),
+    )
+  }
+
   private fun viewModel(
     book: Book = this.book,
     experimentalPlaybackPersistence: Boolean = false,
@@ -441,6 +546,9 @@ class BookPlayViewModelTest {
     )
   }
 }
+
+private const val SOURCE = "A"
+private const val ONLINE_BOOK_ID = "42"
 
 private fun book(
   name: String = "TestBook",

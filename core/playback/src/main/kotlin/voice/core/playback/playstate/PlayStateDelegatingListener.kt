@@ -26,6 +26,7 @@ class PlayStateDelegatingListener(private val playStateManager: PlayStateManager
 
   private fun updatePlayState() {
     val playbackState = player.playbackState
+    playStateManager.buffering = playbackState == Player.STATE_BUFFERING
     playStateManager.playState = when {
       playbackState == Player.STATE_ENDED || playbackState == Player.STATE_IDLE -> PlayStateManager.PlayState.Paused
       player.playWhenReady -> PlayStateManager.PlayState.Playing

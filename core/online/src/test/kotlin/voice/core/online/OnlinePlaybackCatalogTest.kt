@@ -2,6 +2,7 @@ package voice.core.online
 
 import androidx.datastore.core.DataStore
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.mockk
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -149,9 +150,58 @@ class OnlinePlaybackCatalogTest {
     assertEquals(90_000L, assertNotNull(catalog.book(thirdPartyId)).chapters[2].duration)
   }
 
+  @Test
+  fun `resolved stream urls are reused until they are invalidated`() = runTest {
+    // the player re-opens the stream on every seek: asking the source again
+    // would stall the chapter the user is already listening to
+    val ref = OnlineChapterRef(THIRD_PARTY_SOURCE, BOOK_ID, "c1")
+    coEvery { service.resolveDirectUrl(THIRD_PARTY_SOURCE, BOOK_ID, "c1") } returns STREAM_URL
+
+    assertEquals(STREAM_URL, catalog.resolveStreamUrl(ref))
+    assertEquals(STREAM_URL, catalog.resolveStreamUrl(ref))
+    coVerify(exactly = 1) { val _ = service.resolveDirectUrl(THIRD_PARTY_SOURCE, BOOK_ID, "c1") }
+
+    // a signed link the server rejects is dropped, so the next resolve is fresh
+    assertTrue(catalog.invalidateStreamUrl(ref))
+    assertEquals(STREAM_URL, catalog.resolveStreamUrl(ref))
+    coVerify(exactly = 2) {
+      val _ = service.resolveDirectUrl(THIRD_PARTY_SOURCE, BOOK_ID, "c1")
+    }
+    assertFalse(catalog.invalidateStreamUrl(OnlineChapterRef(THIRD_PARTY_SOURCE, BOOK_ID, "unknown")))
+  }
+
+  @Test
+  fun `the resolving state is reported per book`() = runTest {
+    val ref = OnlineChapterRef(THIRD_PARTY_SOURCE, BOOK_ID, "c1")
+    var resolvingWhileRunning: Set<String>? = null
+    coEvery { service.resolveDirectUrl(THIRD_PARTY_SOURCE, BOOK_ID, "c1") } coAnswers {
+      resolvingWhileRunning = catalog.resolvingBooks.value
+      STREAM_URL
+    }
+
+    assertTrue(catalog.resolvingBooks.value.isEmpty())
+    assertEquals(STREAM_URL, catalog.resolveStreamUrl(ref))
+
+    assertEquals(
+      expected = setOf(OnlineUri.buildBookUri(THIRD_PARTY_SOURCE, BOOK_ID)),
+      actual = resolvingWhileRunning,
+    )
+    assertTrue(catalog.resolvingBooks.value.isEmpty())
+  }
+
+  @Test
+  fun `a failed resolve clears the resolving state again`() = runTest {
+    coEvery { service.resolveDirectUrl(THIRD_PARTY_SOURCE, BOOK_ID, "c1") } returns null
+
+    assertNull(catalog.resolveStreamUrl(OnlineChapterRef(THIRD_PARTY_SOURCE, BOOK_ID, "c1")))
+    assertTrue(catalog.resolvingBooks.value.isEmpty())
+  }
+
   private companion object {
     const val SOURCE = "main"
     const val BOOK_ID = "42"
+    const val THIRD_PARTY_SOURCE = "A"
+    const val STREAM_URL = "https://cdn.example.com/c1.mp3"
   }
 }
 
