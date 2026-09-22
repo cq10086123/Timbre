@@ -369,7 +369,9 @@ class BookOverviewViewModelTest {
       while ((state.searchViewState as BookSearchViewState.EmptySearch).recentQueries.isEmpty()) {
         state = awaitItem()
       }
-      assertEquals(listOf("dogs", "cats"), (state.searchViewState as BookSearchViewState.EmptySearch).recentQueries)
+      val searchViewState = state.searchViewState
+      assertIs<BookSearchViewState.EmptySearch>(searchViewState)
+      assertEquals(listOf("dogs", "cats"), searchViewState.recentQueries)
 
       viewModel.onClearSearchHistory()
 
