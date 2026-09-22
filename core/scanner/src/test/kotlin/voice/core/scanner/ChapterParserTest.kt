@@ -6,8 +6,10 @@ import io.mockk.coEvery
 import io.mockk.just
 import io.mockk.mockk
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
@@ -124,7 +126,7 @@ class ChapterParserTest {
   }
 
   @Test
-  fun firstChapterOfABatchIsReportedBeforeTheBatchFinished() = runTest {
+  fun firstChapterOfABatchIsReportedBeforeTheBatchFinished() = runBlocking {
     val audiobook = testFolder.newFolder("audiobook")
     testFolder.newFile("audiobook/Chapter 1.mp3")
     testFolder.newFile("audiobook/Chapter 2.mp3")
@@ -166,7 +168,9 @@ class ChapterParserTest {
     )
 
     val result = CompletableDeferred<ChapterParseResult>()
-    val parseJob = launch(UnconfinedTestDispatcher(testScheduler)) {
+    // real dispatchers: the parser uses Dispatchers.IO internally, and mixing
+    // it with runTest's virtual time leaves the handshake below never resumed
+    val parseJob = launch(Dispatchers.Default) {
       parser.parse(FileBasedDocumentFile(audiobook)) { report ->
         if (report.chapters.isNotEmpty()) {
           firstChapterReported.complete(report)
