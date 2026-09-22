@@ -10,6 +10,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import voice.core.data.BookContent
 import voice.core.data.BookId
 import voice.core.data.repo.BookContentRepo
 import voice.core.playback.di.PlaybackScope
@@ -49,6 +50,14 @@ class SkipIntroOutro(
   /** The book whose content the values above were loaded from. */
   private var loadedForBookId: BookId? = null
 
+  /**
+   * The most recent content snapshot. A snapshot that arrives while no media
+   * item is current yet (a cold start assembles the playlist after the content
+   * was loaded) must not be lost: the tick latches from here once the item
+   * shows up, instead of waiting for a re-emission that only playback brings.
+   */
+  private var latestContents: List<BookContent> = emptyList()
+
   /** The media item whose intro skip has been fully handled (or found unnecessary). */
   private var introHandledItemId: String? = null
 
@@ -57,14 +66,21 @@ class SkipIntroOutro(
     player.addListener(this)
     scope.launch {
       contentRepo.flow().collectLatest { contents ->
-        val bookId = player.currentBookId() ?: return@collectLatest
-        val content = contents.firstOrNull { it.id == bookId } ?: return@collectLatest
-        skipIntroMs = content.skipIntro.coerceAtLeast(0L)
-        skipOutroMs = content.skipOutro.coerceAtLeast(0L)
-        loadedForBookId = bookId
+        latestContents = contents
+        latchContentForCurrentItem()
       }
     }
     startTicking()
+  }
+
+  /** Latches the values of the book that owns the current item, if its content is known. */
+  private fun latchContentForCurrentItem() {
+    val player = player ?: return
+    val bookId = player.currentBookId() ?: return
+    val content = latestContents.firstOrNull { it.id == bookId } ?: return
+    skipIntroMs = content.skipIntro.coerceAtLeast(0L)
+    skipOutroMs = content.skipOutro.coerceAtLeast(0L)
+    loadedForBookId = bookId
   }
 
   private fun startTicking() {
@@ -95,9 +111,10 @@ class SkipIntroOutro(
       return
     }
     if (bookId != loadedForBookId) {
-      // the content of this book has not arrived yet: the next tick retries
-      // instead of latching the previous book's value or the initial zero
-      return
+      // the content of this book may have arrived while no item was current
+      // yet; latch from the latest snapshot now, otherwise wait for it
+      latchContentForCurrentItem()
+      if (bookId != loadedForBookId) return
     }
     val intro = skipIntroMs
     if (intro <= 0L) {

@@ -19,12 +19,37 @@
 | H4 双重回退 | ✅ 保持现状（按产品决定） | `SleepTimerImpl.kt` 增加注释说明"淡出回退 + 自动回退有意叠加" |
 | H5 预取器失活 | ✅ 已修复 | `PrefetchScheduler.start()` 改为 `combine(currentBook, settings).collectLatest`：设置变化即重启预取循环，关闭→再开启立即生效 |
 
+### 〇.1 复审结论（2026-09-22 第二轮，针对上述修复）
+
+复审发现并修复 **1 个问题**（H3 残余窗口，上一轮引入）：
+
+- **问题**：`SkipIntroOutro` 的内容 latch 依赖 `contentRepo.flow()` 的发射，而收集器在
+  `currentMediaItem` 尚为 null（冷启动组装期间）时直接丢弃该次发射——StateFlow 不会重发。
+  生产上靠播放后位置落库的重发兜底（残余 ≤900ms 延迟窗口），但新写的测试 2/3 正好构造了
+  "内容先到、条目后到"的时序，暴露了这条路径的脆弱性。
+- **修复**：新增 `latestContents` 快照缓存 + `latchContentForCurrentItem()`；内容发射时无条件
+  缓存快照，tick 时若当前书的值尚未 latch 就地从快照补齐。冷启动窗口归零，测试时序反而成为
+  该加固路径的覆盖用例。
+
+复审确认无恙的其余项（均逐条核实过）：
+
+- **H1**：插值后的表名与 `DROP`/`CREATE` 一致；测试建表列名与迁移读取的列名逐一匹配。
+- **H2**：① 新字段带默认值，旧 JSON 反序列化兼容；② DataStore actor 串行执行 `updateData`，
+  并发落盘不会乱序（启动顺序即写入顺序）；③ `addToShelf` 全库仅搜索页一个调用点且只在书
+  **不在架**时执行，已有书的持久化进度不会被覆盖（显式移除再加属用户意图）；④
+  `recordMeasuredDuration` 的 `copy` 保留新字段；⑤ `onPlaybackResumption` 的在线书回退
+  使用架内已持久化章节列表，无网络阻塞风险；⑥ `LibrarySessionCallback` 新增依赖在
+  PlaybackScope 可达（`VoicePlayer` 已注入同类型佐证）。
+- **H5**：`combine` 两源均为 DataStore flow，订阅即发当前值；设置变更触发 `collectLatest`
+  重启，在途预取被干净取消。补差分测试 `PrefetchSchedulerTest`（旧代码下 `bookRepository.get`
+  永不被调用、测试失败；新代码重启循环、测试通过）。
+
 **无法在沙盒运行测试，本地请执行**（AGENTS.md Done Criteria 要求显式声明）：
 
 ```bash
 ./gradlew :core:data:impl:testDebugUnitTest --tests "*Migration32to34*"
 ./gradlew :core:online:testDebugUnitTest
-./gradlew :core:playback:testDebugUnitTest --tests "*SkipIntroOutro*"
+./gradlew :core:playback:testDebugUnitTest --tests "*SkipIntroOutro*" --tests "*PrefetchScheduler*"
 ./gradlew voiceUnitTest lintKotlin :app:assembleFreeDebug   # 全量回归
 ```
 
