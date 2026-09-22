@@ -118,6 +118,7 @@
     <string name="library.online.source.badge">Online book from source: %1$s</string>
     <!-- Hint text for searching books in the library. -->
     <string name="library.search.hint">What are you looking for?</string>
+    <string name="library.search.clear_history">Clear search history</string>
     <!-- Button label for granting the storage permission workaround. -->
     <string name="library.storage_permission_bug.action">Grant permission</string>
     <!-- Message explaining why a storage permission workaround is needed. -->

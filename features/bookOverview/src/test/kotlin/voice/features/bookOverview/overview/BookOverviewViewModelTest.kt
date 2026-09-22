@@ -7,6 +7,7 @@ import app.cash.molecule.launchMolecule
 import app.cash.turbine.test
 import io.mockk.Runs
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
@@ -40,10 +41,12 @@ import voice.core.search.BookSearch
 import voice.core.ui.GridCount
 import voice.core.update.UpdateNotifier
 import voice.features.bookOverview.book
+import voice.features.bookOverview.search.BookSearchViewState
 import voice.navigation.Destination
 import voice.navigation.Navigator
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertIs
 
 // robolectric: the placeholder cards derive their name from the book uri
 @RunWith(AndroidJUnit4::class)
@@ -347,6 +350,38 @@ class BookOverviewViewModelTest {
     }
   }
 
+  @Test
+  fun `clearing search history updates the active search`() = runTest {
+    val history = MutableStateFlow(listOf("cats", "dogs"))
+    val dao = mockk<RecentBookSearchDao> {
+      every { recentBookSearches() } returns history
+      coEvery { clear() } answers { history.value = emptyList() }
+    }
+    val viewModel = viewModel(recentBookSearchDao = dao)
+
+    backgroundScope.launchMolecule(RecompositionMode.Immediate) {
+      viewModel.state()
+    }.test {
+      assertEquals(BookOverviewViewState.Loading, awaitItem())
+      awaitItem()
+      viewModel.onSearchActiveChange(true)
+      var state = awaitItem()
+      while ((state.searchViewState as BookSearchViewState.EmptySearch).recentQueries.isEmpty()) {
+        state = awaitItem()
+      }
+      assertEquals(listOf("dogs", "cats"), (state.searchViewState as BookSearchViewState.EmptySearch).recentQueries)
+
+      viewModel.onClearSearchHistory()
+
+      val clearedState = awaitItem()
+      val searchState = assertIs<BookSearchViewState.EmptySearch>(clearedState.searchViewState)
+      assertEquals(emptyList(), searchState.recentQueries)
+      assertEquals("", searchState.query)
+      assertEquals(true, clearedState.searchActive)
+      coVerify(exactly = 1) { dao.clear() }
+    }
+  }
+
   private fun BookOverviewViewState.currentBook(bookId: BookId): BookOverviewItemViewState {
     return books.getValue(BookOverviewCategory.CURRENT).getValue(bookId).value
   }
@@ -360,6 +395,9 @@ class BookOverviewViewModelTest {
     scanProgress: Map<BookId, BookScanProgress> = emptyMap(),
     scanErrors: Map<BookId, BookScanError> = emptyMap(),
     mediaScanner: MediaScanTrigger? = null,
+    recentBookSearchDao: RecentBookSearchDao = mockk {
+      every { recentBookSearches() } returns MutableStateFlow(emptyList())
+    },
   ): BookOverviewViewModel {
     return BookOverviewViewModel(
       repo = mockk<BookRepository> {
@@ -382,13 +420,13 @@ class BookOverviewViewModelTest {
         every { useGridAsDefault() } returns false
       },
       navigator = navigator,
-      recentBookSearchDao = mockk<RecentBookSearchDao> {
-        every { recentBookSearches() } returns MutableStateFlow(emptyList())
-      },
+      recentBookSearchDao = recentBookSearchDao,
       search = mockk<BookSearch> {
         coEvery { search(any()) } returns emptyList()
       },
-      contentRepo = mockk<BookContentRepo>(),
+      contentRepo = mockk<BookContentRepo> {
+        coEvery { all() } returns emptyList()
+      },
       deviceHasStoragePermissionBug = mockk<DeviceHasStoragePermissionBug> {
         every { hasBug } returns MutableStateFlow(false)
       },

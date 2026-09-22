@@ -30,6 +30,7 @@ internal fun BookOverviewTopBar(
   onActiveChange: (Boolean) -> Unit,
   onQueryChange: (String) -> Unit,
   onSearchBookClick: (BookId) -> Unit,
+  onClearSearchHistory: () -> Unit,
 ) {
   Column {
     val horizontalPadding by animateDpAsState(
@@ -43,6 +44,7 @@ internal fun BookOverviewTopBar(
       onBookFolderClick = onBookFolderClick,
       onSettingsClick = onSettingsClick,
       onSearchBookClick = onSearchBookClick,
+      onClearSearchHistory = onClearSearchHistory,
       searchActive = viewState.searchActive,
       showAddBookHint = viewState.showAddBookHint,
       showFolderPickerIcon = viewState.showFolderPickerIcon,
@@ -91,6 +93,7 @@ private fun BookOverviewTopBarPreview() {
       onActiveChange = {},
       onQueryChange = {},
       onSearchBookClick = {},
+      onClearSearchHistory = {},
     )
   }
 }
