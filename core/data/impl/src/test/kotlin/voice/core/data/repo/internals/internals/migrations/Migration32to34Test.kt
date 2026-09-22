@@ -12,8 +12,8 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.After
 import org.junit.Before
 import org.junit.runner.RunWith
-import voice.core.data.repo.internals.getString
 import voice.core.data.repo.internals.getLong
+import voice.core.data.repo.internals.getString
 import voice.core.data.repo.internals.mapRows
 import voice.core.data.repo.internals.migrations.Migration32to34
 import kotlin.test.Test
