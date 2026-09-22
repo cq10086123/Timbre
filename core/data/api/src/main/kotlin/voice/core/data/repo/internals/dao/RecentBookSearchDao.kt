@@ -16,6 +16,9 @@ public abstract class RecentBookSearchDao {
   @Query("DELETE FROM recentBookSearch WHERE searchTerm = :query")
   public abstract suspend fun delete(query: String)
 
+  @Query("DELETE FROM recentBookSearch")
+  public abstract suspend fun clear()
+
   @Query("INSERT OR REPLACE INTO recentBookSearch (searchTerm) VALUES (:query)")
   public abstract suspend fun addRaw(query: String)
 

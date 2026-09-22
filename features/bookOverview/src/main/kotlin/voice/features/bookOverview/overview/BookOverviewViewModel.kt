@@ -331,6 +331,12 @@ class BookOverviewViewModel(
     this.query = query
   }
 
+  fun onClearSearchHistory() {
+    scope.launch {
+      recentBookSearchDao.clear()
+    }
+  }
+
   fun onSearchBookClick(id: BookId) {
     val query = query.trim()
     if (query.isNotBlank()) {

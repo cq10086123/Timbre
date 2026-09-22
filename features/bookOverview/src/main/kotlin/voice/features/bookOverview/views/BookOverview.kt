@@ -110,6 +110,7 @@ fun BookOverviewScreen(modifier: Modifier = Modifier) {
     onSearchActiveChange = bookOverviewViewModel::onSearchActiveChange,
     onSearchQueryChange = bookOverviewViewModel::onSearchQueryChange,
     onSearchBookClick = bookOverviewViewModel::onSearchBookClick,
+    onClearSearchHistory = bookOverviewViewModel::onClearSearchHistory,
     onPermissionBugCardClick = bookOverviewViewModel::onPermissionBugCardClick,
   )
   val deleteBookViewState = deleteBookViewModel.state.value
@@ -189,6 +190,7 @@ internal fun BookOverview(
   onSearchActiveChange: (Boolean) -> Unit,
   onSearchQueryChange: (String) -> Unit,
   onSearchBookClick: (BookId) -> Unit,
+  onClearSearchHistory: () -> Unit,
   onPermissionBugCardClick: () -> Unit,
   modifier: Modifier = Modifier,
 ) {
@@ -203,6 +205,7 @@ internal fun BookOverview(
         onActiveChange = onSearchActiveChange,
         onQueryChange = onSearchQueryChange,
         onSearchBookClick = onSearchBookClick,
+        onClearSearchHistory = onClearSearchHistory,
       )
     },
     floatingActionButton = {
@@ -280,6 +283,7 @@ fun BookOverviewPreview(
       onSearchActiveChange = {},
       onSearchQueryChange = {},
       onSearchBookClick = {},
+      onClearSearchHistory = {},
       onPermissionBugCardClick = {},
     )
   }
