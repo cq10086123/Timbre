@@ -48,7 +48,9 @@ jobs:
         # test workers can outlive a cancelled Gradle build; bound the step so a
         # stuck worker costs 15 minutes instead of the whole job timeout
         timeout-minutes: 15
-        run: ./gradlew voiceUnitTest :app:assembleFreeDebug
+        # --info prints each test as it starts: together with the per task
+        # timeout in build.gradle.kts the log names the test that hung
+        run: ./gradlew voiceUnitTest :app:assembleFreeDebug --info
       - name: Publish JUnit Report
         uses: mikepenz/action-junit-report@v6
         if: always()
