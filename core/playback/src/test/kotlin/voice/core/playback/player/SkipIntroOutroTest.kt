@@ -13,6 +13,7 @@ import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
@@ -72,6 +73,10 @@ class SkipIntroOutroTest {
   private val skipIntroOutro = SkipIntroOutro(
     contentRepo = mockk {
       every { flow() } returns contentFlow
+    },
+    onlinePlaybackCatalog = mockk {
+      every { isOnlineBookId(any()) } returns false
+      every { shelfBooks() } returns flowOf(emptyList())
     },
     scope = scope,
   )

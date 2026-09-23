@@ -26,6 +26,10 @@ public data class OnlineBook(
   val currentChapterId: String = "",
   /** The position inside [currentChapterId] in milliseconds. */
   val positionMs: Long = 0L,
+  /** Milliseconds to skip at the start of every chapter of this book. 0 = off. */
+  val skipIntroMs: Long = 0L,
+  /** Milliseconds to cut off the end of every chapter of this book. 0 = off. */
+  val skipOutroMs: Long = 0L,
 ) {
   /** Stable unique key: source and bookId namespaces are independent per source. */
   public val key: String

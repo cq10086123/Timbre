@@ -11,6 +11,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 import voice.core.logging.api.Logger
+import java.io.File
 import java.io.IOException
 
 /**
@@ -26,6 +27,7 @@ public class OnlineStreamingDataSource internal constructor(
   private val onUrlRejected: (OnlineChapterRef) -> Boolean = { false },
   private val onDurationResolved: (OnlineChapterRef, Long) -> Unit = { _, _ -> },
   private val hasMeasuredDuration: (OnlineChapterRef) -> Boolean = { false },
+  private val fileCache: OnlineChapterFileCache? = null,
 ) : BaseDataSource(true) {
 
   private companion object {
@@ -55,6 +57,11 @@ public class OnlineStreamingDataSource internal constructor(
     transferInitializing(dataSpec)
     val ref = dataSpec.toOnlineChapterRef()
       ?: throw IOException("Not an online chapter uri: $uri")
+    // a manually cached chapter plays straight from its file: no resolve, no
+    // network, so cached episodes keep playing offline
+    fileCache?.fileFor(ref)
+      ?.takeIf { it.exists() && it.length() > 0L }
+      ?.let { return openFile(dataSpec, ref, it) }
     val response = openResponse(dataSpec, ref)
     this.response = response
     openedUri = Uri.parse(response.request.url.toString())
@@ -81,6 +88,59 @@ public class OnlineStreamingDataSource internal constructor(
       dataSpec.length != C.LENGTH_UNSET.toLong() -> dataSpec.length
       bytesRemaining >= 0 -> bytesRemaining
       else -> -1L
+    }
+  }
+
+  /**
+   * Serves a manually cached chapter straight from its file, honoring the
+   * requested range exactly like the streaming path does. The duration probe
+   * runs from the file head as well, so an offline first play still corrects
+   * chapters the source reports no duration for.
+   */
+  private fun openFile(
+    dataSpec: DataSpec,
+    ref: OnlineChapterRef,
+    file: File,
+  ): Long {
+    val length = file.length()
+    val stream = java.io.FileInputStream(file)
+    try {
+      var toSkip = dataSpec.position
+      while (toSkip > 0L) {
+        val skipped = stream.skip(toSkip)
+        if (skipped <= 0L) break
+        toSkip -= skipped
+      }
+    } catch (e: IOException) {
+      stream.close()
+      throw e
+    }
+    if (!hasMeasuredDuration(ref)) {
+      val _ = runCatching {
+        java.io.FileInputStream(file).use { head ->
+          val buffer = ByteArray(PROBE_BUFFER_BYTES)
+          var read = 0
+          while (read < buffer.size) {
+            val n = head.read(buffer, read, buffer.size - read)
+            if (n == -1) break
+            read += n
+          }
+          OnlineStreamDurationProbe.estimateDurationMs(length, buffer.copyOf(read))
+            ?.takeIf { it > 0L }
+            ?.let { onDurationResolved(ref, it) }
+        }
+      }
+    }
+    inputStream = stream
+    openedUri = dataSpec.uri
+    bytesRemaining = when {
+      dataSpec.length != C.LENGTH_UNSET.toLong() -> dataSpec.length
+      else -> (length - dataSpec.position).coerceAtLeast(0L)
+    }
+    transferStarted(dataSpec)
+    return when {
+      dataSpec.length != C.LENGTH_UNSET.toLong() -> dataSpec.length
+      else -> bytesRemaining
     }
   }
 
@@ -260,6 +320,7 @@ public class OnlineDataSourceFactory internal constructor(
   private val onUrlRejected: (OnlineChapterRef) -> Boolean = { false },
   private val onDurationResolved: (OnlineChapterRef, Long) -> Unit = { _, _ -> },
   private val hasMeasuredDuration: (OnlineChapterRef) -> Boolean = { false },
+  private val fileCache: OnlineChapterFileCache? = null,
 ) : DataSource.Factory {
 
   override fun createDataSource(): DataSource {
@@ -271,6 +332,7 @@ public class OnlineDataSourceFactory internal constructor(
       onUrlRejected = onUrlRejected,
       onDurationResolved = onDurationResolved,
       hasMeasuredDuration = hasMeasuredDuration,
+      fileCache = fileCache,
     )
   }
 }

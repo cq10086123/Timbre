@@ -342,6 +342,80 @@ class OnlinePlaybackCatalogTest {
     assertEquals(42_000L, book.content.positionInChapter)
   }
 
+  @Test
+  fun `refresh stores new chapters and keeps position and skip settings`() = runTest {
+    val store = FakeBooksStore(
+      listOf(
+        shelfBook().copy(
+          currentChapterId = "c2",
+          positionMs = 42_000L,
+          skipIntroMs = 5_000L,
+          skipOutroMs = 3_000L,
+        ),
+      ),
+    )
+    val catalog = OnlinePlaybackCatalog(service, store)
+    coEvery { service.shelfBook("main::$BOOK_ID") } returns store.data.first().single()
+    coEvery { service.refreshChapters(SOURCE, BOOK_ID) } returns shelfBook().chapters +
+      OnlineChapter(id = "c4", title = "第4集", durationSeconds = 1700)
+
+    val result = catalog.refreshChapters(bookId())
+
+    assertEquals(OnlineChapterRefreshResult.Updated(added = 1, total = 4), result)
+    val stored = store.data.first().single()
+    assertEquals(4, stored.chapters.size)
+    assertEquals("c2", stored.currentChapterId)
+    assertEquals(42_000L, stored.positionMs)
+    assertEquals(5_000L, stored.skipIntroMs)
+    assertEquals(3_000L, stored.skipOutroMs)
+  }
+
+  @Test
+  fun `refresh prefers measured durations over empty fresh ones`() = runTest {
+    val store = FakeBooksStore(listOf(shelfBook()))
+    val catalog = OnlinePlaybackCatalog(service, store)
+    coEvery { service.shelfBook("main::$BOOK_ID") } returns store.data.first().single()
+    // the stream measured c3 while the source still reports nothing
+    catalog.recordMeasuredDuration(SOURCE, BOOK_ID, "c3", 120_000L)
+    coEvery { service.refreshChapters(SOURCE, BOOK_ID) } returns shelfBook().chapters
+
+    val result = catalog.refreshChapters(bookId())
+
+    assertEquals(OnlineChapterRefreshResult.UpToDate(total = 3), result)
+    val stored = store.data.first().single()
+    assertEquals(120, stored.chapters.single { it.id == "c3" }.durationSeconds)
+  }
+
+  @Test
+  fun `a failed refresh keeps the stored chapters`() = runTest {
+    val store = FakeBooksStore(listOf(shelfBook()))
+    val catalog = OnlinePlaybackCatalog(service, store)
+    coEvery { service.shelfBook("main::$BOOK_ID") } returns shelfBook()
+    coEvery { service.refreshChapters(SOURCE, BOOK_ID) } throws OnlineSourceException("boom")
+
+    val result = catalog.refreshChapters(bookId())
+
+    assertTrue(result is OnlineChapterRefreshResult.Failed)
+    assertEquals(3, store.data.first().single().chapters.size)
+  }
+
+  @Test
+  fun `skip settings persist and surface in the synthesized book`() = runTest {
+    val store = FakeBooksStore(listOf(shelfBook()))
+    val catalog = OnlinePlaybackCatalog(service, store)
+
+    catalog.setSkipIntro(bookId(), 5_000L)
+    catalog.setSkipOutro(bookId(), 7_000L)
+
+    val stored = store.data.first().single()
+    assertEquals(5_000L, stored.skipIntroMs)
+    assertEquals(7_000L, stored.skipOutroMs)
+    coEvery { service.shelfBook("main::$BOOK_ID") } returns stored
+    val book = assertNotNull(catalog.book(bookId()))
+    assertEquals(5_000L, book.content.skipIntro)
+    assertEquals(7_000L, book.content.skipOutro)
+  }
+
   /**
    * Waits for the real IO [OnlinePlaybackCatalog] persistenceScope to land
    * [chapterId]. Must use wall-clock time: runTest's withTimeout/delay are

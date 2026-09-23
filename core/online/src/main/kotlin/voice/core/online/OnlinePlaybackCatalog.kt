@@ -12,6 +12,7 @@ import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -166,6 +167,119 @@ public class OnlinePlaybackCatalog(
   /** True when [bookId] addresses a book of the online source. */
   public fun isOnlineBookId(bookId: BookId): Boolean {
     return OnlineUri.parseBookUri(bookId.value) != null
+  }
+
+  /** The books on the online shelf. Emits on every position, chapter or settings change. */
+  public fun shelfBooks(): Flow<List<OnlineBook>> {
+    return booksStore.data
+  }
+
+  /** Persists the intro skip of an online book (in milliseconds). */
+  public suspend fun setSkipIntro(
+    bookId: BookId,
+    skipMs: Long,
+  ) {
+    val bookRef = OnlineUri.parseBookUri(bookId.value) ?: return
+    val value = skipMs.coerceAtLeast(0L)
+    pendingBooks[bookRef.key]?.let { pendingBooks[bookRef.key] = it.copy(skipIntroMs = value) }
+    assembledBooks[bookRef.key]?.let { assembledBooks[bookRef.key] = it.copy(skipIntroMs = value) }
+    runCatching {
+      booksStore.updateData { books ->
+        books.map { book ->
+          if (book.key == bookRef.key) book.copy(skipIntroMs = value) else book
+        }
+      }
+    }.onFailure { Logger.w("Failed to persist the online skip intro of ${bookRef.key}: $it") }
+  }
+
+  /** Persists the outro skip of an online book (in milliseconds). */
+  public suspend fun setSkipOutro(
+    bookId: BookId,
+    skipMs: Long,
+  ) {
+    val bookRef = OnlineUri.parseBookUri(bookId.value) ?: return
+    val value = skipMs.coerceAtLeast(0L)
+    pendingBooks[bookRef.key]?.let { pendingBooks[bookRef.key] = it.copy(skipOutroMs = value) }
+    assembledBooks[bookRef.key]?.let { assembledBooks[bookRef.key] = it.copy(skipOutroMs = value) }
+    runCatching {
+      booksStore.updateData { books ->
+        books.map { book ->
+          if (book.key == bookRef.key) book.copy(skipOutroMs = value) else book
+        }
+      }
+    }.onFailure { Logger.w("Failed to persist the online skip outro of ${bookRef.key}: $it") }
+  }
+
+  /**
+   * Re-fetches the chapter list of [bookId] from the source and stores it on
+   * the shelf. Durations measured from real streams, the playback position
+   * and the skip settings survive the update; a failed or empty fetch keeps
+   * the stored chapters untouched so playback continues with them.
+   */
+  public suspend fun refreshChapters(bookId: BookId): OnlineChapterRefreshResult {
+    val bookRef = OnlineUri.parseBookUri(bookId.value)
+      ?: return OnlineChapterRefreshResult.Failed(null)
+    val shelf = runCatching { service.shelfBook(bookRef.key) }.getOrNull()
+      ?: return OnlineChapterRefreshResult.Failed(null)
+    val fresh = try {
+      service.refreshChapters(bookRef.source, bookRef.bookId)
+    } catch (e: CancellationException) {
+      throw e
+    } catch (e: Exception) {
+      Logger.w("Online chapter refresh failed for ${bookRef.key}: $e")
+      return OnlineChapterRefreshResult.Failed(e.message)
+    }
+    if (fresh.isEmpty()) {
+      return OnlineChapterRefreshResult.Failed(null)
+    }
+    val oldById = shelf.chapters.associateBy { it.id }
+    val merged = fresh.map { chapter ->
+      val measured = measuredDurations[OnlineUri.build(bookRef.source, bookRef.bookId, chapter.id)]
+      val previous = oldById[chapter.id]
+      when {
+        measured != null && measured > 0L -> chapter.copy(durationSeconds = (measured / 1_000L).toInt())
+        previous != null && chapter.durationSeconds <= 0 && previous.durationSeconds > 0 ->
+          chapter.copy(durationSeconds = previous.durationSeconds)
+        else -> chapter
+      }
+    }
+    val added = fresh.count { it.id !in oldById }
+    val freshIds = fresh.map { it.id }.toSet()
+    // the chapter the user was listening to may have vanished from the
+    // source: reset the stored position instead of pointing at nothing
+    val positionSurvives = shelf.currentChapterId.isBlank() || shelf.currentChapterId in freshIds
+    runCatching {
+      booksStore.updateData { books ->
+        books.map { book ->
+          if (book.key != bookRef.key) {
+            book
+          } else {
+            book.copy(
+              chapters = merged,
+              currentChapterId = if (positionSurvives) shelf.currentChapterId else "",
+              positionMs = if (positionSurvives) shelf.positionMs else 0L,
+            )
+          }
+        }
+      }
+    }.onFailure {
+      Logger.w("Failed to persist refreshed online chapters of ${bookRef.key}: $it")
+      return OnlineChapterRefreshResult.Failed(it.message)
+    }
+    // the session copies hold the previous chapter list: drop them so the
+    // next assembly reads the refreshed shelf entry
+    assembledBooks.remove(bookRef.key)
+    pendingBooks.remove(bookRef.key)
+    if (!positionSurvives) {
+      synchronized(stateLock) {
+        positions.remove(bookRef.key)
+      }
+    }
+    return if (added > 0) {
+      OnlineChapterRefreshResult.Updated(added = added, total = fresh.size)
+    } else {
+      OnlineChapterRefreshResult.UpToDate(total = fresh.size)
+    }
   }
 
   /** The user tapped [chapterId]: the next assembly of the book starts there. */
@@ -373,6 +487,8 @@ public class OnlinePlaybackCatalog(
       narrator = null,
       series = null,
       part = null,
+      skipIntro = onlineBook.skipIntroMs,
+      skipOutro = onlineBook.skipOutroMs,
     )
     return AssembledOnline(bookRef = bookRef, content = content, chapters = chapters)
   }
@@ -418,6 +534,8 @@ public class OnlinePlaybackCatalog(
       narrator = null,
       series = null,
       part = null,
+      skipIntro = onlineBook.skipIntroMs,
+      skipOutro = onlineBook.skipOutroMs,
     )
     val dataChapters = chapters.map { chapter ->
       val uri = OnlineUri.build(bookRef.source, bookRef.bookId, chapter.id)

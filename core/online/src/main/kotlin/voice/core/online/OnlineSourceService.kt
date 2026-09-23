@@ -75,8 +75,35 @@ public class OnlineSourceService internal constructor(
     synchronized(chaptersCache) {
       chaptersCache[cacheKey]?.let { return it }
     }
+    val chapters = fetchChapters(source, bookId)
+    synchronized(chaptersCache) {
+      chaptersCache[cacheKey] = chapters
+    }
+    return chapters
+  }
+
+  /**
+   * Re-fetches the chapter list of a book from the source, bypassing the
+   * in-memory cache, and stores the fresh list there. Used when the user
+   * asks for new chapters of a book that is still being updated.
+   */
+  public suspend fun refreshChapters(
+    source: String,
+    bookId: String,
+  ): List<OnlineChapter> {
+    val chapters = fetchChapters(source, bookId)
+    synchronized(chaptersCache) {
+      chaptersCache["$source::$bookId"] = chapters
+    }
+    return chapters
+  }
+
+  private suspend fun fetchChapters(
+    source: String,
+    bookId: String,
+  ): List<OnlineChapter> {
     val (base, _) = authed()
-    val chapters = withRelogin {
+    return withRelogin {
       if (source == OnlineSourceClient.SOURCE_MAIN) {
         val response = client.mainAlbumListResponse(base, it, bookId)
         if (!response.first) {
@@ -91,10 +118,6 @@ public class OnlineSourceService internal constructor(
         response.third
       }
     }
-    synchronized(chaptersCache) {
-      chaptersCache[cacheKey] = chapters
-    }
-    return chapters
   }
 
   /** Resolves a temporary direct streaming url for one chapter (pluggable sources). */
@@ -134,11 +157,49 @@ public class OnlineSourceService internal constructor(
     return booksStore.data
   }
 
-  /** Adds or updates an online book (upsert by [OnlineBook.key]). */
+  /**
+   * Adds or updates an online book (upsert by [OnlineBook.key]). Re-adding a
+   * book that is already on the shelf keeps its playback position, its skip
+   * settings and the durations measured from real streams: only the chapter
+   * list itself is taken from the fresh copy.
+   */
   public suspend fun addToShelf(book: OnlineBook) {
     booksStore.updateData { current ->
-      val others = current.filterNot { it.key == book.key }
-      listOf(book.copy(addedAt = System.currentTimeMillis())) + others
+      val existing = current.firstOrNull { it.key == book.key }
+      val merged = if (existing == null) {
+        book
+      } else {
+        book.copy(
+          currentChapterId = existing.currentChapterId,
+          positionMs = existing.positionMs,
+          skipIntroMs = existing.skipIntroMs,
+          skipOutroMs = existing.skipOutroMs,
+          chapters = mergeChapterDurations(existing.chapters, book.chapters),
+        )
+      }
+      listOf(merged.copy(addedAt = System.currentTimeMillis())) +
+        current.filterNot { it.key == book.key }
+    }
+  }
+
+  /**
+   * Takes the chapter list from [fresh] but keeps a duration the shelf
+   * already measured when the fresh entry reports none, so re-adding a book
+   * does not throw away corrected durations.
+   */
+  private fun mergeChapterDurations(
+    old: List<OnlineChapter>,
+    fresh: List<OnlineChapter>,
+  ): List<OnlineChapter> {
+    if (old.isEmpty()) return fresh
+    val oldById = old.associateBy { it.id }
+    return fresh.map { chapter ->
+      val previous = oldById[chapter.id]
+      if (previous != null && chapter.durationSeconds <= 0 && previous.durationSeconds > 0) {
+        chapter.copy(durationSeconds = previous.durationSeconds)
+      } else {
+        chapter
+      }
     }
   }
 
