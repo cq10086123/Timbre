@@ -173,7 +173,8 @@ class OnlinePlaybackCatalogTest {
     coVerify(exactly = 2) {
       val _ = service.resolveDirectUrl(THIRD_PARTY_SOURCE, BOOK_ID, "c1")
     }
-    assertFalse(catalog.invalidateStreamUrl(OnlineChapterRef(THIRD_PARTY_SOURCE, BOOK_ID, "unknown")))
+    // always true: the data source retries once even when nothing was cached
+    assertTrue(catalog.invalidateStreamUrl(OnlineChapterRef(THIRD_PARTY_SOURCE, BOOK_ID, "unknown")))
   }
 
   @Test
@@ -224,7 +225,7 @@ class OnlinePlaybackCatalogTest {
     val slow = async(Dispatchers.Default) { catalog.resolveStreamUrl(ref) }
     started.await()
     // data source rejected the url while resolve is still finishing
-    assertFalse(catalog.invalidateStreamUrl(ref))
+    assertTrue(catalog.invalidateStreamUrl(ref))
     release.complete(Unit)
     assertEquals("https://cdn.example.com/rejected.mp3", slow.await())
 

@@ -109,4 +109,3 @@ private val MediaSession.invokeIsReleased: Boolean
     Logger.w(e, "Couldn't check if it's released")
     false
   }
-}

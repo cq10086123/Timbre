@@ -50,15 +50,11 @@ public class WebDavCredentialResolver(
   }
 
   public fun byUri(uri: Uri): Resolved? {
-    return synchronized(lock) {
-      snapshot().firstOrNull { it.server.matches(uri) }
-    }
+    return snapshot().firstOrNull { it.server.matches(uri) }
   }
 
   public fun byId(id: String): Resolved? {
-    return synchronized(lock) {
-      snapshot().firstOrNull { it.server.id == id }
-    }
+    return snapshot().firstOrNull { it.server.id == id }
   }
 
   public fun invalidate() {
@@ -75,10 +71,10 @@ public class WebDavCredentialResolver(
    * was reinstalled and the keystore key is gone. They stay out of
    * [byUri]/[byId] until the user re-enters the password.
    */
-  public fun undecryptableServerIds(): Set<String> = synchronized(lock) {
+  public fun undecryptableServerIds(): Set<String> {
     val servers = allServersIfKnown()
     val usable = snapshot().mapTo(mutableSetOf()) { it.server.id }
-    servers
+    return servers
       .filter { it.id !in usable }
       .map { it.id }
       .toSet()
@@ -95,26 +91,45 @@ public class WebDavCredentialResolver(
   }
 
   private fun allServersIfKnown(): List<WebDavServer> {
-    if (allServers.isNotEmpty() || cache != null) {
-      return allServers
+    synchronized(lock) {
+      if (allServers.isNotEmpty() || cache != null) {
+        return allServers
+      }
     }
     // Cold path before the background collector lands (or an empty store).
-    return runBlocking { serversStore.data.first() }.also { allServers = it }
+    val servers = runBlocking { serversStore.data.first() }
+    synchronized(lock) {
+      if (allServers.isEmpty() && cache == null) {
+        allServers = servers
+      }
+      return allServers.ifEmpty { servers }
+    }
   }
 
   private fun snapshot(): List<Resolved> {
     val now = SystemClock.elapsedRealtime()
-    val cached = cache
-    if (cached != null && now - cached.first < TTL_MS) {
-      return cached.second
+    synchronized(lock) {
+      val cached = cache
+      if (cached != null && now - cached.first < TTL_MS) {
+        return cached.second
+      }
     }
+    // Store read + decrypt stay outside the lock so concurrent loader threads
+    // are not serialized behind one cold runBlocking.
     val servers = runBlocking { serversStore.data.first() }
     val resolved = servers.mapNotNull { server ->
       secrets.decrypt(server.encryptedPassword)?.let { Resolved(server, it) }
     }
-    allServers = servers
-    cache = now to resolved
-    return resolved
+    synchronized(lock) {
+      // another thread may have filled a fresher snapshot while we decrypted
+      val cached = cache
+      if (cached != null && now - cached.first < TTL_MS) {
+        return cached.second
+      }
+      allServers = servers
+      cache = SystemClock.elapsedRealtime() to resolved
+      return resolved
+    }
   }
 
   private companion object {

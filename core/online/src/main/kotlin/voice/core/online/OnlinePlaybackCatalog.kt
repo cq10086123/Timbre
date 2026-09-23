@@ -549,18 +549,24 @@ public class OnlinePlaybackCatalog(
   /**
    * Drops the url cached for [ref]. The data source calls this when the server
    * rejects a url: direct links are signed and expire, so the next resolve has
-   * to ask the source for a fresh one. Returns whether a url was cached - only
-   * then is a retry likely to help.
+   * to ask the source for a fresh one.
+   *
+   * Always returns true so [OnlineStreamingDataSource] retries once: a resolve
+   * that raced an earlier invalidate may have handed out a url without putting
+   * it in the cache, and waiters of a cancelled in-flight job need the same
+   * second chance as a plain cache hit.
    */
   public fun invalidateStreamUrl(ref: OnlineChapterRef): Boolean {
     val chapterUri = OnlineUri.build(ref.source, ref.bookId, ref.chapterId)
     // bump the epoch before clearing so an in-flight resolve that still holds
     // the rejected url cannot publish it back into the cache
     streamUrlEpoch.merge(chapterUri, 1) { current, _ -> current + 1 }
+    // drop the slot so the retry does not await the doomed in-flight job
     inFlightResolves.remove(chapterUri)
-    return synchronized(stateLock) {
-      streamUrls.remove(chapterUri) != null
+    synchronized(stateLock) {
+      streamUrls.remove(chapterUri)
     }
+    return true
   }
 
   private fun cachedStreamUrl(chapterUri: String): String? {
