@@ -150,7 +150,7 @@ class OnlineBookCacheManagerTest {
     assertEquals(2, confirmation.chapters)
     assertEquals(true, state()?.awaitingConfirmation)
     // nothing is resolved (and nothing downloaded) before the answer
-    coVerify(exactly = 0) { catalog.resolveStreamUrl(any()) }
+    coVerify(exactly = 0) { val _ = catalog.resolveStreamUrl(any()) }
     assertEquals(0, fileCache.cachedFileCount("A", "b1"))
 
     manager.confirmMeteredCache()
@@ -168,13 +168,13 @@ class OnlineBookCacheManagerTest {
     coEvery { catalog.resolveStreamUrl(any()) } returns server.url("/audio.mp3").toString()
 
     manager.cacheUpcoming(bookId, 2)
-    awaitConfirmation()
+    val _ = awaitConfirmation()
     manager.declineMeteredCache()
     await("the declined job to disappear") { state() == null && jobsStore.current.isEmpty() }
 
     assertNull(manager.meteredConfirmation.value)
     assertEquals(0, fileCache.cachedFileCount("A", "b1"))
-    coVerify(exactly = 0) { catalog.resolveStreamUrl(any()) }
+    coVerify(exactly = 0) { val _ = catalog.resolveStreamUrl(any()) }
     // a declined job must not come back on the next start
     assertTrue(jobsStore.current.isEmpty())
   }
@@ -209,7 +209,7 @@ class OnlineBookCacheManagerTest {
     // a cache started on wifi must not continue on mobile data unasked
     val confirmation = awaitConfirmation()
     assertEquals(bookId.value, confirmation.bookUri)
-    coVerify(exactly = 0) { catalog.resolveStreamUrl(any()) }
+    coVerify(exactly = 0) { val _ = catalog.resolveStreamUrl(any()) }
 
     manager.confirmMeteredCache()
     await("the chapter to be cached after the confirmation") {
@@ -266,16 +266,16 @@ class OnlineBookCacheManagerTest {
     coEvery { catalog.resolveStreamUrl(any()) } returns server.url("/audio.mp3").toString()
 
     manager.cacheUpcoming(bookId, 2)
-    awaitConfirmation()
+    val _ = awaitConfirmation()
 
     // the user does not answer at all but clears the cache of the book
-    manager.clearBook(bookId)
+    val _ = manager.clearBook(bookId)
     await("the metered question to be dropped") { manager.meteredConfirmation.value == null }
     manager.confirmMeteredCache()
     await("the cleared job to stay gone") { state() == null && jobsStore.current.isEmpty() }
 
     // neither the clear nor a later confirmation may start a download
-    coVerify(exactly = 0) { catalog.resolveStreamUrl(any()) }
+    coVerify(exactly = 0) { val _ = catalog.resolveStreamUrl(any()) }
     assertEquals(0, fileCache.cachedFileCount("A", "b1"))
   }
 
@@ -343,11 +343,13 @@ class OnlineBookCacheManagerTest {
   /** Wall-clock wait for the metered question; the job suspends until it is answered. */
   private suspend fun awaitConfirmation(): OnlineCacheConfirmation = withContext(Dispatchers.IO) {
     val mark = TimeSource.Monotonic.markNow()
-    while (true) {
-      manager.meteredConfirmation.value?.let { return@withContext it }
+    var confirmation = manager.meteredConfirmation.value
+    while (confirmation == null) {
       check(mark.elapsedNow() < 15_000.milliseconds) { "no metered confirmation appeared" }
       Thread.sleep(25)
+      confirmation = manager.meteredConfirmation.value
     }
+    confirmation
   }
 
   private class FakeStore<T>(initial: T) : DataStore<T> {
