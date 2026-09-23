@@ -150,7 +150,7 @@ class OnlineBookActionsViewModel(
       return
     }
     scope.launch {
-      runCatching { cacheManager.clearBook(current.bookId) }
+      val _ = runCatching { cacheManager.clearBook(current.bookId) }
       reloadCacheInfo(current.bookId)
     }
   }

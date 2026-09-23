@@ -70,12 +70,14 @@ private fun OnlineChapterRefreshResult.toMessage(): String {
       stringResource(StringsR.string.online_refresh_updated, added, total)
     is OnlineChapterRefreshResult.UpToDate ->
       stringResource(StringsR.string.online_refresh_uptodate, total)
-    is OnlineChapterRefreshResult.Failed ->
-      if (message.isNullOrBlank()) {
+    is OnlineChapterRefreshResult.Failed -> {
+      val failureMessage: String? = message
+      if (failureMessage.isNullOrBlank()) {
         stringResource(StringsR.string.online_refresh_failed_unknown)
       } else {
-        stringResource(StringsR.string.online_refresh_failed, message)
+        stringResource(StringsR.string.online_refresh_failed, failureMessage)
       }
+    }
   }
 }
 
