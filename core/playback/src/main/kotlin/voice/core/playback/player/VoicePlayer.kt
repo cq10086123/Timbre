@@ -457,7 +457,9 @@ class VoicePlayer(
         // Player scope outlives this withContext so the resolve keeps running
         // after prepareBook returns; cancelled on stop/clear/setBook.
         streamPrefetchJob = scope.launch(dispatcherProvider.io) {
-          runCatching { onlinePlaybackCatalog.resolveStreamUrl(ref) }
+          // warm the resolver cache; a failure here is harmless because
+          // playback resolves the url again when it opens the stream
+          val _ = runCatching { onlinePlaybackCatalog.resolveStreamUrl(ref) }
         }
       }
     }
