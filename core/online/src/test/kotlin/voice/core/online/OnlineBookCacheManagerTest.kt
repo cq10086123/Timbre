@@ -144,8 +144,8 @@ class OnlineBookCacheManagerTest {
     awaitIdle()
 
     // one single-episode server task per chapter, not one task for the window
-    coVerify { service.submitDownload("b1", 2, 2) }
-    coVerify { service.submitDownload("b1", 3, 3) }
+    coVerify { val _ = service.submitDownload("b1", 2, 2) }
+    coVerify { val _ = service.submitDownload("b1", 3, 3) }
   }
 
   @Test
