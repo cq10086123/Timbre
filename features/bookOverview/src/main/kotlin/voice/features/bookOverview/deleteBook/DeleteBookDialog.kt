@@ -19,6 +19,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import voice.features.bookOverview.formatBytes
 import voice.core.strings.R as StringsR
 
 @Composable
@@ -60,13 +61,41 @@ internal fun DeleteBookDialog(
     },
     text = {
       Column {
-        Text(stringResource(id = StringsR.string.book_delete_dialog_message))
+        // an online book has no files on the device, but deleting it drops its
+        // manually cached episodes: the generic "the audio stays on your
+        // device" message would be a lie here
+        Text(
+          stringResource(
+            id = if (viewState.isOnlineBook) {
+              StringsR.string.book_delete_dialog_message_online
+            } else {
+              StringsR.string.book_delete_dialog_message
+            },
+          ),
+        )
 
-        Spacer(modifier = Modifier.heightIn(8.dp))
-        Text(viewState.fileToDelete, style = MaterialTheme.typography.bodyLarge)
+        if (viewState.fileToDelete.isNotBlank()) {
+          Spacer(modifier = Modifier.heightIn(8.dp))
+          Text(viewState.fileToDelete, style = MaterialTheme.typography.bodyLarge)
+        }
 
-        // remote books have no local files: offering their deletion would
-        // promise something the app cannot do
+        // how much of the cache disappears with the book, instead of leaving
+        // that in the dark
+        if (viewState.cachedChapters > 0) {
+          Spacer(modifier = Modifier.heightIn(8.dp))
+          Text(
+            text = stringResource(
+              id = StringsR.string.book_delete_dialog_cached,
+              viewState.cachedChapters,
+              formatBytes(viewState.cachedBytes),
+            ),
+            style = MaterialTheme.typography.bodyMedium,
+          )
+        }
+
+        // remote (webdav) and online books have no local files: offering their
+        // deletion would promise something the app cannot do. Their cached
+        // episodes are removed either way, as the message above says.
         if (viewState.canDeleteFiles) {
           Row(
             verticalAlignment = Alignment.CenterVertically,

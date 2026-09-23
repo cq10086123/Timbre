@@ -12,6 +12,10 @@
     <string name="book.delete.dialog.confirm_files">Also delete my files</string>
     <!-- Message in the delete-book confirmation dialog. Removing a book from the shelf keeps its files. -->
     <string name="book.delete.dialog.message">Removes the book from your shelf. The audio files stay on your device.</string>
+    <!-- Message in the delete-book confirmation dialog for an online book: its manually cached episodes are deleted too. -->
+    <string name="book.delete.dialog.message_online">Removes the book from your shelf. Its cached episodes are deleted as well.</string>
+    <!-- Shows how much of an online book is cached, so the delete dialog does not hide the files it removes. -->
+    <string name="book.delete.dialog.cached">Cached episodes: %1$d · %2$s</string>
     <!-- Title for the delete-book confirmation dialog. -->
     <string name="book.delete.dialog.title">Delete Book</string>
     <!-- Bottom-sheet item for choosing a cover from local files. -->
@@ -289,10 +293,17 @@
     <string name="online.cache.count_label">Episodes to cache</string>
     <string name="online.cache.all">All</string>
     <string name="online.cache.start">Start caching</string>
-    <string name="online.cache.downloading">Caching: %1$d / %2$d…</string>
+    <string name="online.cache.downloading">Caching: %1$d / %2$d (%3$d%%)</string>
+    <string name="online.cache.stop">Stop caching</string>
+    <string name="online.cache.awaiting_confirmation">Paused: waiting for your confirmation to cache over mobile data</string>
     <string name="online.cache.failed_count">Failed: %1$d</string>
-    <string name="online.cache.clear">Clear the cache of this book</string>
-    <string name="online.cache.clear_confirm">Tap again to confirm clearing</string>
+    <string name="online.cache.clear">Clear cache</string>
+    <string name="online.cache.clear_confirm">Tap again to clear</string>
+    <string name="online.cache.metered_title">Currently on mobile data</string>
+    <string name="online.cache.metered_message">The active network is mobile data. Continuing to cache will use up your data volume.</string>
+    <string name="online.cache.metered_book">Book: %1$s</string>
+    <string name="online.cache.metered_chapters">Episodes this run will cache: %1$d</string>
+    <string name="online.cache.metered_confirm">Continue caching</string>
     <string name="online.cache.offline_hint">Cached episodes play offline; the rest keeps streaming.</string>
     <string name="online.cache.delay_label">Episode interval</string>
     <string name="online.cache.delay_hint">Wait a few seconds after each episode before downloading the next one, to avoid rate-limit failures.</string>

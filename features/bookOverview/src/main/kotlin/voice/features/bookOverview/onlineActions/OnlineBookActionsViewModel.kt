@@ -143,6 +143,10 @@ class OnlineBookActionsViewModel(
       ?.takeIf { it > 0 }
       ?: current.selectedCount
     val delaySeconds = current.customDelay.toIntOrNull() ?: current.delaySeconds
+    // a new job must not inherit an armed clear of the previous one
+    _cacheDialog.value = current.copy(clearArmed = false)
+    // the manager publishes the running job before its first network call, so
+    // the sheet shows its progress bar right away
     cacheManager.cacheUpcoming(current.bookId, count.coerceAtMost(remaining), delaySeconds)
   }
 
