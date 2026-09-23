@@ -1,5 +1,6 @@
 package voice.core.online
 
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 /** One source (interface) exposed by the download site: /api/interfaces. */
@@ -56,6 +57,8 @@ public data class FilesAlbum(
   val name: String = "",
   val count: Int = 0,
   val files: List<FilesEntry> = emptyList(),
+  /** Main-catalog album id recorded by the site, when known. */
+  @SerialName("album_id") val albumId: String = "",
 )
 
 /** One downloaded file entry. */
@@ -64,4 +67,6 @@ public data class FilesEntry(
   val name: String = "",
   val path: String = "",
   val size: Long = 0,
+  /** Main-catalog track id recorded by the site, when known. */
+  @SerialName("track_id") val trackId: String = "",
 )

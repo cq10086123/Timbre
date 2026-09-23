@@ -771,7 +771,7 @@ public class OnlinePlaybackCatalog(
     val deadline = SystemClock.elapsedRealtime() + RESOLVE_TIMEOUT_MS
     var taskId: String? = null
     while (true) {
-      findDownloadedFile(title, episode)?.let { return it }
+      findDownloadedFile(ref.bookId, ref.chapterId, title, episode)?.let { return it }
       if (SystemClock.elapsedRealtime() >= deadline) break
       if (taskId == null) {
         taskId = service.submitDownload(ref.bookId, episode, endEpisode)
@@ -785,12 +785,30 @@ public class OnlinePlaybackCatalog(
     return fail(ref, OnlinePlaybackErrorKind.NETWORK, "The download did not finish in time")
   }
 
-  /** The streaming url of the downloaded file for [episode], or null. */
+  /** The streaming url of the downloaded file for [chapterId], or null. */
   private suspend fun findDownloadedFile(
+    bookId: String,
+    chapterId: String,
     bookTitle: String,
     episode: Int,
   ): String? {
     val albums = cachedDownloadedAlbums() ?: return null
+
+    // Exact identity first: the site records album_id/track_id per downloaded
+    // file, so the chapter can be found without any guessing. A track id is
+    // globally unique, so this can never pick another book's audio.
+    if (chapterId.isNotEmpty()) {
+      val byId = albums
+        .filter { it.albumId.isEmpty() || it.albumId == bookId }
+        .firstNotNullOfOrNull { album ->
+          album.files.firstOrNull { it.trackId == chapterId }?.let { file ->
+            album to file
+          }
+        }
+      if (byId != null) return service.downloadedFileUrl(byId.second.path)
+    }
+
+    // Legacy files without recorded ids fall back to title + episode matching.
     val candidates = albums.mapNotNull { album ->
       val file = album.files
         .filter { fileMatchesEpisode(it.name, episode) }
