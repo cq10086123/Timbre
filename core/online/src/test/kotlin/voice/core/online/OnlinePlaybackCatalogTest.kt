@@ -6,14 +6,14 @@ import io.mockk.coVerify
 import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.yield
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.TimeSource
 import voice.core.data.BookId
 import voice.core.data.ChapterId
 import kotlin.test.Test
@@ -343,19 +343,20 @@ class OnlinePlaybackCatalogTest {
   }
 
   /**
-   * Waits for the real IO persistenceScope to land [chapterId]. Uses wall-clock
-   * delay (not Thread.sleep) so the suite stays interruptible under CI load.
+   * Waits for the real IO [OnlinePlaybackCatalog] persistenceScope to land
+   * [chapterId]. Must use wall-clock time: runTest's withTimeout/delay are
+   * virtual and never let the real IO dispatcher finish.
    */
   private suspend fun awaitStoreChapter(
     store: FakeBooksStore,
     chapterId: String,
-  ) {
-    withTimeout(5_000) {
-      withContext(Dispatchers.IO) {
-        while (store.data.first().firstOrNull()?.currentChapterId != chapterId) {
-          delay(10)
-        }
+  ) = withContext(Dispatchers.IO) {
+    val mark = TimeSource.Monotonic.markNow()
+    while (store.data.first().firstOrNull()?.currentChapterId != chapterId) {
+      check(mark.elapsedNow() < 5_000.milliseconds) {
+        "the position was never persisted to $chapterId"
       }
+      Thread.sleep(10)
     }
   }
 
