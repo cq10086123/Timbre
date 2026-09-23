@@ -206,33 +206,57 @@ class MediaItemProvider(
   }
 
   /**
-   * The media ids of the first [limit] playback items of [book], in playlist
-   * order. Used to check that an existing playlist is still a prefix of the
-   * book without assembling every item of a big book.
+   * The media ids of [limit] playback items of [book] starting at global index
+   * [fromItemIndex], in playlist order. Used to check that an existing
+   * playlist is still a prefix (or a mid-book window) of the book without
+   * assembling every item of a big book.
    */
   internal fun playbackItemIds(
     book: Book,
     limit: Int,
+    fromItemIndex: Int = 0,
   ): List<String> {
+    if (limit <= 0) return emptyList()
     val ids = ArrayList<String>(limit)
     var index = 0
     bookChapters@ for (chapter in book.chapters) {
       for (markIndex in chapter.chapterMarks.indices) {
-        if (index >= limit) {
+        if (index >= fromItemIndex + limit) {
           break@bookChapters
         }
-        val mediaId = MediaId.ChapterMark(
-          bookId = book.id,
-          chapterId = chapter.id,
-          markIndex = markIndex,
-          startMs = chapter.chapterMarks[markIndex].startMs,
-          endMs = chapter.chapterMarks[markIndex].endMs,
-        )
-        ids += Json.encodeToString(MediaId.serializer(), mediaId)
+        if (index >= fromItemIndex) {
+          val mark = chapter.chapterMarks[markIndex]
+          val mediaId = MediaId.ChapterMark(
+            bookId = book.id,
+            chapterId = chapter.id,
+            markIndex = markIndex,
+            startMs = mark.startMs,
+            endMs = mark.endMs,
+          )
+          ids += Json.encodeToString(MediaId.serializer(), mediaId)
+        }
         index++
       }
     }
     return ids
+  }
+
+  /** Global playlist index of [mediaId] in [book], or null when not a mark of it. */
+  internal fun indexOfPlaybackItem(
+    book: Book,
+    mediaId: String,
+  ): Int? {
+    val parsed = mediaId.toMediaIdOrNull() as? MediaId.ChapterMark ?: return null
+    if (parsed.bookId != book.id) return null
+    var index = 0
+    for (chapter in book.chapters) {
+      if (chapter.id == parsed.chapterId) {
+        if (parsed.markIndex !in chapter.chapterMarks.indices) return null
+        return index + parsed.markIndex
+      }
+      index += chapter.chapterMarks.size
+    }
+    return null
   }
 
   suspend fun children(id: String): List<MediaItem>? {

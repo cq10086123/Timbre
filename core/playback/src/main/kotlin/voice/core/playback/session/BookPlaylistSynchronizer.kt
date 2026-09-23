@@ -110,6 +110,14 @@ class BookPlaylistSynchronizer(
       }
     }
 
+    // VoicePlayer may install a mid-book resume window (not a prefix of the
+    // full playlist). Replacing it with the full list here would undo that
+    // optimization on the next content emission and race expandPlaylist.
+    // Leave windowed playlists alone; VoicePlayer owns expanding them.
+    if (isContiguousSliceOf(book, player, playlistSize)) {
+      return
+    }
+
     // the chapters changed in a way that can't be appended. Keep the current
     // chapter and its position, otherwise the playback would restart.
     val currentMediaId = player.currentMediaItem?.mediaId ?: return
@@ -122,6 +130,31 @@ class BookPlaylistSynchronizer(
     player.setMediaItems(items, currentIndex, player.currentPosition)
     syncedItemIds = items.map { it.mediaId }
     syncedChapters = book.content.chapters
+  }
+
+  /**
+   * True when the player's items are a contiguous mid-book range of [book]
+   * (a [MediaItemProvider.playbackItemsWindow]), not the leading prefix this
+   * synchronizer knows how to extend.
+   */
+  private fun isContiguousSliceOf(
+    book: voice.core.data.Book,
+    player: Player,
+    playlistSize: Int,
+  ): Boolean {
+    if (playlistSize <= 0) return false
+    val firstId = player.getMediaItemAt(0).mediaId
+    val startIndex = mediaItemProvider.indexOfPlaybackItem(book, firstId) ?: return false
+    if (startIndex == 0) return false
+    val expected = mediaItemProvider.playbackItemIds(
+      book = book,
+      fromItemIndex = startIndex,
+      limit = playlistSize,
+    )
+    if (expected.size != playlistSize) return false
+    return expected.indices.all { index ->
+      player.getMediaItemAt(index).mediaId == expected[index]
+    }
   }
 
   private fun Player.currentBookId(): BookId? {
