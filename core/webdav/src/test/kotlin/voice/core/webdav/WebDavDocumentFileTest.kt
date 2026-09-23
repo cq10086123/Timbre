@@ -26,7 +26,7 @@ class WebDavDocumentFileTest {
     server = MockWebServer()
     server.start()
     serversStore = MemoryDataStore(listOf(serverConfig(password = "secret")))
-    resolver = WebDavCredentialResolver(serversStore, testWebDavSecrets())
+    resolver = testWebDavCredentialResolver(serversStore, testWebDavSecrets())
   }
 
   @After

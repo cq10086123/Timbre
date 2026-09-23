@@ -119,7 +119,7 @@ class WebDavRemoteBookSourcesTest {
     val withoutServer = WebDavRemoteBookSources(
       sourcesStore = sources,
       client = WebDavClient(),
-      resolver = WebDavCredentialResolver(
+      resolver = testWebDavCredentialResolver(
         serversStore = MemoryDataStore(emptyList()),
         secrets = testWebDavSecrets(),
       ),
@@ -208,7 +208,7 @@ class WebDavRemoteBookSourcesTest {
     return WebDavRemoteBookSources(
       sourcesStore = sources,
       client = WebDavClient(),
-      resolver = WebDavCredentialResolver(
+      resolver = testWebDavCredentialResolver(
         serversStore = MemoryDataStore(
           listOf(
             WebDavServer(

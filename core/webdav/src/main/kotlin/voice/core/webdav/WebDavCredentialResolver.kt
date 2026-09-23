@@ -7,19 +7,22 @@ import androidx.datastore.core.DataStore
 import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 
 /**
  * Resolves the credentials of a configured server for a given uri. Reads of
- * the store are cached for a short time because data sources resolve on every
- * open, which happens on loader threads.
+ * the store are cached and kept warm in the background because data sources
+ * resolve on every open, which happens on loader threads.
  */
 @SingleIn(AppScope::class)
 @Inject
 public class WebDavCredentialResolver(
   @WebDavServersStore private val serversStore: DataStore<List<WebDavServer>>,
   private val secrets: WebDavSecrets,
+  scope: CoroutineScope,
 ) {
 
   public data class Resolved(
@@ -29,6 +32,16 @@ public class WebDavCredentialResolver(
 
   private val lock = Any()
   private var cache: Pair<Long, List<Resolved>>? = null
+  private var allServers: List<WebDavServer> = emptyList()
+
+  init {
+    // Keep the snapshot warm so playback/loader threads rarely hit runBlocking.
+    scope.launch {
+      serversStore.data.collect { servers ->
+        replaceCache(servers)
+      }
+    }
+  }
 
   public fun byUri(uri: Uri): Resolved? {
     return synchronized(lock) {
@@ -43,6 +56,9 @@ public class WebDavCredentialResolver(
   }
 
   public fun invalidate() {
+    // Drop the TTL window so the next lookup re-decrypts (e.g. after a password
+    // re-entry). The background collector will also refresh when the store
+    // emits; this covers the gap before that emission is observed.
     synchronized(lock) {
       cache = null
     }
@@ -54,11 +70,30 @@ public class WebDavCredentialResolver(
    * [byUri]/[byId] until the user re-enters the password.
    */
   public fun undecryptableServerIds(): Set<String> = synchronized(lock) {
+    val servers = allServersIfKnown()
     val usable = snapshot().mapTo(mutableSetOf()) { it.server.id }
-    runBlocking { serversStore.data.first() }
+    servers
       .filter { it.id !in usable }
       .map { it.id }
       .toSet()
+  }
+
+  private fun replaceCache(servers: List<WebDavServer>) {
+    val resolved = servers.mapNotNull { server ->
+      secrets.decrypt(server.encryptedPassword)?.let { Resolved(server, it) }
+    }
+    synchronized(lock) {
+      allServers = servers
+      cache = SystemClock.elapsedRealtime() to resolved
+    }
+  }
+
+  private fun allServersIfKnown(): List<WebDavServer> {
+    if (allServers.isNotEmpty() || cache != null) {
+      return allServers
+    }
+    // Cold path before the background collector lands (or an empty store).
+    return runBlocking { serversStore.data.first() }.also { allServers = it }
   }
 
   private fun snapshot(): List<Resolved> {
@@ -67,10 +102,11 @@ public class WebDavCredentialResolver(
     if (cached != null && now - cached.first < TTL_MS) {
       return cached.second
     }
-    val resolved = runBlocking { serversStore.data.first() }
-      .mapNotNull { server ->
-        secrets.decrypt(server.encryptedPassword)?.let { Resolved(server, it) }
-      }
+    val servers = runBlocking { serversStore.data.first() }
+    val resolved = servers.mapNotNull { server ->
+      secrets.decrypt(server.encryptedPassword)?.let { Resolved(server, it) }
+    }
+    allServers = servers
     cache = now to resolved
     return resolved
   }

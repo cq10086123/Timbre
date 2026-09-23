@@ -5,6 +5,8 @@ import androidx.appcompat.app.AppCompatDelegate
 import androidx.datastore.core.DataStore
 import coil.Coil
 import coil.ImageLoader
+import coil.disk.DiskCache
+import coil.memory.MemoryCache
 import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.ContributesIntoSet
 import kotlinx.coroutines.CoroutineScope
@@ -25,7 +27,22 @@ class UIAppStartInitializer(
   override fun onAppStart(application: Application) {
     Coil.setImageLoader(
       ImageLoader.Builder(application)
+        // Cover files are rewritten under a stable path; last-modified keys
+        // thrash the disk cache after every cover scan without helping.
         .addLastModifiedToFileCacheKey(false)
+        // Shelf covers are small; keep more of them resident while scrolling.
+        .memoryCache {
+          MemoryCache.Builder(application)
+            .maxSizePercent(0.25)
+            .build()
+        }
+        .diskCache {
+          DiskCache.Builder()
+            .directory(application.cacheDir.resolve("image_cache"))
+            .maxSizeBytes(64L * 1024L * 1024L)
+            .build()
+        }
+        .crossfade(false)
         .build(),
     )
     themeModeStore.data
