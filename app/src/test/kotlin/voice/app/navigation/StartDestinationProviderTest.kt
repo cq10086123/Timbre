@@ -94,12 +94,16 @@ private class MemoryDataStore<T>(initial: T) : DataStore<T> {
   }
 }
 
-private class FakeAudiobookFolders(
-  private val hasFolders: Boolean,
-) : AudiobookFolders {
+private class FakeAudiobookFolders(private val hasFolders: Boolean) : AudiobookFolders {
   override fun all() = MutableStateFlow<Map<FolderType, List<DocumentFileWithUri>>>(emptyMap())
-  override suspend fun add(uri: Uri, type: FolderType) = Unit
-  override suspend fun remove(uri: Uri, folderType: FolderType) = Unit
+  override suspend fun add(
+    uri: Uri,
+    type: FolderType,
+  ) = Unit
+  override suspend fun remove(
+    uri: Uri,
+    folderType: FolderType,
+  ) = Unit
   override suspend fun removeBookRegistration(bookId: BookId) = Unit
   override suspend fun migrateLegacyFolders() = Unit
   override suspend fun hasAnyFolders(): Boolean = hasFolders
