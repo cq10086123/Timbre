@@ -287,9 +287,7 @@ class OnlineBookCacheManagerTest {
     }
   }
 
-  private fun TestScope.createManager(
-    jobs: List<OnlineCacheJob> = emptyList(),
-  ): OnlineBookCacheManager {
+  private fun TestScope.createManager(jobs: List<OnlineCacheJob> = emptyList()): OnlineBookCacheManager {
     jobsStore = FakeStore(jobs)
     return OnlineBookCacheManager(
       catalog = catalog,
