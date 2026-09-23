@@ -115,7 +115,7 @@ internal fun OnlineSearchSection(
       throw e
     } catch (e: Exception) {
       failed = true
-      offline = !hasValidatedNetwork(context)
+      offline = !hasNetwork(context)
       emptyList()
     }
     loading = false
@@ -335,7 +335,7 @@ private fun OnlineChaptersDialog(
     value = result.fold(
       onSuccess = { ChaptersUiState(loading = false, chapters = it) },
       onFailure = {
-        offline = !hasValidatedNetwork(context)
+        offline = !hasNetwork(context)
         ChaptersUiState(loading = false, failed = true, errorMessage = it.message)
       },
     )
@@ -502,7 +502,7 @@ private fun OnlineChaptersDialog(
 
 private const val CHAPTERS_PAGE_SIZE = 50
 
-private fun hasValidatedNetwork(context: Context): Boolean {
+private fun hasNetwork(context: Context): Boolean {
   val manager = context.getSystemService(ConnectivityManager::class.java) ?: return true
   val network = manager.activeNetwork ?: return false
   val capabilities = manager.getNetworkCapabilities(network) ?: return false

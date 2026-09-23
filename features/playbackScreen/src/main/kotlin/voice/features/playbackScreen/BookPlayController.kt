@@ -43,7 +43,7 @@ fun BookPlayScreen(bookId: BookId) {
   val batteryOptimizationMessage = stringResource(StringsR.string.playback_battery_optimization_rationale)
   val batteryOptimizationAction = stringResource(StringsR.string.playback_battery_optimization_action)
   val onlineNetworkErrorMessage = stringResource(
-    if (hasValidatedNetwork(context)) StringsR.string.playback_online_error_network
+    if (hasNetwork(context)) StringsR.string.playback_online_error_network
     else StringsR.string.playback_online_error_offline,
   )
   val onlineAuthErrorMessage = stringResource(StringsR.string.playback_online_error_auth)
@@ -130,7 +130,7 @@ fun BookPlayScreen(bookId: BookId) {
   }
 }
 
-private fun hasValidatedNetwork(context: Context): Boolean {
+private fun hasNetwork(context: Context): Boolean {
   val manager = context.getSystemService(ConnectivityManager::class.java) ?: return true
   val network = manager.activeNetwork ?: return false
   val capabilities = manager.getNetworkCapabilities(network) ?: return false
