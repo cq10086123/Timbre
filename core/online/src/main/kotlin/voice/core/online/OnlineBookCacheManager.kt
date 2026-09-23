@@ -11,6 +11,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -134,17 +135,29 @@ public class OnlineBookCacheManager(
    * Caches the next [count] chapters starting at the chapter in progress
    * (inclusive, so going offline mid-chapter keeps playing). Already cached
    * chapters are skipped. Replaces a running job of the same book.
+   *
+   * For the main catalog every episode is submitted as its own server task and
+   * [delaySeconds] spaces the submissions: the account cools down between
+   * episodes instead of hammering the source with a whole window up front
+   * (which gets rate limited and fails).
    */
   public fun cacheUpcoming(
     bookId: BookId,
     count: Int,
+    delaySeconds: Int = 0,
   ) {
     val bookRef = OnlineUri.parseBookUri(bookId.value) ?: return
     val generation = (generations[bookId.value] ?: 0) + 1
     generations[bookId.value] = generation
     jobs[bookId.value]?.cancel()
     val job = scope.launch {
-      runCaching(bookId, bookRef, count.coerceIn(1, MAX_MANUAL_CACHE), generation)
+      runCaching(
+        bookId,
+        bookRef,
+        count.coerceIn(1, MAX_MANUAL_CACHE),
+        generation,
+        delaySeconds.coerceIn(0, MAX_EPISODE_DELAY_SECONDS),
+      )
     }
     jobs[bookId.value] = job
     job.invokeOnCompletion { jobs.remove(bookId.value, job) }
@@ -198,6 +211,7 @@ public class OnlineBookCacheManager(
     bookRef: OnlineBookRef,
     count: Int,
     generation: Int,
+    delaySeconds: Int,
   ) {
     val bookUri = bookId.value
     val book = catalog.lookupOnlineBook(bookRef.source, bookRef.bookId)
@@ -212,26 +226,13 @@ public class OnlineBookCacheManager(
       ?.let { id -> chapters.indexOfFirst { it.id == id } }
       ?.takeIf { it >= 0 } ?: 0
     val window = chapters.drop(startIndex).take(count)
-    // main catalog: ask the server for the whole window up front, so the
-    // per-chapter resolve below finds files instead of submitting and polling
-    // one small batch per chapter
-    if (bookRef.source == OnlineSourceClient.SOURCE_MAIN && window.isNotEmpty()) {
-      val _ = runCatching {
-        // The official download API uses album positions. Do not parse numbers
-        // from titles: a title can contain a volume or year and point the
-        // cache at a different episode while the chapter list looks correct.
-        val startEpisode = window.first().order.takeIf { it > 0 } ?: (startIndex + 1)
-        val lastEpisode = window.last().order.takeIf { it > 0 }
-          ?: (startIndex + window.size)
-        service.submitDownload(bookRef.bookId, startEpisode, lastEpisode.coerceAtLeast(startEpisode))
-      }
-    }
     setState(bookUri, generation, OnlineCacheState(bookUri, window.size, 0, 0, true))
     try {
       var done = 0
       var failed = 0
       var consecutiveFailures = 0
-      for (chapter in window) {
+      var submittedAny = false
+      for ((offset, chapter) in window.withIndex()) {
         coroutineContext.ensureActive()
         val ref = OnlineChapterRef(bookRef.source, bookRef.bookId, chapter.id)
         updateState(bookUri, generation) { it.copy(currentTitle = chapter.title) }
@@ -240,6 +241,18 @@ public class OnlineBookCacheManager(
           consecutiveFailures = 0
           updateState(bookUri, generation) { it.copy(done = done, failed = failed) }
           continue
+        }
+        // main catalog: submit this episode as its own server task, one at a
+        // time. The configured per-episode delay lets the account cool down
+        // between downloads instead of submitting the whole window up front
+        // (which gets rate limited and fails). A 409 - the previous episode's
+        // task still holding the slot - is expected and harmless: the resolve
+        // below keeps polling until the file appears.
+        if (bookRef.source == OnlineSourceClient.SOURCE_MAIN) {
+          if (submittedAny && delaySeconds > 0) delay(delaySeconds * 1_000L)
+          val episode = chapter.order.takeIf { it > 0 } ?: (startIndex + offset + 1)
+          val _ = runCatching { service.submitDownload(bookRef.bookId, episode, episode) }
+          submittedAny = true
         }
         // resolveStreamUrl reports failures as null and only throws on
         // cancellation, so no runCatching: it would swallow the cancellation
@@ -364,6 +377,9 @@ public class OnlineBookCacheManager(
   private companion object {
     /** Upper bound of one manual cache job; the window is capped by the book anyway. */
     const val MAX_MANUAL_CACHE = 10_000
+
+    /** Upper bound of the per-episode delay (5 minutes): a typo must not stall a cache for hours. */
+    const val MAX_EPISODE_DELAY_SECONDS = 300
 
     /** A dead network fails fast instead of grinding through the whole window. */
     const val ABORT_AFTER_CONSECUTIVE_FAILURES = 5

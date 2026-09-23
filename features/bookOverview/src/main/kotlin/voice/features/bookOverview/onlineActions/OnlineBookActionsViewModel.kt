@@ -33,6 +33,8 @@ internal data class OnlineCacheDialogState(
   val info: OnlineCachedInfo?,
   val selectedCount: Int = DEFAULT_CACHE_COUNT,
   val customCount: String = "",
+  val delaySeconds: Int = DEFAULT_CACHE_DELAY_SECONDS,
+  val customDelay: String = "",
   val clearArmed: Boolean = false,
   val loading: Boolean = true,
 )
@@ -119,6 +121,16 @@ class OnlineBookActionsViewModel(
     _cacheDialog.value = current.copy(customCount = text.filter { it.isDigit() }.take(5))
   }
 
+  internal fun onSelectDelay(seconds: Int) {
+    val current = _cacheDialog.value ?: return
+    _cacheDialog.value = current.copy(delaySeconds = seconds, customDelay = "")
+  }
+
+  internal fun onCustomDelayChange(text: String) {
+    val current = _cacheDialog.value ?: return
+    _cacheDialog.value = current.copy(customDelay = text.filter { it.isDigit() }.take(3))
+  }
+
   internal fun onStartCache() {
     val current = _cacheDialog.value ?: return
     val info = current.info
@@ -130,7 +142,8 @@ class OnlineBookActionsViewModel(
     val count = current.customCount.toIntOrNull()
       ?.takeIf { it > 0 }
       ?: current.selectedCount
-    cacheManager.cacheUpcoming(current.bookId, count.coerceAtMost(remaining))
+    val delaySeconds = current.customDelay.toIntOrNull() ?: current.delaySeconds
+    cacheManager.cacheUpcoming(current.bookId, count.coerceAtMost(remaining), delaySeconds)
   }
 
   internal fun onCancelCache() {
@@ -159,3 +172,8 @@ class OnlineBookActionsViewModel(
 internal const val DEFAULT_CACHE_COUNT = 100
 
 internal val CACHE_COUNT_PRESETS = listOf(50, 100, 200, 500)
+
+/** 0 = no delay (submissions back to back, the original behavior). */
+internal const val DEFAULT_CACHE_DELAY_SECONDS = 0
+
+internal val CACHE_DELAY_PRESETS = listOf(0, 2, 5, 10)

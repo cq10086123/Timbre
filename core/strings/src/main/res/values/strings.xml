@@ -294,6 +294,11 @@
     <string name="online.cache.clear">Clear the cache of this book</string>
     <string name="online.cache.clear_confirm">Tap again to confirm clearing</string>
     <string name="online.cache.offline_hint">Cached episodes play offline; the rest keeps streaming.</string>
+    <string name="online.cache.delay_label">Episode interval</string>
+    <string name="online.cache.delay_hint">Wait a few seconds after each episode before downloading the next one, to avoid rate-limit failures.</string>
+    <string name="online.cache.delay_none">No delay</string>
+    <string name="online.cache.delay_seconds">%1$d s</string>
+    <string name="online.cache.delay_seconds_custom">Custom interval (s)</string>
     <string name="playback.online.error.network">Could not reach the online source. Check the connection and the server address.</string>
     <string name="playback.online.error.offline">You are currently offline. Online audio is unavailable.</string>
     <string name="playback.online.error.auth">The online source key was rejected. Update it in the settings.</string>
