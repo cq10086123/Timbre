@@ -76,11 +76,24 @@ internal fun Book.playbackItemForPosition(
   chapterId: ChapterId,
   positionInChapterMs: Long,
 ): PlaybackItem? {
+  // O(chapters) without allocating every PlaybackItem of a long book — setBook
+  // used to build the full list twice (once here, once for media items).
   val chapter = chapters.firstOrNull { it.id == chapterId } ?: return null
   val mark = chapter.markForPosition(positionInChapterMs)
-  return playbackItems().firstOrNull {
-    it.chapter.id == chapterId && it.mark == mark
+  val markIndex = chapter.chapterMarks.indexOf(mark)
+  if (markIndex < 0) return null
+  var index = markIndex
+  for (previous in chapters) {
+    if (previous.id == chapterId) break
+    index += previous.chapterMarks.size
   }
+  return PlaybackItem(
+    index = index,
+    bookId = id,
+    chapter = chapter,
+    markIndex = markIndex,
+    mark = mark,
+  )
 }
 
 /**

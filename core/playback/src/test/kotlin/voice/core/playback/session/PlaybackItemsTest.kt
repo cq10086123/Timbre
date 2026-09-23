@@ -106,6 +106,37 @@ class PlaybackItemsTest {
     assertEquals(expected = emptyList(), actual = book.playbackItems(fromItemIndex = 1))
   }
 
+  @Test
+  fun `playback item for position does not need the full list`() {
+    val chapters = (0 until 8).map { i ->
+      chapter(duration = 10_000, MarkData(startMs = 0, name = "C$i"))
+    }
+    val book = book(chapters)
+    val target = chapters[5]
+    val item = book.playbackItemForPosition(target.id, 1_000)
+    assertEquals(expected = 5, actual = item?.index)
+    assertEquals(expected = target.id, actual = item?.chapter?.id)
+    assertEquals(expected = 1_000, actual = item?.positionInMediaItem(1_000))
+  }
+
+  @Test
+  fun `window around a resume index keeps global item indexes`() {
+    // mirrors MediaItemProvider.playbackItemsWindow: from = center-radius
+    val chapters = (0 until 100).map { i ->
+      chapter(duration = 10_000, MarkData(startMs = 0, name = "C$i"))
+    }
+    val book = book(chapters)
+    val center = 50
+    val radius = 24
+    val from = (center - radius).coerceAtLeast(0)
+    val toExclusive = (center + radius + 1).coerceAtMost(100)
+    val window = book.playbackItems(fromItemIndex = from).take(toExclusive - from)
+    assertEquals(expected = 49, actual = window.size)
+    assertEquals(expected = from, actual = window.first().index)
+    assertEquals(expected = center, actual = window[center - from].index)
+    assertEquals(expected = toExclusive - 1, actual = window.last().index)
+  }
+
   private fun chapter(
     @Suppress("SameParameterValue") duration: Long,
     vararg marks: MarkData,

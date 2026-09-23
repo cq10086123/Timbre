@@ -9,6 +9,8 @@ import androidx.media3.exoplayer.ExoPlayer
 import dev.zacsweers.metro.Inject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -24,10 +26,12 @@ import voice.core.data.store.CurrentBookStore
 import voice.core.data.store.SeekTimeStore
 import voice.core.logging.api.Logger
 import voice.core.online.OnlinePlaybackCatalog
+import voice.core.online.OnlineUri
 import voice.core.playback.misc.Decibel
 import voice.core.playback.misc.VolumeGain
 import voice.core.playback.session.MediaId
 import voice.core.playback.session.MediaItemProvider
+import voice.core.playback.session.bookId
 import voice.core.playback.session.playbackItemForPosition
 import voice.core.playback.session.positionInMediaItem
 import voice.core.playback.session.toMediaIdOrNull
@@ -307,6 +311,7 @@ class VoicePlayer(
   }
 
   private var setBookJob: Job? = null
+  private var playlistExpandJob: Job? = null
 
   // prepare()/play() arriving while setBook is still assembling ran on an
   // empty playlist and did nothing. The flag re-applies them once the items
@@ -320,12 +325,14 @@ class VoicePlayer(
 
   override fun stop() {
     setBookJob?.cancel()
+    playlistExpandJob?.cancel()
     pendingPrepare = false
     super.stop()
   }
 
   override fun clearMediaItems() {
     setBookJob?.cancel()
+    playlistExpandJob?.cancel()
     pendingPrepare = false
     super.clearMediaItems()
   }
@@ -376,50 +383,19 @@ class VoicePlayer(
     // (usually main) thread. Later calls win: an assembly still in flight is
     // cancelled so rapid book switches cannot apply out of order.
     setBookJob?.cancel()
+    playlistExpandJob?.cancel()
     pendingPrepare = false
     setBookJob = scope.launch {
       // a failed assembly (book deleted, position no longer resolvable) must
       // not re-prepare the previous book's stale playlist, so the trailing
       // prepare is gated on the items actually having been set
       var assembled = false
+      var expand: PreparedBook? = null
       val assemblyDuration = measureTime {
-        // one IO hop: load the book, resolve cover and build media items together
-        // so a cold online open does not bounce main↔io three times before sound
+        // one IO hop: load the book, window the playlist, resolve cover and
+        // (for online) prefetch the stream url so ExoPlayer's open hits cache
         val prepared = withContext(dispatcherProvider.io) {
-          // books of the online source live in their own store: the room
-          // lookup misses, the online catalog synthesizes the book instead
-          val book = repo.get(mediaId.id) ?: onlinePlaybackCatalog.book(mediaId.id)
-            ?: return@withContext null
-          val currentPlaybackItem = book.playbackItemForPosition(
-            chapterId = book.content.currentChapter,
-            positionInChapterMs = book.content.positionInChapter,
-          ) ?: return@withContext null
-          val onlineCover = if (onlinePlaybackCatalog.isOnlineBookId(book.id)) {
-            onlinePlaybackCatalog.onlineCover(book.id)?.takeIf { it.isNotBlank() }?.let(android.net.Uri::parse)
-          } else {
-            null
-          }
-          val mediaItems = mediaItemProvider.playbackItems(book).let { items ->
-            // online books have no local cover file; the remote cover url still
-            // feeds the notification and Android Auto artwork
-            if (onlineCover == null) {
-              items
-            } else {
-              items.map { item ->
-                item.buildUpon()
-                  .setMediaMetadata(
-                    item.mediaMetadata.buildUpon().setArtworkUri(onlineCover).build(),
-                  )
-                  .build()
-              }
-            }
-          }
-          PreparedBook(
-            book = book,
-            mediaItems = mediaItems,
-            startIndex = currentPlaybackItem.index,
-            startPositionMs = currentPlaybackItem.positionInMediaItem(book.content.positionInChapter),
-          )
+          prepareBook(mediaId.id)
         } ?: return@measureTime
         player.setPlaybackSpeed(prepared.book.content.playbackSpeed)
         setSkipSilenceEnabled(prepared.book.content.skipSilence)
@@ -430,6 +406,9 @@ class VoicePlayer(
           prepared.startPositionMs,
         )
         assembled = true
+        if (prepared.needsFullPlaylist) {
+          expand = prepared
+        }
       }
       // prepare()/play() that arrived while the book was still assembling ran
       // on an empty playlist and did nothing: apply them now that the items
@@ -442,7 +421,116 @@ class VoicePlayer(
       // one step of a playback start that grows with the chapter count. The
       // log marks how long it took so a slow start can be attributed.
       Logger.i("setBook(${mediaItem.mediaId}) took $assemblyDuration")
+      val toExpand = expand ?: return@launch
+      // fill the rest of a long book off the critical path so chapter picks
+      // and cross-chapter seeks see the full timeline shortly after audio starts
+      playlistExpandJob = scope.launch {
+        expandPlaylist(toExpand)
+      }
     }
+  }
+
+  /**
+   * Loads [bookId], builds a windowed playlist around the resume chapter and
+   * prefetches the online stream url when applicable.
+   */
+  private suspend fun prepareBook(bookId: BookId): PreparedBook? = coroutineScope {
+    // books of the online source live in their own store: the room
+    // lookup misses, the online catalog synthesizes the book instead
+    val book = repo.get(bookId) ?: onlinePlaybackCatalog.book(bookId) ?: return@coroutineScope null
+    val currentPlaybackItem = book.playbackItemForPosition(
+      chapterId = book.content.currentChapter,
+      positionInChapterMs = book.content.positionInChapter,
+    ) ?: return@coroutineScope null
+
+    val isOnline = onlinePlaybackCatalog.isOnlineBookId(book.id)
+    val streamPrefetch = if (isOnline) {
+      async {
+        val ref = OnlineUri.parse(currentPlaybackItem.chapter.id.value) ?: return@async
+        // warm the catalog cache so the data source open does not wait on
+        // a cold resolve after setMediaItems/prepare
+        runCatching { onlinePlaybackCatalog.resolveStreamUrl(ref) }
+      }
+    } else {
+      null
+    }
+    val coverDeferred = if (isOnline) {
+      async {
+        onlinePlaybackCatalog.onlineCover(book.id)
+          ?.takeIf { it.isNotBlank() }
+          ?.let(android.net.Uri::parse)
+      }
+    } else {
+      null
+    }
+
+    val window = mediaItemProvider.playbackItemsWindow(
+      book = book,
+      centerItemIndex = currentPlaybackItem.index,
+    )
+    val onlineCover = coverDeferred?.await()
+    val mediaItems = if (onlineCover == null) {
+      window.items
+    } else {
+      // online books have no local cover file; the remote cover url still
+      // feeds the notification and Android Auto artwork
+      window.items.map { item ->
+        item.buildUpon()
+          .setMediaMetadata(
+            item.mediaMetadata.buildUpon().setArtworkUri(onlineCover).build(),
+          )
+          .build()
+      }
+    }
+    streamPrefetch?.await()
+
+    PreparedBook(
+      book = book,
+      mediaItems = mediaItems,
+      startIndex = window.indexInWindow,
+      startPositionMs = currentPlaybackItem.positionInMediaItem(book.content.positionInChapter),
+      absoluteIndex = currentPlaybackItem.index,
+      needsFullPlaylist = window.isPartial,
+    )
+  }
+
+  private suspend fun expandPlaylist(prepared: PreparedBook) {
+    val fullItems = withContext(dispatcherProvider.io) {
+      val raw = mediaItemProvider.playbackItems(prepared.book)
+      if (!onlinePlaybackCatalog.isOnlineBookId(prepared.book.id)) {
+        return@withContext raw
+      }
+      val cover = onlinePlaybackCatalog.onlineCover(prepared.book.id)
+        ?.takeIf { it.isNotBlank() }
+        ?.let(android.net.Uri::parse)
+        ?: return@withContext raw
+      raw.map { item ->
+        item.buildUpon()
+          .setMediaMetadata(
+            item.mediaMetadata.buildUpon().setArtworkUri(cover).build(),
+          )
+          .build()
+      }
+    }
+    // drop the expansion when the user already switched books
+    val currentId = player.currentMediaItem?.mediaId
+    val playingBookId = currentId?.toMediaIdOrNull()?.bookId
+    if (playingBookId != null && playingBookId != prepared.book.id) {
+      return
+    }
+    // BookPlaylistSynchronizer may already have replaced the window with the
+    // full list; rewriting would only risk a position jump.
+    if (player.mediaItemCount >= fullItems.size) {
+      return
+    }
+    val positionMs = player.currentPosition.takeUnless { it == C.TIME_UNSET }
+      ?: prepared.startPositionMs
+    // match by media id so a chapter skip inside the window survives expansion
+    val targetIndex = fullItems.indexOfFirst { it.mediaId == currentId }
+      .takeIf { it >= 0 }
+      ?: prepared.absoluteIndex.coerceIn(0, fullItems.lastIndex)
+    player.setMediaItems(fullItems, targetIndex, positionMs.coerceAtLeast(0L))
+    Logger.i("Expanded playlist of ${prepared.book.id} to ${fullItems.size} items")
   }
 
   override fun setPlaybackSpeed(speed: Float) {
@@ -488,7 +576,11 @@ class VoicePlayer(
   private data class PreparedBook(
     val book: Book,
     val mediaItems: List<MediaItem>,
+    /** Seek index inside [mediaItems] (window-relative). */
     val startIndex: Int,
     val startPositionMs: Long,
+    /** Global playlist index of the resume chapter. */
+    val absoluteIndex: Int,
+    val needsFullPlaylist: Boolean,
   )
 }

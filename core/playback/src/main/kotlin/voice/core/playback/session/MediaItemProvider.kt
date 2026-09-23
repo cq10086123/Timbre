@@ -144,6 +144,69 @@ class MediaItemProvider(
   }
 
   /**
+   * A window of playlist items around [centerItemIndex] so a book with
+   * thousands of chapters can start without allocating every [MediaItem] on
+   * the critical path. [PlaybackWindow.indexInWindow] is the seek index for
+   * [androidx.media3.common.Player.setMediaItems]; [absoluteStartIndex] lets
+   * the caller expand to the full list without losing the playing chapter.
+   */
+  internal fun playbackItemsWindow(
+    book: Book,
+    centerItemIndex: Int,
+    radius: Int = PLAYLIST_WINDOW_RADIUS,
+  ): PlaybackWindow {
+    val total = book.chapters.sumOf { it.chapterMarks.size }
+    if (total == 0) {
+      return PlaybackWindow(
+        items = emptyList(),
+        indexInWindow = 0,
+        absoluteStartIndex = 0,
+        totalItemCount = 0,
+      )
+    }
+    val center = centerItemIndex.coerceIn(0, total - 1)
+    if (total <= radius * 2 + 1) {
+      val items = playbackItems(book)
+      return PlaybackWindow(
+        items = items,
+        indexInWindow = center,
+        absoluteStartIndex = 0,
+        totalItemCount = total,
+      )
+    }
+    val from = (center - radius).coerceAtLeast(0)
+    val toExclusive = (center + radius + 1).coerceAtMost(total)
+    val items = book.playbackItems(fromItemIndex = from)
+      .asSequence()
+      .take(toExclusive - from)
+      .map { mediaItem(it, book.content) }
+      .toList()
+    return PlaybackWindow(
+      items = items,
+      indexInWindow = center - from,
+      absoluteStartIndex = from,
+      totalItemCount = total,
+    )
+  }
+
+  internal data class PlaybackWindow(
+    val items: List<MediaItem>,
+    /** Index of the resume chapter inside [items]. */
+    val indexInWindow: Int,
+    /** Global playlist index of [items].first(). */
+    val absoluteStartIndex: Int,
+    val totalItemCount: Int,
+  ) {
+    val isPartial: Boolean
+      get() = items.size < totalItemCount
+  }
+
+  private companion object {
+    /** Chapters kept on either side of the resume point for a fast open. */
+    const val PLAYLIST_WINDOW_RADIUS = 24
+  }
+
+  /**
    * The media ids of the first [limit] playback items of [book], in playlist
    * order. Used to check that an existing playlist is still a prefix of the
    * book without assembling every item of a big book.

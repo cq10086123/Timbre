@@ -95,7 +95,10 @@ class PlayerController(
       chapterId = chapterId,
       positionInChapterMs = positionInChapterMs,
     ) ?: return@executeAfterPrepare
-    if (awaitAssembledPlaylist(controller, book.id, position.index)) {
+    // VoicePlayer may first install a window around the resume chapter; absolute
+    // indexes only match once the full playlist has replaced that window.
+    val fullItemCount = book.chapters.sumOf { it.chapterMarks.size }
+    if (awaitAssembledPlaylist(controller, book.id, position.index, fullItemCount)) {
       controller.seekTo(position.index, position.positionInMediaItemMs)
     }
   }
@@ -118,10 +121,16 @@ class PlayerController(
     controller: MediaController,
     bookId: BookId,
     itemIndex: Int,
+    minItemCount: Int,
   ): Boolean {
-    if (playlistAssembled(controller.currentMediaItem?.mediaId, controller.mediaItemCount, bookId, itemIndex)) {
-      return true
-    }
+    fun ready(): Boolean = playlistAssembled(
+      currentMediaId = controller.currentMediaItem?.mediaId,
+      mediaItemCount = controller.mediaItemCount,
+      bookId = bookId,
+      itemIndex = itemIndex,
+      minItemCount = minItemCount,
+    )
+    if (ready()) return true
     val assembled = withTimeoutOrNull(PLAYLIST_ASSEMBLY_TIMEOUT_MS) {
       callbackFlow {
         val listener = object : Player.Listener {
@@ -129,27 +138,21 @@ class PlayerController(
             player: Player,
             events: Player.Events,
           ) {
-            if (playlistAssembled(controller.currentMediaItem?.mediaId, controller.mediaItemCount, bookId, itemIndex)) {
-              trySend(Unit)
-            }
+            if (ready()) trySend(Unit)
           }
         }
         controller.addListener(listener)
         // the playlist may have landed between the check above and the
         // listener registration
-        if (playlistAssembled(controller.currentMediaItem?.mediaId, controller.mediaItemCount, bookId, itemIndex)) {
-          trySend(Unit)
-        }
+        if (ready()) trySend(Unit)
         awaitClose { controller.removeListener(listener) }
       }.first()
     } != null
     if (assembled) return true
     Logger.i("Playlist of $bookId was not assembled in time, item $itemIndex stays where it is")
-    // the book is still worth seeking into when a playlist of it exists that
-    // has not grown to the item yet (a partially imported book keeps
-    // appending chapters): the seek is dropped by the controller then, but
-    // never applied to another book
-    return playlistOfBookLoaded(controller.currentMediaItem?.mediaId, bookId)
+    // never seek into another book's timeline; also never seek by absolute
+    // index while only a resume window is loaded
+    return ready()
   }
 
   fun pauseIfCurrentBookDifferentFrom(id: BookId) {
@@ -368,13 +371,19 @@ class PlayerController(
  * [PlayerController.maybePrepare] sets while VoicePlayer is still assembling
  * carries a book media id, and the playlist of another book must not pass
  * either - both would drop a seek just like an empty playlist does.
+ *
+ * [minItemCount] is the full mark count of the book: VoicePlayer may first
+ * install a window around the resume chapter whose indexes are not global, so
+ * a chapter pick must wait until that window has been expanded.
  */
 internal fun playlistAssembled(
   currentMediaId: String?,
   mediaItemCount: Int,
   bookId: BookId,
   itemIndex: Int,
+  minItemCount: Int = itemIndex + 1,
 ): Boolean {
+  if (mediaItemCount < minItemCount) return false
   if (mediaItemCount <= itemIndex) return false
   return playlistOfBookLoaded(currentMediaId, bookId)
 }
