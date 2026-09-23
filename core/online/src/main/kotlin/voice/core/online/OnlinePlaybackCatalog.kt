@@ -799,10 +799,15 @@ public class OnlinePlaybackCatalog(
       album to file
     }
     if (candidates.isEmpty()) return null
-    // a single candidate is unambiguous; with several, only a title match may
-    // decide - picking blindly would play another book's episode
-    val album = candidates.firstOrNull { titleSimilar(it.first.name, bookTitle) }?.first
-      ?: candidates.singleOrNull()?.first
+    // Only an album whose name matches the book may be streamed. Every album
+    // numbers its files 第N集, so a blind pick would play another book's file
+    // whenever the right album has no file for this episode yet (the download
+    // is still running, or the source only serves the book's free preview).
+    // The resolve loop keeps polling until the correct file appears instead.
+    val album = candidates
+      .filter { titleSimilar(it.first.name, bookTitle) }
+      .maxByOrNull { titleOverlap(it.first.name, bookTitle) }
+      ?.first
       ?: return null
     val file = album.files
       .filter { fileMatchesEpisode(it.name, episode) }
@@ -919,6 +924,29 @@ public class OnlinePlaybackCatalog(
       val title = bookTitle.filter { it.isLetterOrDigit() }.lowercase()
       if (album.isEmpty() || title.isEmpty()) return false
       return album in title || title in album
+    }
+
+    /**
+     * How strongly two names overlap: the longest shared character run, after
+     * the same normalization [titleSimilar] uses. Among several albums whose
+     * names contain the title (e.g. two recordings of one series), this picks
+     * the closest folder instead of the first in server order.
+     */
+    internal fun titleOverlap(
+      albumName: String,
+      bookTitle: String,
+    ): Int {
+      val album = albumName.filter { it.isLetterOrDigit() }.lowercase()
+      val title = bookTitle.filter { it.isLetterOrDigit() }.lowercase()
+      if (album.isEmpty() || title.isEmpty()) return 0
+      val short = if (album.length <= title.length) album else title
+      val long = if (album.length <= title.length) title else album
+      for (length in short.length downTo 1) {
+        for (start in 0..short.length - length) {
+          if (long.contains(short.substring(start, start + length))) return length
+        }
+      }
+      return 0
     }
   }
 }
