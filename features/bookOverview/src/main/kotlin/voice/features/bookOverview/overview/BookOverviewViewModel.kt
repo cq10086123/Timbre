@@ -132,9 +132,10 @@ class BookOverviewViewModel(
     // retry, so a failing import never stays invisible
     val scanErrors = remember { mediaScanner.bookScanErrors }
       .collectAsState(initial = emptyMap()).value
+    // Default matches StoreModule so the shelf can paint before DataStore
+    // delivers its first value instead of showing a blank Loading frame.
     val gridMode = remember { gridModeStore.data }
-      .collectAsState(initial = null).value
-      ?: return BookOverviewViewState.Loading
+      .collectAsState(initial = GridMode.FOLLOW_DEVICE).value
 
     val noBooks = !scannerActive && books.isEmpty()
 

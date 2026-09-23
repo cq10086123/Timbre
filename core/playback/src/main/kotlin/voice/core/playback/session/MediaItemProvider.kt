@@ -9,7 +9,6 @@ import androidx.media3.common.MediaItem.ClippingConfiguration
 import androidx.media3.session.MediaSession.MediaItemsWithStartPosition
 import dev.zacsweers.metro.Inject
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import voice.core.data.Book
 import voice.core.data.BookComparator
@@ -44,13 +43,21 @@ class MediaItemProvider(
     mediaType = MediaType.AudioBookRoot,
   )
 
-  fun recent(): MediaItem? = MediaItem(
+  private fun recentMediaItem(): MediaItem = MediaItem(
     title = application.getString(StringsR.string.media_session_library_recent),
     browsable = true,
     isPlayable = false,
     mediaId = MediaId.Recent,
     mediaType = MediaType.AudioBook,
-  ).takeIf { runBlocking { currentBookStoreId.data.first() != null } }
+  )
+
+  /**
+   * Recent root when a current book is known. Suspends so callers on a media
+   * session callback never block a thread with runBlocking.
+   */
+  suspend fun recent(): MediaItem? {
+    return recentMediaItem().takeIf { currentBookStoreId.data.first() != null }
+  }
 
   suspend fun item(id: String): MediaItem? {
     val mediaId = id.toMediaIdOrNull() ?: return null

@@ -3,12 +3,15 @@ package voice.features.webdav
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import dev.zacsweers.metro.Assisted
 import dev.zacsweers.metro.AssistedFactory
 import dev.zacsweers.metro.AssistedInject
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import voice.core.common.DispatcherProvider
 import voice.core.common.MainScope
 import voice.core.scanner.MediaScanTrigger
@@ -69,9 +72,16 @@ class WebDavServersViewModel(
     val servers by webDavLibrary.servers().collectAsState(initial = emptyList())
     val dialogState by dialog.collectAsState()
     val deleteState by deleteCandidate.collectAsState()
+    // Keystore decrypt runs off the composition thread and only when the
+    // server list changes — not on every keystroke in the edit dialog.
+    val needsPasswordReEntry by produceState(initialValue = emptySet(), key1 = servers) {
+      value = withContext(Dispatchers.Default) {
+        webDavLibrary.undecryptableServerIds()
+      }
+    }
     return WebDavServersViewState(
       servers = servers,
-      needsPasswordReEntry = webDavLibrary.undecryptableServerIds(),
+      needsPasswordReEntry = needsPasswordReEntry,
       dialog = dialogState,
       deleteCandidate = deleteState,
     )

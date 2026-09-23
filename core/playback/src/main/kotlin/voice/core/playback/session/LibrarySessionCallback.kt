@@ -98,13 +98,16 @@ class LibrarySessionCallback(
     browser: ControllerInfo,
     params: LibraryParams?,
   ): ListenableFuture<LibraryResult<MediaItem>> {
-    val mediaItem = if (params?.isRecent == true) {
-      mediaItemProvider.recent() ?: mediaItemProvider.root()
-    } else {
-      mediaItemProvider.root()
+    if (params?.isRecent != true) {
+      val mediaItem = mediaItemProvider.root()
+      Logger.d("onGetLibraryRoot(isRecent=false). Returning ${mediaItem.mediaId}")
+      return Futures.immediateFuture(LibraryResult.ofItem(mediaItem, params))
     }
-    Logger.d("onGetLibraryRoot(isRecent=${params?.isRecent == true}). Returning ${mediaItem.mediaId}")
-    return Futures.immediateFuture(LibraryResult.ofItem(mediaItem, params))
+    return scope.future {
+      val mediaItem = mediaItemProvider.recent() ?: mediaItemProvider.root()
+      Logger.d("onGetLibraryRoot(isRecent=true). Returning ${mediaItem.mediaId}")
+      LibraryResult.ofItem(mediaItem, params)
+    }
   }
 
   override fun onGetItem(

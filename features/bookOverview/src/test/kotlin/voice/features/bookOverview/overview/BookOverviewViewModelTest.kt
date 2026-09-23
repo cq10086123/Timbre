@@ -107,7 +107,6 @@ class BookOverviewViewModelTest {
     backgroundScope.launchMolecule(RecompositionMode.Immediate) {
       viewModel.state()
     }.test {
-      assertEquals(expected = BookOverviewViewState.Loading, actual = awaitItem())
       val initial = awaitItem()
       val initialCurrentItem = initial.currentBook(currentBook.id)
       val initialOtherItem = initial.currentBook(otherBook.id)
@@ -149,7 +148,6 @@ class BookOverviewViewModelTest {
     backgroundScope.launchMolecule(RecompositionMode.Immediate) {
       viewModel.state()
     }.test {
-      assertEquals(expected = BookOverviewViewState.Loading, actual = awaitItem())
       val state = awaitItem()
 
       // the card appears as soon as the scan discovered the book, before any
@@ -173,7 +171,6 @@ class BookOverviewViewModelTest {
     backgroundScope.launchMolecule(RecompositionMode.Immediate) {
       viewModel.state()
     }.test {
-      assertEquals(expected = BookOverviewViewState.Loading, actual = awaitItem())
       val state = awaitItem()
 
       assertEquals(expected = listOf(storedBook.id), actual = state.books.getValue(BookOverviewCategory.CURRENT).keys.toList())
@@ -193,7 +190,6 @@ class BookOverviewViewModelTest {
     backgroundScope.launchMolecule(RecompositionMode.Immediate) {
       viewModel.state()
     }.test {
-      assertEquals(expected = BookOverviewViewState.Loading, actual = awaitItem())
       val state = awaitItem()
 
       // the import of the book failed before anything was stored: its card has
@@ -217,7 +213,6 @@ class BookOverviewViewModelTest {
     backgroundScope.launchMolecule(RecompositionMode.Immediate) {
       viewModel.state()
     }.test {
-      assertEquals(expected = BookOverviewViewState.Loading, actual = awaitItem())
       val state = awaitItem()
 
       assertEquals(expected = listOf(storedBook.id), actual = state.books.getValue(BookOverviewCategory.CURRENT).keys.toList())
@@ -309,7 +304,6 @@ class BookOverviewViewModelTest {
     backgroundScope.launchMolecule(RecompositionMode.Immediate) {
       viewModel.state()
     }.test {
-      assertEquals(expected = BookOverviewViewState.Loading, actual = awaitItem())
       assertEquals(expected = false, actual = awaitItem().showFolderPickerIcon)
     }
   }
@@ -323,7 +317,6 @@ class BookOverviewViewModelTest {
     backgroundScope.launchMolecule(RecompositionMode.Immediate) {
       viewModel.state()
     }.test {
-      assertEquals(expected = BookOverviewViewState.Loading, actual = awaitItem())
       assertEquals(expected = true, actual = awaitItem().showFolderPickerIcon)
     }
   }
@@ -339,7 +332,6 @@ class BookOverviewViewModelTest {
     backgroundScope.launchMolecule(RecompositionMode.Immediate) {
       viewModel.state()
     }.test {
-      assertEquals(expected = BookOverviewViewState.Loading, actual = awaitItem())
       awaitItem()
 
       viewModel.onBookFolderClick()
@@ -362,7 +354,6 @@ class BookOverviewViewModelTest {
     backgroundScope.launchMolecule(RecompositionMode.Immediate) {
       viewModel.state()
     }.test {
-      assertEquals(BookOverviewViewState.Loading, awaitItem())
       awaitItem()
       viewModel.onSearchActiveChange(true)
       var state = awaitItem()

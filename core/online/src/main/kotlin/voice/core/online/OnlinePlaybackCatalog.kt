@@ -15,7 +15,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import voice.core.data.Book
 import voice.core.data.BookContent
 import voice.core.data.BookId
@@ -422,7 +421,9 @@ public class OnlinePlaybackCatalog(
     if (measuredDurations[uri] == durationMs) return
     measuredDurations[uri] = durationMs
     _durationsVersion.value += 1
-    runBlocking {
+    // Memory is enough for the live player; persist off the caller thread
+    // (often main) so measuring a chapter never stalls the UI.
+    persistenceScope.launch {
       try {
         booksStore.updateData { books ->
           books.map { book ->
@@ -441,6 +442,8 @@ public class OnlinePlaybackCatalog(
             }
           }
         }
+      } catch (e: CancellationException) {
+        throw e
       } catch (e: Exception) {
         Logger.w("Failed to persist measured online chapter duration: $e")
       }

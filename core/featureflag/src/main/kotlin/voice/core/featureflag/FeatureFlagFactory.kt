@@ -7,10 +7,8 @@ import dev.zacsweers.metro.SingleIn
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import voice.core.data.store.FeatureFlagOverridesStore
 import voice.core.remoteconfig.api.RemoteConfig
 import kotlin.reflect.KClass
@@ -24,7 +22,8 @@ class FeatureFlagFactory(
   private val scope: CoroutineScope,
 ) {
 
-  private var overrides: Map<String, FeatureFlagOverride>? = null
+  @Volatile
+  private var overrides: Map<String, FeatureFlagOverride> = emptyMap()
 
   init {
     scope.launch {
@@ -34,11 +33,12 @@ class FeatureFlagFactory(
     }
   }
 
-  private fun overrides(): Map<String, FeatureFlagOverride> {
-    return overrides ?: runBlocking {
-      overridesStore.data.first()
-    }
-  }
+  /**
+   * Synchronous reads must not block the main thread waiting for DataStore.
+   * Until the background collector lands the first value, remote/default
+   * values are used; overrides apply on the next read after load.
+   */
+  private fun overrides(): Map<String, FeatureFlagOverride> = overrides
 
   fun boolean(
     key: String,
