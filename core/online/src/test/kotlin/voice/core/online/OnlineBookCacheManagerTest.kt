@@ -141,7 +141,7 @@ class OnlineBookCacheManagerTest {
     coEvery { service.submitDownload(any(), any(), any()) } returns "task"
 
     manager.cacheUpcoming(mainBookId, 2, 0)
-    awaitIdle()
+    awaitIdle(mainBookId)
 
     // one single-episode server task per chapter, not one task for the window
     coVerify { val _ = service.submitDownload("b1", 2, 2) }
@@ -178,7 +178,7 @@ class OnlineBookCacheManagerTest {
    * Wall-clock wait: the manager downloads on real dispatchers while runTest
    * owns the virtual clock.
    */
-  private suspend fun awaitIdle() = withContext(Dispatchers.IO) {
+  private suspend fun awaitIdle(bookId: BookId = this.bookId) = withContext(Dispatchers.IO) {
     val mark = TimeSource.Monotonic.markNow()
     while (true) {
       val state = manager.states.value[bookId.value]
