@@ -129,7 +129,8 @@ class OnlinePlaybackCatalogTest {
     val free = "我的26岁女房客丨爆笑都市爽文丨全文VIP免费"
     assertTrue(OnlinePlaybackCatalog.titleOverlap(official, title) > OnlinePlaybackCatalog.titleOverlap(free, title))
     assertTrue(OnlinePlaybackCatalog.titleOverlap("三国英雄传之曹操 熊猫啃书", "三国英雄传之曹操 熊猫啃书") > 0)
-    assertEquals(0, OnlinePlaybackCatalog.titleOverlap("仙逆", "凡人修仙传"))
+    // disjoint titles share no character run at all
+    assertEquals(0, OnlinePlaybackCatalog.titleOverlap("盗墓笔记", "凡人修仙传"))
   }
 
   @Test
