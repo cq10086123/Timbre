@@ -251,7 +251,7 @@ public class OnlineBookCacheManager(
         if (bookRef.source == OnlineSourceClient.SOURCE_MAIN) {
           if (submittedAny && delaySeconds > 0) delay(delaySeconds * 1_000L)
           val episode = chapter.order.takeIf { it > 0 } ?: (startIndex + offset + 1)
-          runCatching { service.submitDownload(bookRef.bookId, episode, episode) }
+          val _ = runCatching { service.submitDownload(bookRef.bookId, episode, episode) }
           submittedAny = true
         }
         // resolveStreamUrl reports failures as null and only throws on
