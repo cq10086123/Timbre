@@ -6,13 +6,14 @@ import io.mockk.coVerify
 import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.yield
-// Dispatchers is still used by awaitStoreChapter (IO poll)
 import voice.core.data.BookId
 import voice.core.data.ChapterId
 import kotlin.test.Test
@@ -306,12 +307,7 @@ class OnlinePlaybackCatalogTest {
       positionMs = 42_000L,
     )
 
-    // the write happens on the io dispatcher outside the test scheduler
-    val deadline = System.currentTimeMillis() + 5_000
-    while (store.data.first().firstOrNull()?.currentChapterId != "c2") {
-      check(System.currentTimeMillis() < deadline) { "the position was never persisted" }
-      Thread.sleep(10)
-    }
+    awaitStoreChapter(store, "c2")
     val stored = store.data.first().single()
     assertEquals("c2", stored.currentChapterId)
     assertEquals(42_000L, stored.positionMs)
@@ -346,15 +342,20 @@ class OnlinePlaybackCatalogTest {
     assertEquals(42_000L, book.content.positionInChapter)
   }
 
-  /** Waits for the io dispatcher to have persisted [chapterId]. */
+  /**
+   * Waits for the real IO persistenceScope to land [chapterId]. Uses wall-clock
+   * delay (not Thread.sleep) so the suite stays interruptible under CI load.
+   */
   private suspend fun awaitStoreChapter(
     store: FakeBooksStore,
     chapterId: String,
-  ) = withContext(Dispatchers.IO) {
-    val deadline = System.currentTimeMillis() + 5_000
-    while (store.data.first().firstOrNull()?.currentChapterId != chapterId) {
-      check(System.currentTimeMillis() < deadline) { "the position was never persisted to $chapterId" }
-      Thread.sleep(10)
+  ) {
+    withTimeout(5_000) {
+      withContext(Dispatchers.IO) {
+        while (store.data.first().firstOrNull()?.currentChapterId != chapterId) {
+          delay(10)
+        }
+      }
     }
   }
 
