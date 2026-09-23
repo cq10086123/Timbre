@@ -123,6 +123,17 @@ class OnlinePlaybackCatalogTest {
   }
 
   @Test
+  fun `title overlap prefers the closest album of the same series`() {
+    val title = "我的26岁女房客丨头陀渊工作室丨超级大坦克科比著"
+    val official = "【官方续集】我的26岁女房客丨头陀渊工作室丨海岛孤帆丨超级大坦克科比著丨爆笑都市"
+    val free = "我的26岁女房客丨爆笑都市爽文丨全文VIP免费"
+    assertTrue(OnlinePlaybackCatalog.titleOverlap(official, title) > OnlinePlaybackCatalog.titleOverlap(free, title))
+    assertTrue(OnlinePlaybackCatalog.titleOverlap("三国英雄传之曹操 熊猫啃书", "三国英雄传之曹操 熊猫啃书") > 0)
+    // disjoint titles share no character run at all
+    assertEquals(0, OnlinePlaybackCatalog.titleOverlap("盗墓笔记", "凡人修仙传"))
+  }
+
+  @Test
   fun `search stashed book plays without a shelf entry`() = runTest {
     coEvery { service.shelfBook(any()) } returns null
     catalog.stashForPlayback(shelfBook().copy(cover = "https://example.com/cover.jpg"))
