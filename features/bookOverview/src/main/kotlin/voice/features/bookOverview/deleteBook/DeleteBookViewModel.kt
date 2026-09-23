@@ -8,6 +8,7 @@ import androidx.documentfile.provider.DocumentFile
 import dev.zacsweers.metro.ContributesIntoSet
 import dev.zacsweers.metro.SingleIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import voice.core.common.DispatcherProvider
 import voice.core.common.MainScope
 import voice.core.data.BookId
@@ -53,20 +54,40 @@ class DeleteBookViewModel(
   ) {
     if (item != BottomSheetItem.DeleteBook) return
 
+    // online books carry manually cached episodes; deleting the book drops
+    // them, so the dialog says how much it is about to remove instead of
+    // claiming the audio stays on the device
+    val bookRef = OnlineUri.parseBookUri(bookId.value)
+    val cached = bookRef?.let { ref ->
+      withContext(dispatcherProvider.io) {
+        fileCache.cachedFileCount(ref.source, ref.bookId) to fileCache.cachedBytes(ref.source, ref.bookId)
+      }
+    }
     _state.value = DeleteBookViewState(
       id = bookId,
       deleteCheckBoxChecked = false,
-      canDeleteFiles = bookId.toUri().scheme?.lowercase() !in setOf("http", "https"),
-      fileToDelete = bookId.toUri().pathSegments
-        .let { segments ->
-          val result = segments.lastOrNull()?.removePrefix("primary:")
-          if (result.isNullOrEmpty()) {
-            Logger.w("Could not determine path for $segments")
-            segments.joinToString(separator = "\"")
-          } else {
-            result
+      // an online book has no local files to opt out of: its cached episodes
+      // go with it, and the message below says so
+      canDeleteFiles = bookRef == null && bookId.toUri().scheme?.lowercase() !in setOf("http", "https"),
+      fileToDelete = if (bookRef != null) {
+        // the uri segments of an online book are its source id and book id:
+        // printing them would look like a path the user could act on
+        ""
+      } else {
+        bookId.toUri().pathSegments
+          .let { segments ->
+            val result = segments.lastOrNull()?.removePrefix("primary:")
+            if (result.isNullOrEmpty()) {
+              Logger.w("Could not determine path for $segments")
+              segments.joinToString(separator = "\"")
+            } else {
+              result
+            }
           }
-        },
+      },
+      isOnlineBook = bookRef != null,
+      cachedChapters = cached?.first ?: 0,
+      cachedBytes = cached?.second ?: 0L,
     )
   }
 
@@ -85,11 +106,10 @@ class DeleteBookViewModel(
         // online books are not in room: dropping them from the online shelf
         // store is the whole delete, plus their manually cached chapters so
         // no orphaned downloads are left behind
-        if (state.id.value.startsWith("online://")) {
-          cacheManager.cancel(state.id)
-          OnlineUri.parseBookUri(state.id.value)?.let { bookRef ->
-            fileCache.clearBook(bookRef.source, bookRef.bookId)
-          }
+        if (OnlineUri.parseBookUri(state.id.value) != null) {
+          // stops a running job, drops its progress and deletes the files -
+          // a deleted book must not leave orphaned downloads behind
+          val _ = cacheManager.clearBook(state.id)
           onlineBooksStore.updateData { books ->
             books.filterNot { book ->
               OnlineUri.buildBookUri(book.source, book.bookId) == state.id.value
@@ -125,4 +145,9 @@ data class DeleteBookViewState(
   val deleteCheckBoxChecked: Boolean,
   val canDeleteFiles: Boolean,
   val fileToDelete: String,
+  /** True for a book of the online source: it has no local files, only cached episodes. */
+  val isOnlineBook: Boolean = false,
+  /** Manually cached episodes of an online book; deleted together with it. */
+  val cachedChapters: Int = 0,
+  val cachedBytes: Long = 0L,
 )

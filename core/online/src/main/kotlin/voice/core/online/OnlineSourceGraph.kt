@@ -1,6 +1,8 @@
 package voice.core.online
 
 import android.app.Application
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import androidx.datastore.core.DataStore
 import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.ContributesTo
@@ -31,6 +33,10 @@ public annotation class OnlineSourceTokenStore
 
 @Qualifier
 public annotation class OnlineSourceBooksStore
+
+/** Unfinished manual cache jobs, so a killed process does not lose them. */
+@Qualifier
+public annotation class OnlineCacheJobsStore
 
 /** The long-read OkHttpClient used for streaming audio playback. */
 @Qualifier
@@ -88,6 +94,45 @@ public interface OnlineSourceGraph {
   @SingleIn(AppScope::class)
   public fun onlineChapterFileCache(application: Application): OnlineChapterFileCache {
     return OnlineChapterFileCache(File(application.filesDir, OnlineChapterFileCache.CACHE_DIR))
+  }
+
+  @Provides
+  @SingleIn(AppScope::class)
+  @OnlineCacheJobsStore
+  public fun onlineCacheJobs(factory: OnlineSourceStoreFactory): DataStore<List<OnlineCacheJob>> {
+    return factory.create(
+      serializer = ListSerializer(OnlineCacheJob.serializer()),
+      defaultValue = emptyList(),
+      fileName = "onlineCacheJobs",
+    )
+  }
+
+  /**
+   * Metered means "the next download would cost the user money".
+   *
+   * Offline does not: there is no data volume to spend, the job fails on its
+   * own and is retried later, and asking for mobile data permission while
+   * offline would only puzzle the user. The prefetch scheduler reads the plain
+   * `isActiveNetworkMetered` instead, because for it "offline" and "metered"
+   * both simply mean pause.
+   *
+   * Everything that cannot be answered (no connectivity service, capabilities
+   * for the active network unknown) counts as metered: for a job that spends
+   * the user's data volume, asking once too often beats asking once too
+   * little.
+   */
+  @Provides
+  @SingleIn(AppScope::class)
+  public fun meteredNetworkChecker(application: Application): MeteredNetworkChecker {
+    return MeteredNetworkChecker {
+      val connectivity = application.getSystemService(ConnectivityManager::class.java)
+      val active = connectivity?.activeNetwork
+      when {
+        connectivity == null -> true
+        active == null -> false
+        else -> connectivity.getNetworkCapabilities(active)?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED) != true
+      }
+    }
   }
 
   /**

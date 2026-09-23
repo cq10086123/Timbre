@@ -5,12 +5,12 @@ import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.awaitCancellation
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
@@ -19,20 +19,25 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 import voice.core.common.DispatcherProvider
+import voice.core.common.PlaybackIoGate
 import voice.core.data.BookId
 import voice.core.logging.api.Logger
 import java.io.FileOutputStream
 import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.coroutines.coroutineContext
 
 /** Progress of one manual cache job, keyed by the canonical book uri. */
@@ -43,6 +48,11 @@ public data class OnlineCacheState(
   val failed: Int,
   val downloading: Boolean,
   val currentTitle: String = "",
+  /**
+   * The job is alive but waits for the user to allow caching on mobile data.
+   * The progress bar stays visible, the chapter count is just frozen.
+   */
+  val awaitingConfirmation: Boolean = false,
 )
 
 /** What the cache dialog shows about one book. */
@@ -54,6 +64,18 @@ public data class OnlineCachedInfo(
   val currentIndex: Int,
   val cachedCount: Int,
   val cachedBytes: Long,
+)
+
+/**
+ * A job that wants to spend mobile data and needs the user's blessing first.
+ * The UI shows one of these as a dialog; until it is answered the job does not
+ * touch the network at all.
+ */
+public data class OnlineCacheConfirmation(
+  val bookUri: String,
+  val title: String,
+  /** Chapters this run wants to cache. */
+  val chapters: Int,
 )
 
 /**
@@ -70,8 +92,21 @@ public data class OnlineCachedInfo(
  * - resolving a chapter reuses [OnlinePlaybackCatalog.resolveStreamUrl], whose
  *   single flight coalesces a manual resolve with a playback resolve of the
  *   same chapter instead of downloading twice,
- * - downloads run sequentially through one process wide slot and are plain
- *   background traffic: playback never waits for them.
+ * - downloads run sequentially through one process wide slot, yield while the
+ *   player buffers ([PlaybackIoGate]) and are plain background traffic:
+ *   playback never waits for them.
+ *
+ * A job is more than a coroutine: its request is persisted in
+ * [OnlineCacheJobsStore] before it starts, so a process that dies mid download
+ * (or an app the user swiped away) resumes the work on the next start - see
+ * [resumePending]. A finished, a cancelled and a declined job is dropped, and
+ * so is one that keeps ending its runs without a single chapter (dead source),
+ * while a job that keeps downloading is never given up on.
+ *
+ * Mobile data is never spent silently: whenever a job is about to touch the
+ * network on a metered connection it asks through [meteredConfirmation] first
+ * and waits. Consent covers one job run, so a cache that ran on wifi asks
+ * again when the app restarts on mobile data.
  */
 @SingleIn(AppScope::class)
 @Inject
@@ -82,16 +117,20 @@ public class OnlineBookCacheManager(
   @OnlineSourceStreamingClient private val httpClient: OkHttpClient,
   @OnlineSourceBaseUrlStore private val baseUrlStore: DataStore<String>,
   @OnlineSourceTokenStore private val tokenStore: DataStore<String>,
-  dispatcherProvider: DispatcherProvider,
+  @OnlineCacheJobsStore private val jobsStore: DataStore<List<OnlineCacheJob>>,
+  private val meteredNetworkChecker: MeteredNetworkChecker,
+  private val playbackIoGate: PlaybackIoGate,
+  private val dispatcherProvider: DispatcherProvider,
 ) {
 
   private val scope = CoroutineScope(SupervisorJob() + dispatcherProvider.io)
   private val jobs = ConcurrentHashMap<String, Job>()
 
   /**
-   * Bumped on every [cacheUpcoming] and [clearBook]: a replaced job must not
-   * overwrite the state of its successor (its finally would otherwise flip
-   * the new job's `downloading` back to false).
+   * Bumped whenever a job of a book is replaced or stopped ([start], [cancel],
+   * [clearBook]). A job whose generation is no longer the current one must not
+   * download, must not publish progress and must not touch the persisted
+   * request - its successor owns all three.
    */
   private val generations = ConcurrentHashMap<String, Int>()
 
@@ -101,10 +140,20 @@ public class OnlineBookCacheManager(
    */
   private val downloadSlots = Semaphore(1)
 
+  /** Serializes the metered questions: two jobs never stack two prompts. */
+  private val confirmationGate = Mutex()
+  private val pendingConfirmation = AtomicReference<CompletableDeferred<Boolean>?>(null)
+  private val resumeRequested = AtomicBoolean(false)
+
   private val _states = MutableStateFlow<Map<String, OnlineCacheState>>(emptyMap())
 
   /** The cache jobs by canonical book uri. */
   public val states: StateFlow<Map<String, OnlineCacheState>> = _states
+
+  private val _meteredConfirmation = MutableStateFlow<OnlineCacheConfirmation?>(null)
+
+  /** The metered question the UI has to answer, or null when there is none. */
+  public val meteredConfirmation: StateFlow<OnlineCacheConfirmation?> = _meteredConfirmation
 
   /** The cache job of [bookUri], or null when it was never cached this session. */
   public fun stateFor(bookUri: String): Flow<OnlineCacheState?> {
@@ -121,13 +170,18 @@ public class OnlineBookCacheManager(
       ?.takeIf { id -> id.isNotBlank() }
       ?.let { id -> chapters.indexOfFirst { it.id == id } }
       ?.takeIf { it >= 0 } ?: 0
+    // counting the cached chapters means listing a directory, and the dialog
+    // calls this on the main thread
+    val (cachedCount, cachedBytes) = withContext(dispatcherProvider.io) {
+      fileCache.cachedFileCount(bookRef.source, bookRef.bookId) to fileCache.cachedBytes(bookRef.source, bookRef.bookId)
+    }
     return OnlineCachedInfo(
       bookUri = bookId.value,
       title = book?.title.orEmpty(),
       totalChapters = chapters.size,
       currentIndex = currentIndex,
-      cachedCount = fileCache.cachedFileCount(bookRef.source, bookRef.bookId),
-      cachedBytes = fileCache.cachedBytes(bookRef.source, bookRef.bookId),
+      cachedCount = cachedCount,
+      cachedBytes = cachedBytes,
     )
   }
 
@@ -147,25 +201,57 @@ public class OnlineBookCacheManager(
     delaySeconds: Int = 0,
   ) {
     val bookRef = OnlineUri.parseBookUri(bookId.value) ?: return
-    val generation = (generations[bookId.value] ?: 0) + 1
-    generations[bookId.value] = generation
-    jobs[bookId.value]?.cancel()
-    val job = scope.launch {
-      runCaching(
-        bookId,
-        bookRef,
-        count.coerceIn(1, MAX_MANUAL_CACHE),
-        generation,
-        delaySeconds.coerceIn(0, MAX_EPISODE_DELAY_SECONDS),
-      )
+    val job = OnlineCacheJob(
+      bookUri = bookId.value,
+      count = count.coerceIn(1, MAX_MANUAL_CACHE),
+      delaySeconds = delaySeconds.coerceIn(0, MAX_EPISODE_DELAY_SECONDS),
+    )
+    remember(job)
+    start(bookRef, job)
+  }
+
+  /**
+   * Picks up the jobs a previous process did not finish; the app calls this
+   * once on start. A resumed job asks again when the network is metered, so a
+   * cache started on wifi never continues on mobile data unasked.
+   */
+  public fun resumePending() {
+    if (!resumeRequested.compareAndSet(false, true)) return
+    scope.launch {
+      val pending = runCatching { jobsStore.data.first() }.getOrNull().orEmpty()
+      for (job in pending) {
+        val bookRef = OnlineUri.parseBookUri(job.bookUri)
+        if (bookRef == null) {
+          forget(job.bookUri)
+          continue
+        }
+        start(bookRef, job)
+      }
     }
-    jobs[bookId.value] = job
-    job.invokeOnCompletion { jobs.remove(bookId.value, job) }
+  }
+
+  /** The user allows the waiting job to cache over mobile data now. */
+  public fun confirmMeteredCache() {
+    pendingConfirmation.get()?.complete(true)
+  }
+
+  /** The user refuses: the waiting job is dropped, its cached files stay. */
+  public fun declineMeteredCache() {
+    pendingConfirmation.get()?.complete(false)
   }
 
   /** Cancels a running cache job of [bookId]. Chapters cached so far are kept. */
   public fun cancel(bookId: BookId) {
+    // the bump also stops a job that is still starting up - and it keeps a run
+    // that finished concurrently from persisting itself again right after the
+    // cancel dropped it
+    generations[bookId.value] = (generations[bookId.value] ?: 0) + 1
     jobs[bookId.value]?.cancel()
+    // a bar that will never move again only pretends the cache is still
+    // running; the files that were already downloaded stay
+    _states.update { it - bookId.value }
+    // a cancelled job must not come back on the next app start
+    forget(bookId.value)
   }
 
   /**
@@ -178,9 +264,12 @@ public class OnlineBookCacheManager(
     generations[bookId.value] = generation
     jobs[bookId.value]?.cancel()
     val _ = runCatching { jobs[bookId.value]?.join() }
-    val cleared = fileCache.clearBook(bookRef.source, bookRef.bookId)
-    updateState(bookId.value, generation) { it.copy(downloading = false) }
-    return cleared
+    forget(bookId.value)
+    return withContext(dispatcherProvider.io) {
+      val cleared = fileCache.clearBook(bookRef.source, bookRef.bookId)
+      _states.update { it - bookId.value }
+      cleared
+    }
   }
 
   /** Writes only when [generation] is still the latest job of [bookUri]. */
@@ -189,8 +278,17 @@ public class OnlineBookCacheManager(
     generation: Int,
     state: OnlineCacheState,
   ) {
-    if (generations[bookUri] != generation) return
+    if (!isCurrent(bookUri, generation)) return
     _states.update { it + (bookUri to state) }
+  }
+
+  /** Drops the progress entry of a job that ended without finishing. */
+  private fun clearState(
+    bookUri: String,
+    generation: Int,
+  ) {
+    if (!isCurrent(bookUri, generation)) return
+    _states.update { it - bookUri }
   }
 
   /** Updates only when [generation] is still the latest job of [bookUri]. */
@@ -199,49 +297,131 @@ public class OnlineBookCacheManager(
     generation: Int,
     transform: (OnlineCacheState) -> OnlineCacheState,
   ) {
-    if (generations[bookUri] != generation) return
+    if (!isCurrent(bookUri, generation)) return
     _states.update { current ->
       val state = current[bookUri] ?: return@update current
       current + (bookUri to transform(state))
     }
   }
 
-  private suspend fun runCaching(
-    bookId: BookId,
+  private fun start(
     bookRef: OnlineBookRef,
-    count: Int,
-    generation: Int,
-    delaySeconds: Int,
+    job: OnlineCacheJob,
   ) {
-    val bookUri = bookId.value
-    val book = catalog.lookupOnlineBook(bookRef.source, bookRef.bookId)
-    val chapters = book?.chapters?.takeIf { it.isNotEmpty() }
+    val bookUri = job.bookUri
+    val generation = (generations[bookUri] ?: 0) + 1
+    generations[bookUri] = generation
+    jobs[bookUri]?.cancel()
+    // the dialog shows a progress bar the moment the user taps start, not
+    // after the first network round trip; the real window size replaces the
+    // requested count as soon as the chapter list is known
+    setState(
+      bookUri,
+      generation,
+      OnlineCacheState(
+        bookUri = bookUri,
+        total = job.count,
+        done = 0,
+        failed = 0,
+        downloading = true,
+      ),
+    )
+    // lazy, so the job is registered before it can possibly complete: a job
+    // that finishes eagerly (a declined confirmation) would otherwise be
+    // removed from [jobs] before it was ever put there
+    val cacheJob = scope.launch(start = CoroutineStart.LAZY) {
+      runCaching(bookRef, job, generation)
+    }
+    jobs[bookUri] = cacheJob
+    cacheJob.invokeOnCompletion { jobs.remove(bookUri, cacheJob) }
+    cacheJob.start()
+  }
+
+  private suspend fun runCaching(
+    bookRef: OnlineBookRef,
+    job: OnlineCacheJob,
+    generation: Int,
+  ) {
+    val bookUri = job.bookUri
+    // a clear (or a newer job of the same book) can win the race against this
+    // job's start: then this job must not download a single chapter anymore,
+    // and it must not touch the store of the job that replaced it
+    if (!isCurrent(bookUri, generation)) return
+    // the shelf copy is local: it knows the title and the window without
+    // touching the network, which matters because a declined confirmation
+    // must not send a single request. A failing store read falls back to the
+    // source below instead of killing the job without a word
+    val localBook = runCatching { catalog.lookupOnlineBook(bookRef.source, bookRef.bookId) }.getOrNull()
+    val localChapters = localBook?.chapters.orEmpty()
+    val localStart = startIndex(localBook, localChapters)
+    val wanted = localChapters.takeIf { it.isNotEmpty() }?.drop(localStart)?.take(job.count)
+    var meteredAllowed = false
+    if (meteredNetworkChecker.isMetered()) {
+      meteredAllowed = awaitMeteredPermission(
+        confirmation = OnlineCacheConfirmation(
+          bookUri = bookUri,
+          title = localBook?.title.orEmpty(),
+          chapters = wanted?.size ?: job.count,
+        ),
+        bookUri = bookUri,
+        generation = generation,
+      )
+      if (!meteredAllowed) {
+        // the user said no: nothing was downloaded, so the bar goes away
+        // instead of freezing at zero, and the job is not resumed either
+        if (isCurrent(bookUri, generation)) {
+          clearState(bookUri, generation)
+          forget(bookUri)
+        }
+        return
+      }
+    }
+    val chapters = localChapters.takeIf { it.isNotEmpty() }
       ?: runCatching { service.chapters(bookRef.source, bookRef.bookId) }.getOrNull().orEmpty()
     if (chapters.isEmpty()) {
-      setState(bookUri, generation, OnlineCacheState(bookUri, 0, 0, 0, false))
+      // no chapter list at all (offline, source gone): keep the job so the
+      // next start can retry, unless it keeps failing without any progress
+      clearState(bookUri, generation)
+      persistUnlessGivenUp(bookUri, generation, job, progressed = false)
       return
     }
-    val startIndex = book?.currentChapterId
-      ?.takeIf { id -> id.isNotBlank() }
-      ?.let { id -> chapters.indexOfFirst { it.id == id } }
-      ?.takeIf { it >= 0 } ?: 0
-    val window = chapters.drop(startIndex).take(count)
-    setState(bookUri, generation, OnlineCacheState(bookUri, window.size, 0, 0, true))
+    val startOffset = startIndex(localBook, chapters)
+    val window = chapters.drop(startOffset).take(job.count)
+    val doneAtStart = window.count { chapter -> fileCache.isCached(chapterRef(bookRef, chapter)) }
+    var done = doneAtStart
+    var failed = 0
+    var consecutiveFailures = 0
+    var submittedAny = false
+    var declined = false
+    setState(
+      bookUri,
+      generation,
+      OnlineCacheState(bookUri, window.size, done, 0, downloading = true),
+    )
     try {
-      var done = 0
-      var failed = 0
-      var consecutiveFailures = 0
-      var submittedAny = false
       for ((offset, chapter) in window.withIndex()) {
         coroutineContext.ensureActive()
-        val ref = OnlineChapterRef(bookRef.source, bookRef.bookId, chapter.id)
-        updateState(bookUri, generation) { it.copy(currentTitle = chapter.title) }
-        if (fileCache.isCached(ref)) {
-          done++
-          consecutiveFailures = 0
-          updateState(bookUri, generation) { it.copy(done = done, failed = failed) }
-          continue
+        if (!isCurrent(bookUri, generation)) return
+        val ref = chapterRef(bookRef, chapter)
+        if (fileCache.isCached(ref)) continue
+        if (meteredNetworkChecker.isMetered() && !meteredAllowed) {
+          // the network turned metered while caching: the next chapter is a
+          // new data volume decision, so ask before it is downloaded
+          meteredAllowed = awaitMeteredPermission(
+            confirmation = OnlineCacheConfirmation(
+              bookUri = bookUri,
+              title = localBook?.title.orEmpty(),
+              chapters = window.size - offset,
+            ),
+            bookUri = bookUri,
+            generation = generation,
+          )
+          if (!meteredAllowed) {
+            declined = true
+            break
+          }
         }
+        updateState(bookUri, generation) { it.copy(currentTitle = chapter.title) }
         // main catalog: submit this episode as its own server task, one at a
         // time. The configured per-episode delay lets the account cool down
         // between downloads instead of submitting the whole window up front
@@ -249,10 +429,15 @@ public class OnlineBookCacheManager(
         // task still holding the slot - is expected and harmless: the resolve
         // below keeps polling until the file appears.
         if (bookRef.source == OnlineSourceClient.SOURCE_MAIN) {
-          if (submittedAny && delaySeconds > 0) delay(delaySeconds * 1_000L)
-          val episode = chapter.order.takeIf { it > 0 } ?: (startIndex + offset + 1)
+          if (submittedAny && job.delaySeconds > 0) delay(job.delaySeconds * 1_000L)
+          val episode = chapter.order.takeIf { it > 0 } ?: (startOffset + offset + 1)
           val _ = runCatching { service.submitDownload(bookRef.bookId, episode, episode) }
           submittedAny = true
+        }
+        // the player owns the connection while it buffers; a stuck player
+        // must not stall the cache forever, hence the bounded wait
+        val _ = withTimeoutOrNull(PLAYBACK_GATE_WAIT_MS) {
+          playbackIoGate.whilePlaybackLoads { }
         }
         // resolveStreamUrl reports failures as null and only throws on
         // cancellation, so no runCatching: it would swallow the cancellation
@@ -275,10 +460,126 @@ public class OnlineBookCacheManager(
         updateState(bookUri, generation) { it.copy(done = done, failed = failed) }
         if (consecutiveFailures >= ABORT_AFTER_CONSECUTIVE_FAILURES) break
       }
+    } catch (e: CancellationException) {
+      throw e
+    } catch (e: Exception) {
+      // an unexpected failure must not leave the dialog spinning forever and
+      // must not vanish without a trace: the job stays persisted, so the next
+      // start retries it
+      Logger.w(e, "Online cache job of $bookUri failed")
     } finally {
       // a cancelled job must not leave the dialog spinning: chapters cached
       // so far are kept and the job simply reports as finished
-      updateState(bookUri, generation) { it.copy(downloading = false, currentTitle = "") }
+      updateState(bookUri, generation) {
+        it.copy(downloading = false, currentTitle = "", awaitingConfirmation = false)
+      }
+    }
+    // an unfinished job stays persisted so the next app start continues it,
+    // and so does one whose chapters failed: the missing ones are the work of
+    // the next run. `done` counts every window chapter that is on the device,
+    // the failed ones included in its shortfall
+    persistUnlessGivenUp(
+      bookUri = bookUri,
+      generation = generation,
+      job = job,
+      progressed = done > doneAtStart,
+      unfinished = done < window.size && !declined,
+    )
+    if (declined) clearState(bookUri, generation)
+  }
+
+  /**
+   * Keeps the persisted request while it still has chapters to cache and while
+   * it keeps making progress. A run that downloaded something resets the
+   * counter, so a slow cache is never given up on; a job whose runs end
+   * without a single chapter (dead source, no network) is dropped instead of
+   * being retried on every app start.
+   */
+  private fun persistUnlessGivenUp(
+    bookUri: String,
+    generation: Int,
+    job: OnlineCacheJob,
+    progressed: Boolean,
+    unfinished: Boolean = true,
+  ) {
+    // a stale job must not delete the persisted request of its successor
+    if (!isCurrent(bookUri, generation)) return
+    val attempts = if (progressed) 0 else job.attempts + 1
+    if (unfinished && attempts < MAX_RESUME_ATTEMPTS) {
+      remember(job.copy(attempts = attempts))
+    } else {
+      forget(bookUri)
+    }
+  }
+
+  /** True while [generation] is the job of [bookUri] that owns its outcome. */
+  private fun isCurrent(
+    bookUri: String,
+    generation: Int,
+  ): Boolean {
+    return generations[bookUri] == generation
+  }
+
+  /**
+   * Publishes the metered question and suspends until the user answered it.
+   * Prompts are serialized, so two jobs never stack two dialogs; a cancelled
+   * job abandons the wait and hands the prompt slot to the next job.
+   */
+  private suspend fun awaitMeteredPermission(
+    confirmation: OnlineCacheConfirmation,
+    bookUri: String,
+    generation: Int,
+  ): Boolean {
+    return confirmationGate.withLock {
+      val answer = CompletableDeferred<Boolean>()
+      pendingConfirmation.set(answer)
+      _meteredConfirmation.value = confirmation
+      updateState(bookUri, generation) { it.copy(awaitingConfirmation = true) }
+      try {
+        answer.await()
+      } finally {
+        pendingConfirmation.set(null)
+        _meteredConfirmation.value = null
+        updateState(bookUri, generation) { it.copy(awaitingConfirmation = false) }
+      }
+    }
+  }
+
+  /**
+   * The chapter the book is in right now is the first one cached: going
+   * offline mid-chapter must keep playing.
+   */
+  private fun startIndex(
+    book: OnlineBook?,
+    chapters: List<OnlineChapter>,
+  ): Int {
+    return book?.currentChapterId
+      ?.takeIf { id -> id.isNotBlank() }
+      ?.let { id -> chapters.indexOfFirst { it.id == id } }
+      ?.takeIf { it >= 0 } ?: 0
+  }
+
+  private fun chapterRef(
+    bookRef: OnlineBookRef,
+    chapter: OnlineChapter,
+  ): OnlineChapterRef {
+    return OnlineChapterRef(bookRef.source, bookRef.bookId, chapter.id)
+  }
+
+  /** Remembers the request before it runs, so a killed process resumes it. */
+  private fun remember(job: OnlineCacheJob) {
+    scope.launch {
+      // a store hiccup must not take the cache job down with it
+      val _ = runCatching {
+        jobsStore.updateData { jobs -> jobs.filterNot { it.bookUri == job.bookUri } + job }
+      }
+    }
+  }
+
+  /** Drops the persisted request: the job is done, cancelled or declined. */
+  private fun forget(bookUri: String) {
+    scope.launch {
+      val _ = runCatching { jobsStore.updateData { jobs -> jobs.filterNot { it.bookUri == bookUri } } }
     }
   }
 
@@ -383,5 +684,15 @@ public class OnlineBookCacheManager(
 
     /** A dead network fails fast instead of grinding through the whole window. */
     const val ABORT_AFTER_CONSECUTIVE_FAILURES = 5
+
+    /**
+     * How many runs of the same job may end without downloading a single
+     * chapter before the job is dropped. A crash or a kill is not counted, a
+     * run that downloaded something resets the counter.
+     */
+    const val MAX_RESUME_ATTEMPTS = 3
+
+    /** How long a download waits for the player to finish buffering. */
+    const val PLAYBACK_GATE_WAIT_MS = 15_000L
   }
 }

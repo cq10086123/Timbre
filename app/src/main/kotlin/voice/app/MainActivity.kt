@@ -25,6 +25,7 @@ import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.ContributesTo
 import dev.zacsweers.metro.Inject
 import kotlinx.coroutines.runBlocking
+import voice.app.cache.OnlineCacheMeteredPrompt
 import voice.app.navigation.BottomSheetSceneStrategy
 import voice.app.navigation.NavEntryResolver
 import voice.app.navigation.StartDestination
@@ -36,6 +37,7 @@ import voice.core.data.ThemeMode
 import voice.core.data.store.ThemeColorSchemeStore
 import voice.core.data.store.ThemeModeStore
 import voice.core.logging.api.Logger
+import voice.core.online.OnlineBookCacheManager
 import voice.core.playback.PlayerController
 import voice.core.ui.LocalSharedTransitionScope
 import voice.core.ui.VoiceTheme
@@ -65,6 +67,9 @@ class MainActivity : AppCompatActivity() {
 
   @Inject
   private lateinit var playerController: PlayerController
+
+  @Inject
+  private lateinit var onlineBookCacheManager: OnlineBookCacheManager
 
   @Inject
   @ThemeModeStore
@@ -180,6 +185,10 @@ class MainActivity : AppCompatActivity() {
             }
           }
         }
+
+        // mobile data needs a confirmation before a cache job spends it, on
+        // whatever screen the user happens to be
+        OnlineCacheMeteredPrompt(manager = onlineBookCacheManager)
 
         ReviewFeature()
       }
