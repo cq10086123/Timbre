@@ -40,7 +40,11 @@ jobs:
       - name: Check locale config
         run: ./scripts/check_locale_config.main.kts
       - name: Tests + Formatting + Build
-        run: ./gradlew voiceUnitTest lintKotlin :app:assembleFreeDebug
+        # the job level timeout is 30 minutes, which hides *where* a hang lives:
+        # this step stops earlier and --info prints every test as it starts, so a
+        # stuck test shows up as the last line of the log instead of a dead job
+        timeout-minutes: 18
+        run: ./gradlew voiceUnitTest lintKotlin :app:assembleFreeDebug --info
       - name: Publish JUnit Report
         uses: mikepenz/action-junit-report@v6
         if: always()
