@@ -116,7 +116,7 @@ public class OnlineStreamingDataSource internal constructor(
       throw e
     }
     if (!hasMeasuredDuration(ref)) {
-      runCatching {
+      val _ = runCatching {
         java.io.FileInputStream(file).use { head ->
           val buffer = ByteArray(PROBE_BUFFER_BYTES)
           var read = 0

@@ -43,7 +43,7 @@ class OnlineChapterFileCacheTest {
     val tmp = cache.tmpFileFor(ref)
     tmp.parentFile?.mkdirs()
     tmp.writeBytes(ByteArray(8))
-    cache.completeDownload(ref)
+    val _ = cache.completeDownload(ref)
     val other = cache.tmpFileFor(ref.copy(chapterId = "ch2"))
     other.parentFile?.mkdirs()
     other.writeBytes(ByteArray(8))

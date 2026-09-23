@@ -20,9 +20,7 @@ import java.security.MessageDigest
  * Provided by [OnlineSourceGraph] with the app files dir; tests construct it
  * with a temp dir directly.
  */
-public class OnlineChapterFileCache internal constructor(
-  private val root: File,
-) {
+public class OnlineChapterFileCache internal constructor(private val root: File) {
 
   /** The final (complete only) file of [ref]; absent when not cached. */
   public fun fileFor(ref: OnlineChapterRef): File {

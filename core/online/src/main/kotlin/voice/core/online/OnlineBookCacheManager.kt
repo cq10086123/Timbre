@@ -9,6 +9,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -71,7 +73,8 @@ public data class OnlineCachedInfo(
  *   background traffic: playback never waits for them.
  */
 @SingleIn(AppScope::class)
-public class OnlineBookCacheManager @Inject constructor(
+@Inject
+public class OnlineBookCacheManager(
   private val catalog: OnlinePlaybackCatalog,
   private val service: OnlineSourceService,
   private val fileCache: OnlineChapterFileCache,
@@ -161,7 +164,7 @@ public class OnlineBookCacheManager @Inject constructor(
     val generation = (generations[bookId.value] ?: 0) + 1
     generations[bookId.value] = generation
     jobs[bookId.value]?.cancel()
-    runCatching { jobs[bookId.value]?.join() }
+    val _ = runCatching { jobs[bookId.value]?.join() }
     val cleared = fileCache.clearBook(bookRef.source, bookRef.bookId)
     updateState(bookId.value, generation) { it.copy(downloading = false) }
     return cleared
@@ -213,7 +216,7 @@ public class OnlineBookCacheManager @Inject constructor(
     // per-chapter resolve below finds files instead of submitting and polling
     // one small batch per chapter
     if (bookRef.source == OnlineSourceClient.SOURCE_MAIN && window.isNotEmpty()) {
-      runCatching {
+      val _ = runCatching {
         val startEpisode = OnlinePlaybackCatalog.episodeNumber(window.first().title, startIndex)
         val lastEpisode = OnlinePlaybackCatalog.episodeNumber(window.last().title, startIndex + window.size - 1)
         service.submitDownload(bookRef.bookId, startEpisode, lastEpisode.coerceAtLeast(startEpisode))
@@ -323,10 +326,23 @@ public class OnlineBookCacheManager @Inject constructor(
    */
   private suspend fun executeCancellable(request: Request): Response {
     val call = httpClient.newCall(request)
-    coroutineContext.job.invokeOnCompletion(onCancelling = true) {
-      call.cancel()
+    return coroutineScope {
+      // a child watcher gets cancelled the moment this coroutine is cancelled,
+      // even while the current thread is blocked inside execute(); it then
+      // aborts the call so a clear does not wait for the whole download
+      val watcher = launch {
+        try {
+          awaitCancellation()
+        } finally {
+          call.cancel()
+        }
+      }
+      try {
+        call.execute()
+      } finally {
+        watcher.cancel()
+      }
     }
-    return call.execute()
   }
 
   private suspend fun downloadRequest(url: String): Request {
