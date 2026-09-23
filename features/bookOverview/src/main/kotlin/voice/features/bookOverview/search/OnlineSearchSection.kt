@@ -1,5 +1,8 @@
 package voice.features.bookOverview.search
 
+import android.content.Context
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -90,6 +93,8 @@ internal fun OnlineSearchSection(
   var selectedSource by remember { mutableStateOf(OnlineSourceClient.SOURCE_MAIN) }
   var loading by remember { mutableStateOf(false) }
   var failed by remember { mutableStateOf(false) }
+  var offline by remember { mutableStateOf(false) }
+  val context = LocalContext.current
   var results by remember { mutableStateOf(emptyList<OnlineSearchResult>()) }
   var chaptersFor by remember { mutableStateOf<OnlineSearchResult?>(null) }
 
@@ -100,6 +105,7 @@ internal fun OnlineSearchSection(
     }
     loading = true
     failed = false
+    offline = false
     delay(SEARCH_DEBOUNCE_MILLIS)
     results = try {
       service.search(selectedSource, query)
@@ -109,6 +115,7 @@ internal fun OnlineSearchSection(
       throw e
     } catch (e: Exception) {
       failed = true
+      offline = !hasValidatedNetwork(context)
       emptyList()
     }
     loading = false
@@ -163,7 +170,10 @@ internal fun OnlineSearchSection(
       failed -> {
         Text(
           modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-          text = stringResource(StringsR.string.search_online_error),
+          text = stringResource(
+            if (offline) StringsR.string.search_online_offline
+            else StringsR.string.search_online_error,
+          ),
         )
       }
       else -> {
@@ -286,7 +296,6 @@ private fun OnlineChaptersDialog(
   }
   // chapters only play from the shelf: tapping one without adding resolves
   // nothing and used to end in a connection error
-  val context = LocalContext.current
   val joinShelfFirst = stringResource(StringsR.string.search_online_join_shelf_first)
   fun onChapterClick(
     chapters: List<OnlineChapter>,
@@ -317,12 +326,16 @@ private fun OnlineChaptersDialog(
       }
     }
   }
+  var offline by remember(book) { mutableStateOf(false) }
+  val context = LocalContext.current
   val state by produceState(initialValue = ChaptersUiState(), book, reloadKey) {
     value = ChaptersUiState(loading = true)
+    offline = false
     val result = runCatching { service.chapters(book.source, book.bookId) }
     value = result.fold(
       onSuccess = { ChaptersUiState(loading = false, chapters = it) },
       onFailure = {
+        offline = !hasValidatedNetwork(context)
         ChaptersUiState(loading = false, failed = true, errorMessage = it.message)
       },
     )
@@ -360,7 +373,12 @@ private fun OnlineChaptersDialog(
             .padding(vertical = 16.dp),
           horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-          Text(stringResource(StringsR.string.search_online_error))
+          Text(
+            stringResource(
+              if (offline) StringsR.string.search_online_offline
+              else StringsR.string.search_online_error,
+            ),
+          )
           state.errorMessage?.let { detail ->
             Text(
               modifier = Modifier.padding(top = 6.dp),
@@ -483,6 +501,15 @@ private fun OnlineChaptersDialog(
 }
 
 private const val CHAPTERS_PAGE_SIZE = 50
+
+private fun hasValidatedNetwork(context: Context): Boolean {
+  val manager = context.getSystemService(ConnectivityManager::class.java) ?: return true
+  val network = manager.activeNetwork ?: return false
+  val capabilities = manager.getNetworkCapabilities(network) ?: return false
+  // INTERNET describes an available network transport; VALIDATED would mark
+  // a reachable local/private server as offline on some devices.
+  return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+}
 
 private fun pageLabel(
   page: Int,

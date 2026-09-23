@@ -760,7 +760,11 @@ public class OnlinePlaybackCatalog(
     if (index < 0) {
       return fail(ref, OnlinePlaybackErrorKind.CONTENT, "The chapter is not part of the book")
     }
-    val episode = episodeNumber(chapters[index].title, index)
+    // The main catalog's download API addresses episodes by their position in
+    // the album, not by the first number found in the display title. Titles
+    // often contain volume/year/bonus numbers, and using those numbers makes
+    // the list look correct while playing a different file.
+    val episode = chapters[index].order.takeIf { it > 0 } ?: (index + 1)
     val title = onlineBook?.title.orEmpty()
     val endEpisode = (episode + DOWNLOAD_AHEAD).coerceAtMost(chapters.size)
 

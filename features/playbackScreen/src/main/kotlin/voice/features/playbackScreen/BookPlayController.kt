@@ -1,6 +1,9 @@
 package voice.features.playbackScreen
 
+import android.content.Context
 import android.content.res.Configuration.ORIENTATION_LANDSCAPE
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
@@ -33,12 +36,16 @@ fun BookPlayScreen(bookId: BookId) {
       .create(bookId)
   }
   val snackbarHostState = remember { SnackbarHostState() }
+  val context = androidx.compose.ui.platform.LocalContext.current
   val dialogState = viewModel.dialogState.value
   val viewState = viewModel.viewState()
   val bookmarkAddedMessage = stringResource(StringsR.string.bookmark_added_snackbar)
   val batteryOptimizationMessage = stringResource(StringsR.string.playback_battery_optimization_rationale)
   val batteryOptimizationAction = stringResource(StringsR.string.playback_battery_optimization_action)
-  val onlineNetworkErrorMessage = stringResource(StringsR.string.playback_online_error_network)
+  val onlineNetworkErrorMessage = stringResource(
+    if (hasValidatedNetwork(context)) StringsR.string.playback_online_error_network
+    else StringsR.string.playback_online_error_offline,
+  )
   val onlineAuthErrorMessage = stringResource(StringsR.string.playback_online_error_auth)
   val onlineContentErrorMessage = stringResource(StringsR.string.playback_online_error_content)
   LaunchedEffect(viewModel) {
@@ -121,6 +128,13 @@ fun BookPlayScreen(bookId: BookId) {
       }
     }
   }
+}
+
+private fun hasValidatedNetwork(context: Context): Boolean {
+  val manager = context.getSystemService(ConnectivityManager::class.java) ?: return true
+  val network = manager.activeNetwork ?: return false
+  val capabilities = manager.getNetworkCapabilities(network) ?: return false
+  return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
 }
 
 @ContributesTo(AppScope::class)

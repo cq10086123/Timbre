@@ -103,14 +103,15 @@ public class OnlineStreamingDataSource internal constructor(
     file: File,
   ): Long {
     val length = file.length()
+    // FileInputStream.skip() is allowed to skip fewer bytes than requested.
+    // When ExoPlayer seeks repeatedly, stopping at the first short skip makes
+    // the cached stream restart from the wrong byte and can look like seeking
+    // has stopped working. FileChannel.position() is exact and also lets us
+    // clamp a stale seek at EOF instead of returning unrelated data.
+    val position = dataSpec.position.coerceIn(0L, length)
     val stream = java.io.FileInputStream(file)
     try {
-      var toSkip = dataSpec.position
-      while (toSkip > 0L) {
-        val skipped = stream.skip(toSkip)
-        if (skipped <= 0L) break
-        toSkip -= skipped
-      }
+      stream.channel.position(position)
     } catch (e: IOException) {
       stream.close()
       throw e
@@ -134,8 +135,9 @@ public class OnlineStreamingDataSource internal constructor(
     inputStream = stream
     openedUri = dataSpec.uri
     bytesRemaining = when {
-      dataSpec.length != C.LENGTH_UNSET.toLong() -> dataSpec.length
-      else -> (length - dataSpec.position).coerceAtLeast(0L)
+      dataSpec.length != C.LENGTH_UNSET.toLong() ->
+        dataSpec.length.coerceAtMost((length - position).coerceAtLeast(0L))
+      else -> (length - position).coerceAtLeast(0L)
     }
     transferStarted(dataSpec)
     return when {

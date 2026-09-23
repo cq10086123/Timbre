@@ -217,8 +217,12 @@ public class OnlineBookCacheManager(
     // one small batch per chapter
     if (bookRef.source == OnlineSourceClient.SOURCE_MAIN && window.isNotEmpty()) {
       val _ = runCatching {
-        val startEpisode = OnlinePlaybackCatalog.episodeNumber(window.first().title, startIndex)
-        val lastEpisode = OnlinePlaybackCatalog.episodeNumber(window.last().title, startIndex + window.size - 1)
+        // The official download API uses album positions. Do not parse numbers
+        // from titles: a title can contain a volume or year and point the
+        // cache at a different episode while the chapter list looks correct.
+        val startEpisode = window.first().order.takeIf { it > 0 } ?: (startIndex + 1)
+        val lastEpisode = window.last().order.takeIf { it > 0 }
+          ?: (startIndex + window.size)
         service.submitDownload(bookRef.bookId, startEpisode, lastEpisode.coerceAtLeast(startEpisode))
       }
     }
