@@ -18,6 +18,8 @@ import org.junit.Before
 import org.junit.Ignore
 import voice.core.common.DispatcherProvider
 import voice.core.data.BookId
+import voice.core.logging.api.LogWriter
+import voice.core.logging.api.Logger
 import kotlin.io.path.createTempDirectory
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -26,6 +28,20 @@ import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.TimeSource
 
 class OnlineBookCacheManagerTest {
+
+  init {
+    Logger.install(
+      object : LogWriter {
+        override fun log(
+          severity: Logger.Severity,
+          message: String,
+          throwable: Throwable?,
+        ) {
+          println("$severity: $message ${throwable?.toString().orEmpty()}")
+        }
+      },
+    )
+  }
 
   private lateinit var server: MockWebServer
   private val catalog = mockk<OnlinePlaybackCatalog>()
@@ -46,11 +62,7 @@ class OnlineBookCacheManagerTest {
     server.close()
   }
 
-  // TODO: never actually ran — the branch failed to compile until now, and the
-  //  download does not land in the cache on either the test or the real IO
-  //  dispatcher. Un-ignoring needs a proper look at the download loop.
   @Test
-  @Ignore
   fun `caches the next chapters starting at the current one`() = runTest {
     fileCache = OnlineChapterFileCache(createTempDirectory("online-cache").toFile())
     manager = OnlineBookCacheManager(

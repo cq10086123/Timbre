@@ -326,22 +326,18 @@ public class OnlineBookCacheManager(
    */
   private suspend fun executeCancellable(request: Request): Response {
     val call = httpClient.newCall(request)
-    return coroutineScope {
-      // a child watcher gets cancelled the moment this coroutine is cancelled,
-      // even while the current thread is blocked inside execute(); it then
-      // aborts the call so a clear does not wait for the whole download
-      val watcher = launch {
-        try {
-          awaitCancellation()
-        } finally {
-          call.cancel()
-        }
-      }
-      try {
-        call.execute()
-      } finally {
-        watcher.cancel()
-      }
+    // same effect as the internal invokeOnCompletion(onCancelling = true):
+    // if this coroutine is cancelled while the thread is blocked inside
+    // execute(), the socket is aborted so a clear does not wait for the whole
+    // download. Cancelling the call after execute() returned is harmless - the
+    // body is streamed later but the completion callback only fires once this
+    // coroutine actually finishes, which is after the body was fully read.
+    val handle = coroutineContext[Job]!!.invokeOnCompletion { call.cancel() }
+    try {
+      return call.execute()
+    } catch (e: Throwable) {
+      handle.dispose()
+      throw e
     }
   }
 
