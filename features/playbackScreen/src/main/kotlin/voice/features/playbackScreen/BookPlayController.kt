@@ -43,8 +43,11 @@ fun BookPlayScreen(bookId: BookId) {
   val batteryOptimizationMessage = stringResource(StringsR.string.playback_battery_optimization_rationale)
   val batteryOptimizationAction = stringResource(StringsR.string.playback_battery_optimization_action)
   val onlineNetworkErrorMessage = stringResource(
-    if (hasNetwork(context)) StringsR.string.playback_online_error_network
-    else StringsR.string.playback_online_error_offline,
+    if (hasNetwork(context)) {
+      StringsR.string.playback_online_error_network
+    } else {
+      StringsR.string.playback_online_error_offline
+    },
   )
   val onlineAuthErrorMessage = stringResource(StringsR.string.playback_online_error_auth)
   val onlineContentErrorMessage = stringResource(StringsR.string.playback_online_error_content)
