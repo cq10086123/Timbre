@@ -49,8 +49,14 @@ class PlaybackService : MediaLibraryService() {
   }
 
   private fun release() {
+    // Must finish the flush before the player is torn down. NonCancellable keeps
+    // a cancelled PlaybackScope from aborting the write; failures are logged so
+    // a stuck Room write cannot skip the rest of the teardown.
     runBlocking {
-      positionUpdater.flushPositionNow()
+      withContext(NonCancellable) {
+        runCatching { positionUpdater.flushPositionNow() }
+          .onFailure { Logger.w(it, "Could not flush the position on release") }
+      }
     }
     positionUpdater.release()
     player.release()

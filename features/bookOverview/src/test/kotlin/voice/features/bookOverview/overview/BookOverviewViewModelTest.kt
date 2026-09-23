@@ -4,6 +4,7 @@ import androidx.datastore.core.DataStore
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import app.cash.molecule.RecompositionMode
 import app.cash.molecule.launchMolecule
+import app.cash.turbine.TurbineTestContext
 import app.cash.turbine.test
 import io.mockk.Runs
 import io.mockk.coEvery
@@ -107,8 +108,7 @@ class BookOverviewViewModelTest {
     backgroundScope.launchMolecule(RecompositionMode.Immediate) {
       viewModel.state()
     }.test {
-      assertEquals(expected = BookOverviewViewState.Loading, actual = awaitItem())
-      val initial = awaitItem()
+      val initial = awaitStateWith(currentBook.id)
       val initialCurrentItem = initial.currentBook(currentBook.id)
       val initialOtherItem = initial.currentBook(otherBook.id)
       val initialKeys = initial.books.getValue(BookOverviewCategory.CURRENT).keys.toList()
@@ -149,8 +149,7 @@ class BookOverviewViewModelTest {
     backgroundScope.launchMolecule(RecompositionMode.Immediate) {
       viewModel.state()
     }.test {
-      assertEquals(expected = BookOverviewViewState.Loading, actual = awaitItem())
-      val state = awaitItem()
+      val state = awaitStateWith(importingBookId)
 
       // the card appears as soon as the scan discovered the book, before any
       // chapter was stored, so the shelf never stays blank during an import
@@ -173,8 +172,7 @@ class BookOverviewViewModelTest {
     backgroundScope.launchMolecule(RecompositionMode.Immediate) {
       viewModel.state()
     }.test {
-      assertEquals(expected = BookOverviewViewState.Loading, actual = awaitItem())
-      val state = awaitItem()
+      val state = awaitStateWith(storedBook.id)
 
       assertEquals(expected = listOf(storedBook.id), actual = state.books.getValue(BookOverviewCategory.CURRENT).keys.toList())
       assertEquals(expected = importProgress, actual = state.currentBook(storedBook.id).importProgress)
@@ -193,8 +191,7 @@ class BookOverviewViewModelTest {
     backgroundScope.launchMolecule(RecompositionMode.Immediate) {
       viewModel.state()
     }.test {
-      assertEquals(expected = BookOverviewViewState.Loading, actual = awaitItem())
-      val state = awaitItem()
+      val state = awaitStateWith(failedBookId)
 
       // the import of the book failed before anything was stored: its card has
       // to stay on the shelf with the error, instead of vanishing at the end
@@ -217,8 +214,7 @@ class BookOverviewViewModelTest {
     backgroundScope.launchMolecule(RecompositionMode.Immediate) {
       viewModel.state()
     }.test {
-      assertEquals(expected = BookOverviewViewState.Loading, actual = awaitItem())
-      val state = awaitItem()
+      val state = awaitStateWith(storedBook.id)
 
       assertEquals(expected = listOf(storedBook.id), actual = state.books.getValue(BookOverviewCategory.CURRENT).keys.toList())
       assertEquals(expected = error, actual = state.currentBook(storedBook.id).importError)
@@ -309,7 +305,6 @@ class BookOverviewViewModelTest {
     backgroundScope.launchMolecule(RecompositionMode.Immediate) {
       viewModel.state()
     }.test {
-      assertEquals(expected = BookOverviewViewState.Loading, actual = awaitItem())
       assertEquals(expected = false, actual = awaitItem().showFolderPickerIcon)
     }
   }
@@ -323,7 +318,6 @@ class BookOverviewViewModelTest {
     backgroundScope.launchMolecule(RecompositionMode.Immediate) {
       viewModel.state()
     }.test {
-      assertEquals(expected = BookOverviewViewState.Loading, actual = awaitItem())
       assertEquals(expected = true, actual = awaitItem().showFolderPickerIcon)
     }
   }
@@ -339,7 +333,6 @@ class BookOverviewViewModelTest {
     backgroundScope.launchMolecule(RecompositionMode.Immediate) {
       viewModel.state()
     }.test {
-      assertEquals(expected = BookOverviewViewState.Loading, actual = awaitItem())
       awaitItem()
 
       viewModel.onBookFolderClick()
@@ -362,7 +355,6 @@ class BookOverviewViewModelTest {
     backgroundScope.launchMolecule(RecompositionMode.Immediate) {
       viewModel.state()
     }.test {
-      assertEquals(BookOverviewViewState.Loading, awaitItem())
       awaitItem()
       viewModel.onSearchActiveChange(true)
       var state = awaitItem()
@@ -443,6 +435,19 @@ class BookOverviewViewModelTest {
       dispatcherProvider = dispatcherProvider,
     )
   }
+}
+
+/**
+ * The shelf no longer starts with a Loading frame, so the first items can still
+ * be assembled from a book list that does not contain the book under test yet.
+ * Waits until [bookId] actually shows up on the shelf.
+ */
+private suspend fun TurbineTestContext<BookOverviewViewState>.awaitStateWith(bookId: BookId): BookOverviewViewState {
+  var state = awaitItem()
+  while (state.books.values.none { group -> bookId in group }) {
+    state = awaitItem()
+  }
+  return state
 }
 
 private class MemoryDataStore<T>(initial: T) : DataStore<T> {

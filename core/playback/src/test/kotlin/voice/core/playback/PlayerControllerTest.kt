@@ -38,6 +38,28 @@ class PlayerControllerTest {
   }
 
   @Test
+  fun `leading prefix is ready once the target index exists`() {
+    // VoicePlayer installs [0, resume+ahead); global indexes already match, so
+    // a chapter pick inside the prefix must not wait for the full tail.
+    assertTrue(
+      playlistAssembled(
+        currentMediaId = chapterMarkOf(bookId),
+        mediaItemCount = 50,
+        bookId = bookId,
+        itemIndex = 5,
+      ),
+    )
+    assertFalse(
+      playlistAssembled(
+        currentMediaId = chapterMarkOf(bookId),
+        mediaItemCount = 50,
+        bookId = bookId,
+        itemIndex = 50,
+      ),
+    )
+  }
+
+  @Test
   fun `placeholder book item is not an assembled playlist`() {
     // what maybePrepare leaves behind while VoicePlayer is still assembling
     assertFalse(

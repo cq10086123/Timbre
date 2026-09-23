@@ -4,14 +4,22 @@ import android.content.Intent
 import androidx.datastore.core.DataStore
 import dev.zacsweers.metro.Inject
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.runBlocking
 import voice.app.MainActivity
 import voice.core.data.BookId
 import voice.core.data.folders.AudiobookFolders
 import voice.core.data.store.CurrentBookStore
 import voice.core.data.store.OnboardingCompletedStore
-import voice.core.playback.PlayerController
 import voice.navigation.Destination
+
+/**
+ * Resolved once when [MainActivity] starts. Keeps DataStore reads and play
+ * side effects out of composition so recomposition cannot block the main
+ * thread or re-trigger playback.
+ */
+data class StartDestination(
+  val destinations: List<Destination.Compose>,
+  val shouldPlayCurrent: Boolean = false,
+)
 
 @Inject
 class StartDestinationProvider(
@@ -20,31 +28,31 @@ class StartDestinationProvider(
   private val audiobookFolders: AudiobookFolders,
   @CurrentBookStore
   private val currentBookStore: DataStore<BookId?>,
-  private val playerController: PlayerController,
 ) {
 
-  operator fun invoke(intent: Intent): List<Destination.Compose> {
-    val showOnboarding = runBlocking { showOnboarding() }
-    if (showOnboarding) {
-      return listOf(Destination.OnboardingWelcome)
+  suspend operator fun invoke(intent: Intent): StartDestination {
+    if (showOnboarding()) {
+      return StartDestination(listOf(Destination.OnboardingWelcome))
     }
 
-    val goToBook = intent.getBooleanExtra(MainActivity.Companion.NI_GO_TO_BOOK, false)
+    val goToBook = intent.getBooleanExtra(MainActivity.NI_GO_TO_BOOK, false)
     if (goToBook) {
-      val bookId = runBlocking { currentBookStore.data.first() }
+      val bookId = currentBookStore.data.first()
       if (bookId != null) {
-        return listOf(Destination.BookOverview, Destination.Playback(bookId))
+        return StartDestination(listOf(Destination.BookOverview, Destination.Playback(bookId)))
       }
     }
 
     if (intent.action == "playCurrent") {
-      val bookId = runBlocking { currentBookStore.data.first() }
+      val bookId = currentBookStore.data.first()
       if (bookId != null) {
-        playerController.play()
-        return listOf(Destination.BookOverview, Destination.Playback(bookId))
+        return StartDestination(
+          destinations = listOf(Destination.BookOverview, Destination.Playback(bookId)),
+          shouldPlayCurrent = true,
+        )
       }
     }
-    return listOf(Destination.BookOverview)
+    return StartDestination(listOf(Destination.BookOverview))
   }
 
   private suspend fun showOnboarding(): Boolean {

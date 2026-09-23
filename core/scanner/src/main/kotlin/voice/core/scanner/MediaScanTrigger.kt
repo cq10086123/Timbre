@@ -95,9 +95,19 @@ internal constructor(
       Logger.i("Skipping the scan because the previous one completed recently")
       return
     }
+    // the first scan of a process shares the cold-start window with the first
+    // frame; give composition and shelf paint a moment before walking every
+    // folder. Explicit retries (restartIfScanning) and later rescans skip this.
+    val deferFirstScan = !restartIfScanning && lastScanCompletedAt == null
     val previousJob = scanningJob
     val generation = scanGeneration.incrementAndGet()
     scanningJob = scope.launch {
+      if (deferFirstScan) {
+        delay(FIRST_SCAN_DELAY_MS)
+        if (scanGeneration.get() != generation) {
+          return@launch
+        }
+      }
       // the replaced scan resets the shared state in its finally block, so it
       // has to be fully stopped before this one claims the state
       previousJob?.cancelAndJoin()
@@ -202,6 +212,9 @@ internal constructor(
 }
 
 private const val MIN_SCAN_INTERVAL_MS = 10 * 60 * 1000L
+
+/** Lets the first frame settle before the first library refresh of a process. */
+private const val FIRST_SCAN_DELAY_MS = 2_000L
 
 // how often a cover lookup runs while an import is still parsing chapters
 private const val COVER_LOOKUP_POLL_MILLIS = 3000L

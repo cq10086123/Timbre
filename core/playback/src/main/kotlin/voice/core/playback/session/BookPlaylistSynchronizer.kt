@@ -108,6 +108,11 @@ class BookPlaylistSynchronizer(
         }
         return
       }
+      // prefix already covers everything known — VoicePlayer may still be
+      // expanding the same way; do not rebuild
+      syncedItemIds = expectedIds
+      syncedChapters = book.content.chapters
+      return
     }
 
     // the chapters changed in a way that can't be appended. Keep the current

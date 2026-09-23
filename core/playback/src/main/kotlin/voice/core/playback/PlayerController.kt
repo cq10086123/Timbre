@@ -61,7 +61,11 @@ class PlayerController(
   private val onlinePlaybackCatalog: OnlinePlaybackCatalog,
 ) {
 
-  private var _controller: Deferred<MediaController> = newControllerAsync()
+  /**
+   * Created on first use. Constructing [PlayerController] (e.g. from an app
+   * start warmer) must not bind [PlaybackService] during Application.onCreate.
+   */
+  private var _controller: Deferred<MediaController>? = null
 
   private fun newControllerAsync() = MediaController
     .Builder(context, SessionToken(context, ComponentName(context, PlaybackService::class.java)))
@@ -70,14 +74,18 @@ class PlayerController(
 
   private val controller: Deferred<MediaController>
     get() {
-      if (_controller.isCompleted) {
-        val completedController = _controller.getCompleted()
-        if (!completedController.isConnected) {
-          completedController.release()
-          _controller = newControllerAsync()
+      val existing = _controller
+      if (existing != null) {
+        if (existing.isCompleted) {
+          val completedController = existing.getCompleted()
+          if (!completedController.isConnected) {
+            completedController.release()
+            return newControllerAsync().also { _controller = it }
+          }
         }
+        return existing
       }
-      return _controller
+      return newControllerAsync().also { _controller = it }
     }
   private val scope = CoroutineScope(Dispatchers.Main.immediate)
 
@@ -95,6 +103,9 @@ class PlayerController(
       chapterId = chapterId,
       positionInChapterMs = positionInChapterMs,
     ) ?: return@executeAfterPrepare
+    // Leading prefix already uses global indexes (item 0 = chapter 0). Wait
+    // until the target index exists — either in the prefix or after the tail
+    // was appended — without requiring the entire book to be loaded first.
     if (awaitAssembledPlaylist(controller, book.id, position.index)) {
       controller.seekTo(position.index, position.positionInMediaItemMs)
     }
@@ -119,9 +130,13 @@ class PlayerController(
     bookId: BookId,
     itemIndex: Int,
   ): Boolean {
-    if (playlistAssembled(controller.currentMediaItem?.mediaId, controller.mediaItemCount, bookId, itemIndex)) {
-      return true
-    }
+    fun ready(): Boolean = playlistAssembled(
+      currentMediaId = controller.currentMediaItem?.mediaId,
+      mediaItemCount = controller.mediaItemCount,
+      bookId = bookId,
+      itemIndex = itemIndex,
+    )
+    if (ready()) return true
     val assembled = withTimeoutOrNull(PLAYLIST_ASSEMBLY_TIMEOUT_MS) {
       callbackFlow {
         val listener = object : Player.Listener {
@@ -129,26 +144,21 @@ class PlayerController(
             player: Player,
             events: Player.Events,
           ) {
-            if (playlistAssembled(controller.currentMediaItem?.mediaId, controller.mediaItemCount, bookId, itemIndex)) {
-              trySend(Unit)
-            }
+            if (ready()) trySend(Unit)
           }
         }
         controller.addListener(listener)
         // the playlist may have landed between the check above and the
         // listener registration
-        if (playlistAssembled(controller.currentMediaItem?.mediaId, controller.mediaItemCount, bookId, itemIndex)) {
-          trySend(Unit)
-        }
+        if (ready()) trySend(Unit)
         awaitClose { controller.removeListener(listener) }
       }.first()
     } != null
     if (assembled) return true
     Logger.i("Playlist of $bookId was not assembled in time, item $itemIndex stays where it is")
     // the book is still worth seeking into when a playlist of it exists that
-    // has not grown to the item yet (a partially imported book keeps
-    // appending chapters): the seek is dropped by the controller then, but
-    // never applied to another book
+    // has not grown to the item yet (prefix still expanding / partial import):
+    // the seek is dropped by the controller then, but never applied to another book
     return playlistOfBookLoaded(controller.currentMediaItem?.mediaId, bookId)
   }
 
@@ -368,6 +378,9 @@ class PlayerController(
  * [PlayerController.maybePrepare] sets while VoicePlayer is still assembling
  * carries a book media id, and the playlist of another book must not pass
  * either - both would drop a seek just like an empty playlist does.
+ *
+ * Leading prefixes use global indexes (item 0 = first chapter), so reaching
+ * [itemIndex] is enough — the tail beyond the seek target may still be loading.
  */
 internal fun playlistAssembled(
   currentMediaId: String?,

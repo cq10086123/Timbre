@@ -9,7 +9,6 @@ import androidx.media3.common.MediaItem.ClippingConfiguration
 import androidx.media3.session.MediaSession.MediaItemsWithStartPosition
 import dev.zacsweers.metro.Inject
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import voice.core.data.Book
 import voice.core.data.BookComparator
@@ -44,13 +43,21 @@ class MediaItemProvider(
     mediaType = MediaType.AudioBookRoot,
   )
 
-  fun recent(): MediaItem? = MediaItem(
+  private fun recentMediaItem(): MediaItem = MediaItem(
     title = application.getString(StringsR.string.media_session_library_recent),
     browsable = true,
     isPlayable = false,
     mediaId = MediaId.Recent,
     mediaType = MediaType.AudioBook,
-  ).takeIf { runBlocking { currentBookStoreId.data.first() != null } }
+  )
+
+  /**
+   * Recent root when a current book is known. Suspends so callers on a media
+   * session callback never block a thread with runBlocking.
+   */
+  suspend fun recent(): MediaItem? {
+    return recentMediaItem().takeIf { currentBookStoreId.data.first() != null }
+  }
 
   suspend fun item(id: String): MediaItem? {
     val mediaId = id.toMediaIdOrNull() ?: return null
@@ -137,6 +144,60 @@ class MediaItemProvider(
   }
 
   /**
+   * A leading playlist prefix through [resumeItemIndex] plus a small ahead
+   * buffer. Indexes match the final full playlist (item 0 is always chapter 0),
+   * so seeks and [BookPlaylistSynchronizer] appends stay correct while the tail
+   * is still being built. Prefer this over a mid-book window: replacing a
+   * non-prefix timeline mid-playback is what made long-book resume feel broken.
+   */
+  internal fun playbackItemsPrefix(
+    book: Book,
+    resumeItemIndex: Int,
+    ahead: Int = PLAYLIST_PREFIX_AHEAD,
+  ): PlaybackPrefix {
+    val total = book.chapters.sumOf { it.chapterMarks.size }
+    if (total == 0) {
+      return PlaybackPrefix(
+        items = emptyList(),
+        resumeIndex = 0,
+        totalItemCount = 0,
+      )
+    }
+    val resume = resumeItemIndex.coerceIn(0, total - 1)
+    val until = (resume + 1 + ahead).coerceAtMost(total)
+    if (until >= total) {
+      val items = playbackItems(book)
+      return PlaybackPrefix(
+        items = items,
+        resumeIndex = resume,
+        totalItemCount = total,
+      )
+    }
+    val items = book.playbackItems(fromItemIndex = 0, untilItemIndex = until)
+      .map { mediaItem(it, book.content) }
+    return PlaybackPrefix(
+      items = items,
+      resumeIndex = resume,
+      totalItemCount = total,
+    )
+  }
+
+  internal data class PlaybackPrefix(
+    val items: List<MediaItem>,
+    /** Global playlist index of the resume chapter (same as final full list). */
+    val resumeIndex: Int,
+    val totalItemCount: Int,
+  ) {
+    val isPartial: Boolean
+      get() = items.size < totalItemCount
+  }
+
+  private companion object {
+    /** Chapters kept after the resume point so next/skip work before the tail lands. */
+    const val PLAYLIST_PREFIX_AHEAD = 16
+  }
+
+  /**
    * The media ids of the first [limit] playback items of [book], in playlist
    * order. Used to check that an existing playlist is still a prefix of the
    * book without assembling every item of a big book.
@@ -145,6 +206,7 @@ class MediaItemProvider(
     book: Book,
     limit: Int,
   ): List<String> {
+    if (limit <= 0) return emptyList()
     val ids = ArrayList<String>(limit)
     var index = 0
     bookChapters@ for (chapter in book.chapters) {
@@ -152,12 +214,13 @@ class MediaItemProvider(
         if (index >= limit) {
           break@bookChapters
         }
+        val mark = chapter.chapterMarks[markIndex]
         val mediaId = MediaId.ChapterMark(
           bookId = book.id,
           chapterId = chapter.id,
           markIndex = markIndex,
-          startMs = chapter.chapterMarks[markIndex].startMs,
-          endMs = chapter.chapterMarks[markIndex].endMs,
+          startMs = mark.startMs,
+          endMs = mark.endMs,
         )
         ids += Json.encodeToString(MediaId.serializer(), mediaId)
         index++

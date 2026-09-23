@@ -41,23 +41,34 @@ internal fun Book.playbackItems(): List<PlaybackItem> {
 }
 
 /**
- * The playback items of a book starting at the global item index
- * [fromItemIndex].
+ * The playback items of a book in the half-open global index range
+ * [[fromItemIndex], [untilItemIndex]).
  *
  * While a book is imported, its playlist only grows at the end. Building only
  * the appended tail keeps synchronizing a book with thousands of chapters
- * cheap instead of rebuilding every item for every imported batch.
+ * cheap instead of rebuilding every item for every imported batch. A leading
+ * resume prefix uses [untilItemIndex] so the open path does not allocate every
+ * trailing chapter before first audio.
  */
-internal fun Book.playbackItems(fromItemIndex: Int): List<PlaybackItem> {
-  if (fromItemIndex <= 0) {
+internal fun Book.playbackItems(
+  fromItemIndex: Int,
+  untilItemIndex: Int = Int.MAX_VALUE,
+): List<PlaybackItem> {
+  if (fromItemIndex <= 0 && untilItemIndex == Int.MAX_VALUE) {
     return playbackItems()
+  }
+  if (untilItemIndex <= fromItemIndex) {
+    return emptyList()
   }
   val items = mutableListOf<PlaybackItem>()
   var index = 0
   chapters.forEach { chapter ->
+    if (index >= untilItemIndex) return items
     val marks = chapter.chapterMarks
     if (index + marks.size > fromItemIndex) {
-      for (markIndex in (fromItemIndex - index).coerceAtLeast(0) until marks.size) {
+      val startMark = (fromItemIndex - index).coerceAtLeast(0)
+      val endMark = (untilItemIndex - index).coerceAtMost(marks.size)
+      for (markIndex in startMark until endMark) {
         items += PlaybackItem(
           index = index + markIndex,
           bookId = id,
@@ -76,11 +87,24 @@ internal fun Book.playbackItemForPosition(
   chapterId: ChapterId,
   positionInChapterMs: Long,
 ): PlaybackItem? {
+  // O(chapters) without allocating every PlaybackItem of a long book — setBook
+  // used to build the full list twice (once here, once for media items).
   val chapter = chapters.firstOrNull { it.id == chapterId } ?: return null
   val mark = chapter.markForPosition(positionInChapterMs)
-  return playbackItems().firstOrNull {
-    it.chapter.id == chapterId && it.mark == mark
+  val markIndex = chapter.chapterMarks.indexOf(mark)
+  if (markIndex < 0) return null
+  var index = markIndex
+  for (previous in chapters) {
+    if (previous.id == chapterId) break
+    index += previous.chapterMarks.size
   }
+  return PlaybackItem(
+    index = index,
+    bookId = id,
+    chapter = chapter,
+    markIndex = markIndex,
+    mark = mark,
+  )
 }
 
 /**

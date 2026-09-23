@@ -5,11 +5,15 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.yield
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.TimeSource
 import voice.core.data.BookId
 import voice.core.data.ChapterId
 import kotlin.test.Test
@@ -171,7 +175,70 @@ class OnlinePlaybackCatalogTest {
     coVerify(exactly = 2) {
       val _ = service.resolveDirectUrl(THIRD_PARTY_SOURCE, BOOK_ID, "c1")
     }
-    assertFalse(catalog.invalidateStreamUrl(OnlineChapterRef(THIRD_PARTY_SOURCE, BOOK_ID, "unknown")))
+    // always true: the data source retries once even when nothing was cached
+    assertTrue(catalog.invalidateStreamUrl(OnlineChapterRef(THIRD_PARTY_SOURCE, BOOK_ID, "unknown")))
+  }
+
+  @Test
+  fun `content skips building chapter rows`() = runTest {
+    coEvery { service.shelfBook("main::$BOOK_ID") } returns shelfBook()
+    val content = assertNotNull(catalog.content(bookId()))
+    assertEquals("凡人修仙传", content.name)
+    assertEquals(3, content.chapters.size)
+    assertEquals(OnlineUri.build(SOURCE, BOOK_ID, "c1"), content.currentChapter.value)
+  }
+
+  @Test
+  fun `concurrent resolves of the same chapter share one source call`() = runTest {
+    val ref = OnlineChapterRef(THIRD_PARTY_SOURCE, BOOK_ID, "c1")
+    val started = kotlinx.coroutines.CompletableDeferred<Unit>()
+    val release = kotlinx.coroutines.CompletableDeferred<Unit>()
+    var calls = 0
+    coEvery { service.resolveDirectUrl(THIRD_PARTY_SOURCE, BOOK_ID, "c1") } coAnswers {
+      calls++
+      started.complete(Unit)
+      release.await()
+      STREAM_URL
+    }
+
+    // stay on the test scheduler: Dispatchers.Default + runTest can leave the
+    // suite waiting on non-deterministic thread hand-offs under CI load
+    val first = async { catalog.resolveStreamUrl(ref) }
+    started.await()
+    val second = async { catalog.resolveStreamUrl(ref) }
+    // give the second caller a moment to attach to the in-flight deferred
+    yield()
+    release.complete(Unit)
+
+    assertEquals(STREAM_URL, first.await())
+    assertEquals(STREAM_URL, second.await())
+    assertEquals(1, calls)
+  }
+
+  @Test
+  fun `invalidate prevents a racing resolve from re-caching a rejected url`() = runTest {
+    val ref = OnlineChapterRef(THIRD_PARTY_SOURCE, BOOK_ID, "c1")
+    val started = kotlinx.coroutines.CompletableDeferred<Unit>()
+    val release = kotlinx.coroutines.CompletableDeferred<Unit>()
+    coEvery { service.resolveDirectUrl(THIRD_PARTY_SOURCE, BOOK_ID, "c1") } coAnswers {
+      started.complete(Unit)
+      release.await()
+      "https://cdn.example.com/rejected.mp3"
+    }
+
+    val slow = async { catalog.resolveStreamUrl(ref) }
+    started.await()
+    // data source rejected the url while resolve is still finishing
+    assertTrue(catalog.invalidateStreamUrl(ref))
+    release.complete(Unit)
+    assertEquals("https://cdn.example.com/rejected.mp3", slow.await())
+
+    // next resolve must hit the source again instead of serving the rejected url
+    coEvery { service.resolveDirectUrl(THIRD_PARTY_SOURCE, BOOK_ID, "c1") } returns STREAM_URL
+    assertEquals(STREAM_URL, catalog.resolveStreamUrl(ref))
+    coVerify(atLeast = 2) {
+      val _ = service.resolveDirectUrl(THIRD_PARTY_SOURCE, BOOK_ID, "c1")
+    }
   }
 
   @Test
@@ -240,12 +307,7 @@ class OnlinePlaybackCatalogTest {
       positionMs = 42_000L,
     )
 
-    // the write happens on the io dispatcher outside the test scheduler
-    val deadline = System.currentTimeMillis() + 5_000
-    while (store.data.first().firstOrNull()?.currentChapterId != "c2") {
-      check(System.currentTimeMillis() < deadline) { "the position was never persisted" }
-      Thread.sleep(10)
-    }
+    awaitStoreChapter(store, "c2")
     val stored = store.data.first().single()
     assertEquals("c2", stored.currentChapterId)
     assertEquals(42_000L, stored.positionMs)
@@ -280,14 +342,20 @@ class OnlinePlaybackCatalogTest {
     assertEquals(42_000L, book.content.positionInChapter)
   }
 
-  /** Waits for the io dispatcher to have persisted [chapterId]. */
+  /**
+   * Waits for the real IO [OnlinePlaybackCatalog] persistenceScope to land
+   * [chapterId]. Must use wall-clock time: runTest's withTimeout/delay are
+   * virtual and never let the real IO dispatcher finish.
+   */
   private suspend fun awaitStoreChapter(
     store: FakeBooksStore,
     chapterId: String,
   ) = withContext(Dispatchers.IO) {
-    val deadline = System.currentTimeMillis() + 5_000
+    val mark = TimeSource.Monotonic.markNow()
     while (store.data.first().firstOrNull()?.currentChapterId != chapterId) {
-      check(System.currentTimeMillis() < deadline) { "the position was never persisted to $chapterId" }
+      check(mark.elapsedNow() < 5_000.milliseconds) {
+        "the position was never persisted to $chapterId"
+      }
       Thread.sleep(10)
     }
   }

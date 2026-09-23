@@ -6,11 +6,14 @@ import dev.zacsweers.metro.ContributesTo
 import dev.zacsweers.metro.Provides
 import dev.zacsweers.metro.Qualifier
 import dev.zacsweers.metro.SingleIn
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.builtins.ListSerializer
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 
 @Qualifier
 public annotation class OnlineSourceEnabledStore
@@ -102,13 +105,27 @@ public interface OnlineSourceGraph {
     @OnlineSourceBaseUrlStore baseUrlStore: DataStore<String>,
     @OnlineSourceTokenStore tokenStore: DataStore<String>,
     @OnlineSourceStreamingClient streamingClient: OkHttpClient,
+    scope: CoroutineScope,
   ): OnlineDataSourceFactory {
-    // open() runs on the exoplayer loading thread, where a blocking bridge is
-    // fine (the webdav data source does its blocking network work there too)
+    // open() runs on the exoplayer loading thread. Keep baseUrl/token warm so
+    // the common path is a lock-free read; fall back to a one-shot blocking
+    // read only before the first collector emission.
+    val baseUrl = AtomicReference<String?>(null)
+    val token = AtomicReference<String?>(null)
+    scope.launch {
+      baseUrlStore.data.collect { baseUrl.set(it) }
+    }
+    scope.launch {
+      tokenStore.data.collect { token.set(it) }
+    }
     return OnlineDataSourceFactory(
       streamingClient,
-      baseUrlProvider = { runBlocking { baseUrlStore.data.first() } },
-      tokenProvider = { runBlocking { tokenStore.data.first() } },
+      baseUrlProvider = {
+        baseUrl.get() ?: runBlocking { baseUrlStore.data.first() }.also { baseUrl.set(it) }
+      },
+      tokenProvider = {
+        token.get() ?: runBlocking { tokenStore.data.first() }.also { token.set(it) }
+      },
       urlResolver = { ref ->
         runBlocking { catalog.resolveStreamUrl(ref) }
       },
@@ -117,6 +134,9 @@ public interface OnlineSourceGraph {
       onUrlRejected = { ref -> catalog.invalidateStreamUrl(ref) },
       onDurationResolved = { ref, durationMs ->
         catalog.recordMeasuredDuration(ref.source, ref.bookId, ref.chapterId, durationMs)
+      },
+      hasMeasuredDuration = { ref ->
+        catalog.measuredDurationMs(ref.source, ref.bookId, ref.chapterId) != null
       },
     )
   }

@@ -24,8 +24,10 @@ import androidx.navigation3.ui.NavDisplay
 import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.ContributesTo
 import dev.zacsweers.metro.Inject
+import kotlinx.coroutines.runBlocking
 import voice.app.navigation.BottomSheetSceneStrategy
 import voice.app.navigation.NavEntryResolver
+import voice.app.navigation.StartDestination
 import voice.app.navigation.StartDestinationProvider
 import voice.core.analytics.api.Analytics
 import voice.core.common.rootGraphAs
@@ -34,6 +36,7 @@ import voice.core.data.ThemeMode
 import voice.core.data.store.ThemeColorSchemeStore
 import voice.core.data.store.ThemeModeStore
 import voice.core.logging.api.Logger
+import voice.core.playback.PlayerController
 import voice.core.ui.LocalSharedTransitionScope
 import voice.core.ui.VoiceTheme
 import voice.features.review.ReviewFeature
@@ -61,6 +64,9 @@ class MainActivity : AppCompatActivity() {
   private lateinit var analytics: Analytics
 
   @Inject
+  private lateinit var playerController: PlayerController
+
+  @Inject
   @ThemeModeStore
   private lateinit var themeModeStore: DataStore<ThemeMode>
 
@@ -75,16 +81,31 @@ class MainActivity : AppCompatActivity() {
 
     enableEdgeToEdge()
 
+    // Resolve the start route once before the first frame. Doing this inside
+    // composition used to re-run DataStore reads (and playCurrent) on every
+    // recomposition; a single blocking read here is cheaper and side-effect free.
+    val startDestination: StartDestination = runBlocking {
+      startDestinationProvider(intent)
+    }
+
     setContent {
       @Suppress("UNCHECKED_CAST")
-      val backStack = rememberNavBackStack(*startDestinationProvider(intent).toTypedArray()) as MutableList<Destination.Compose>
+      val backStack = rememberNavBackStack(*startDestination.destinations.toTypedArray())
+        as MutableList<Destination.Compose>
       LaunchedEffect(backStack.last()) {
         analytics.screenView(backStack.last().trackingName)
       }
-      val themeMode = themeModeStore.data.collectAsState(initial = null).value
-        ?: return@setContent
-      val themeColorScheme = themeColorSchemeStore.data.collectAsState(initial = null).value
-        ?: return@setContent
+      LaunchedEffect(startDestination.shouldPlayCurrent) {
+        if (startDestination.shouldPlayCurrent) {
+          playerController.play()
+        }
+      }
+      // Defaults match the DataStore factories so the first frame can paint
+      // immediately instead of waiting for disk.
+      val themeMode = themeModeStore.data
+        .collectAsState(initial = ThemeMode.FollowSystem).value
+      val themeColorScheme = themeColorSchemeStore.data
+        .collectAsState(initial = ThemeColorScheme.VoiceBlue).value
       VoiceTheme(
         themeMode = themeMode,
         themeColorScheme = themeColorScheme,

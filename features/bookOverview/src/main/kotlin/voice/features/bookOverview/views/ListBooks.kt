@@ -24,12 +24,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.intl.LocaleList
 import androidx.compose.ui.text.toUpperCase
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import voice.core.data.BookId
 import voice.core.ui.sharedCoverElementModifier
 import voice.features.bookOverview.overview.BookOverviewCategory
@@ -183,13 +186,21 @@ private fun CoverImage(
 ) {
   val startPadding = 16.dp
   val endPadding = 16.dp
+  val context = LocalContext.current
+  // Decode at the on-screen size so a full-resolution cover does not thrash
+  // memory while the shelf scrolls.
+  val coverSizePx = with(LocalDensity.current) { 76.dp.roundToPx() }
   AsyncImage(
     modifier = Modifier
       .padding(top = 8.dp, start = 8.dp, bottom = 8.dp)
       .size(76.dp)
       .sharedCoverElementModifier(bookId)
       .clip(RoundedCornerShape(topStart = startPadding, bottomStart = startPadding, topEnd = endPadding, bottomEnd = endPadding)),
-    model = cover,
+    model = ImageRequest.Builder(context)
+      .data(cover)
+      .size(coverSizePx)
+      .crossfade(false)
+      .build(),
     placeholder = painterResource(id = UiR.drawable.album_art),
     error = painterResource(id = UiR.drawable.album_art),
     contentScale = ContentScale.Crop,

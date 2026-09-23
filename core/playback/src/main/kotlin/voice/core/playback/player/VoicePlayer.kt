@@ -9,11 +9,14 @@ import androidx.media3.exoplayer.ExoPlayer
 import dev.zacsweers.metro.Inject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import voice.core.analytics.api.Analytics
 import voice.core.common.DispatcherProvider
+import voice.core.data.Book
 import voice.core.data.BookContent
 import voice.core.data.BookId
 import voice.core.data.repo.BookRepository
@@ -23,10 +26,12 @@ import voice.core.data.store.CurrentBookStore
 import voice.core.data.store.SeekTimeStore
 import voice.core.logging.api.Logger
 import voice.core.online.OnlinePlaybackCatalog
+import voice.core.online.OnlineUri
 import voice.core.playback.misc.Decibel
 import voice.core.playback.misc.VolumeGain
 import voice.core.playback.session.MediaId
 import voice.core.playback.session.MediaItemProvider
+import voice.core.playback.session.bookId
 import voice.core.playback.session.playbackItemForPosition
 import voice.core.playback.session.positionInMediaItem
 import voice.core.playback.session.toMediaIdOrNull
@@ -306,6 +311,8 @@ class VoicePlayer(
   }
 
   private var setBookJob: Job? = null
+  private var playlistExpandJob: Job? = null
+  private var streamPrefetchJob: Job? = null
 
   // prepare()/play() arriving while setBook is still assembling ran on an
   // empty playlist and did nothing. The flag re-applies them once the items
@@ -319,12 +326,16 @@ class VoicePlayer(
 
   override fun stop() {
     setBookJob?.cancel()
+    playlistExpandJob?.cancel()
+    streamPrefetchJob?.cancel()
     pendingPrepare = false
     super.stop()
   }
 
   override fun clearMediaItems() {
     setBookJob?.cancel()
+    playlistExpandJob?.cancel()
+    streamPrefetchJob?.cancel()
     pendingPrepare = false
     super.clearMediaItems()
   }
@@ -375,53 +386,35 @@ class VoicePlayer(
     // (usually main) thread. Later calls win: an assembly still in flight is
     // cancelled so rapid book switches cannot apply out of order.
     setBookJob?.cancel()
+    playlistExpandJob?.cancel()
+    streamPrefetchJob?.cancel()
     pendingPrepare = false
     setBookJob = scope.launch {
       // a failed assembly (book deleted, position no longer resolvable) must
       // not re-prepare the previous book's stale playlist, so the trailing
       // prepare is gated on the items actually having been set
       var assembled = false
+      var expand: PreparedBook? = null
       val assemblyDuration = measureTime {
-        val book = withContext(dispatcherProvider.io) {
-          // books of the online source live in their own store: the room
-          // lookup misses, the online catalog synthesizes the book instead
-          repo.get(mediaId.id) ?: onlinePlaybackCatalog.book(mediaId.id)
+        // one IO hop: load the book, build a leading prefix and resolve cover.
+        // Stream URL prefetch is started as soon as the chapter is known and
+        // is NOT awaited here — awaiting would serialize open behind a full
+        // network round trip; single-flight still coalesces with ExoPlayer.
+        val prepared = withContext(dispatcherProvider.io) {
+          prepareBook(mediaId.id)
         } ?: return@measureTime
-        player.setPlaybackSpeed(book.content.playbackSpeed)
-        setSkipSilenceEnabled(book.content.skipSilence)
-        volumeGain.gain = Decibel(book.content.gain)
-        val currentPlaybackItem = book.playbackItemForPosition(
-          chapterId = book.content.currentChapter,
-          positionInChapterMs = book.content.positionInChapter,
-        ) ?: return@measureTime
-        val onlineCover = if (onlinePlaybackCatalog.isOnlineBookId(book.id)) {
-          onlinePlaybackCatalog.onlineCover(book.id)?.takeIf { it.isNotBlank() }?.let(android.net.Uri::parse)
-        } else {
-          null
-        }
-        val mediaItems = withContext(dispatcherProvider.io) {
-          mediaItemProvider.playbackItems(book)
-        }.let { items ->
-          // online books have no local cover file; the remote cover url still
-          // feeds the notification and Android Auto artwork
-          if (onlineCover == null) {
-            items
-          } else {
-            items.map { item ->
-              item.buildUpon()
-                .setMediaMetadata(
-                  item.mediaMetadata.buildUpon().setArtworkUri(onlineCover).build(),
-                )
-                .build()
-            }
-          }
-        }
+        player.setPlaybackSpeed(prepared.book.content.playbackSpeed)
+        setSkipSilenceEnabled(prepared.book.content.skipSilence)
+        volumeGain.gain = Decibel(prepared.book.content.gain)
         player.setMediaItems(
-          mediaItems,
-          currentPlaybackItem.index,
-          currentPlaybackItem.positionInMediaItem(book.content.positionInChapter),
+          prepared.mediaItems,
+          prepared.startIndex,
+          prepared.startPositionMs,
         )
         assembled = true
+        if (prepared.needsFullPlaylist) {
+          expand = prepared
+        }
       }
       // prepare()/play() that arrived while the book was still assembling ran
       // on an empty playlist and did nothing: apply them now that the items
@@ -434,7 +427,130 @@ class VoicePlayer(
       // one step of a playback start that grows with the chapter count. The
       // log marks how long it took so a slow start can be attributed.
       Logger.i("setBook(${mediaItem.mediaId}) took $assemblyDuration")
+      val toExpand = expand ?: return@launch
+      // append the tail off the critical path; indexes already match the final
+      // playlist so chapter picks inside the prefix work immediately
+      playlistExpandJob = scope.launch {
+        expandPlaylist(toExpand)
+      }
     }
+  }
+
+  /**
+   * Loads [bookId] and builds a leading playlist prefix through the resume
+   * chapter. Online stream resolve is fired (not awaited) as soon as the
+   * chapter is known so it overlaps prefix/cover work; single-flight coalesces
+   * with the later ExoPlayer open.
+   */
+  private suspend fun prepareBook(bookId: BookId): PreparedBook? = coroutineScope {
+    // books of the online source live in their own store: the room
+    // lookup misses, the online catalog synthesizes the book instead
+    val book = repo.get(bookId) ?: onlinePlaybackCatalog.book(bookId) ?: return@coroutineScope null
+    val currentPlaybackItem = book.playbackItemForPosition(
+      chapterId = book.content.currentChapter,
+      positionInChapterMs = book.content.positionInChapter,
+    ) ?: return@coroutineScope null
+
+    val isOnline = onlinePlaybackCatalog.isOnlineBookId(book.id)
+    if (isOnline) {
+      OnlineUri.parse(currentPlaybackItem.chapter.id.value)?.let { ref ->
+        // Player scope outlives this withContext so the resolve keeps running
+        // after prepareBook returns; cancelled on stop/clear/setBook.
+        streamPrefetchJob = scope.launch(dispatcherProvider.io) {
+          // warm the resolver cache; a failure here is harmless because
+          // playback resolves the url again when it opens the stream
+          val _ = runCatching { onlinePlaybackCatalog.resolveStreamUrl(ref) }
+        }
+      }
+    }
+    val coverDeferred = if (isOnline) {
+      async {
+        onlinePlaybackCatalog.onlineCover(book.id)
+          ?.takeIf { it.isNotBlank() }
+          ?.let(android.net.Uri::parse)
+      }
+    } else {
+      null
+    }
+
+    // leading prefix: indexes == final full playlist, so chapter seeks and the
+    // import synchronizer stay correct while the tail is still missing
+    val prefix = mediaItemProvider.playbackItemsPrefix(
+      book = book,
+      resumeItemIndex = currentPlaybackItem.index,
+    )
+    val onlineCover = coverDeferred?.await()
+    val mediaItems = if (onlineCover == null) {
+      prefix.items
+    } else {
+      // online books have no local cover file; the remote cover url still
+      // feeds the notification and Android Auto artwork
+      prefix.items.map { item ->
+        item.buildUpon()
+          .setMediaMetadata(
+            item.mediaMetadata.buildUpon().setArtworkUri(onlineCover).build(),
+          )
+          .build()
+      }
+    }
+
+    PreparedBook(
+      book = book,
+      mediaItems = mediaItems,
+      startIndex = prefix.resumeIndex,
+      startPositionMs = currentPlaybackItem.positionInMediaItem(book.content.positionInChapter),
+      needsFullPlaylist = prefix.isPartial,
+    )
+  }
+
+  /**
+   * Appends the remaining chapters after the leading prefix. Uses
+   * [Player.addMediaItems] so the playing item and its buffer are not replaced
+   * — critical for long-book listen feel.
+   */
+  private suspend fun expandPlaylist(prepared: PreparedBook) {
+    val prefixSize = prepared.mediaItems.size
+    val tail = withContext(dispatcherProvider.io) {
+      val raw = mediaItemProvider.playbackItems(prepared.book, fromItemIndex = prefixSize)
+      if (raw.isEmpty()) return@withContext emptyList()
+      if (!onlinePlaybackCatalog.isOnlineBookId(prepared.book.id)) {
+        return@withContext raw
+      }
+      val cover = onlinePlaybackCatalog.onlineCover(prepared.book.id)
+        ?.takeIf { it.isNotBlank() }
+        ?.let(android.net.Uri::parse)
+        ?: return@withContext raw
+      raw.map { item ->
+        item.buildUpon()
+          .setMediaMetadata(
+            item.mediaMetadata.buildUpon().setArtworkUri(cover).build(),
+          )
+          .build()
+      }
+    }
+    if (tail.isEmpty()) return
+    // drop the expansion when the user already switched books
+    val playingBookId = player.currentMediaItem?.mediaId?.toMediaIdOrNull()?.bookId
+    if (playingBookId != null && playingBookId != prepared.book.id) {
+      return
+    }
+    // import synchronizer or a previous expand may already have grown the list
+    val already = player.mediaItemCount
+    if (already >= prefixSize + tail.size) {
+      return
+    }
+    val missing = if (already > prefixSize) {
+      // something else appended a shorter tail; only add what is still missing
+      tail.drop(already - prefixSize)
+    } else {
+      tail
+    }
+    if (missing.isEmpty()) return
+    player.addMediaItems(already, missing)
+    Logger.i(
+      "Expanded playlist of ${prepared.book.id}: " +
+        "prefix=$prefixSize +${missing.size} → ${already + missing.size}",
+    )
   }
 
   override fun setPlaybackSpeed(speed: Float) {
@@ -476,4 +592,16 @@ class VoicePlayer(
     val bookId = currentBookStoreId.data.first() ?: return
     repo.updateBook(bookId, update)
   }
+
+  private data class PreparedBook(
+    val book: Book,
+    val mediaItems: List<MediaItem>,
+    /**
+     * Resume index inside [mediaItems]. For a leading prefix this is also the
+     * final full-playlist index, so chapter seeks need not wait for the tail.
+     */
+    val startIndex: Int,
+    val startPositionMs: Long,
+    val needsFullPlaylist: Boolean,
+  )
 }

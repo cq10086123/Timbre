@@ -6,7 +6,9 @@ import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
@@ -15,7 +17,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import voice.core.data.Book
 import voice.core.data.BookContent
 import voice.core.data.BookId
@@ -126,6 +127,19 @@ public class OnlinePlaybackCatalog(
       return size > MAX_CACHED_STREAM_URLS
     }
   }
+
+  /**
+   * In-flight resolve jobs keyed by chapter uri. ExoPlayer and the duration
+   * probe can open the same chapter concurrently; coalescing them avoids two
+   * full download/API round trips on a cold start.
+   */
+  private val inFlightResolves = ConcurrentHashMap<String, Deferred<String?>>()
+
+  /**
+   * Bumped by [invalidateStreamUrl] so a resolve that outlives an invalidate
+   * cannot re-publish a rejected url into [streamUrls].
+   */
+  private val streamUrlEpoch = ConcurrentHashMap<String, Int>()
 
   /** Bumped whenever a measured duration lands, so the UI can rebuild. */
   private val _durationsVersion = MutableStateFlow(0)
@@ -281,6 +295,31 @@ public class OnlinePlaybackCatalog(
 
   /** Synthesizes the [Book] of an online book, or null when [bookId] is not one. */
   public suspend fun book(bookId: BookId): Book? {
+    val assembled = assembleOnline(bookId) ?: return null
+    val dataChapters = assembled.chapters.map { chapter ->
+      val uri = OnlineUri.build(assembled.bookRef.source, assembled.bookRef.bookId, chapter.id)
+      Chapter(
+        id = ChapterId(uri),
+        name = chapter.title,
+        // prefer a duration measured from the actual stream; sources that do
+        // not report one fall back to a placeholder so the player never clips
+        // the chapter away - it gets corrected after the first play
+        duration = measuredDurations[uri]
+          ?: (chapter.durationSeconds.takeIf { it > 0 }?.let { it * 1_000L } ?: PLACEHOLDER_CHAPTER_DURATION_MS),
+        fileLastModified = Instant.EPOCH,
+        fileSize = 0,
+        markData = emptyList(),
+      )
+    }
+    return Book(assembled.content, dataChapters)
+  }
+
+  /**
+   * Looks up the shelf/stash entry and chapter list needed to play [bookId].
+   * Shared by [book] and [content] so prepare does not pay for a full chapter
+   * list hydrate only to throw the chapters away.
+   */
+  private suspend fun assembleOnline(bookId: BookId): AssembledOnline? {
     val bookRef = OnlineUri.parseBookUri(bookId.value) ?: return null
     // shelf first: it is the fresher persisted copy. The search stash is only
     // a fallback for books never added - and it must be peeked, not removed:
@@ -335,23 +374,14 @@ public class OnlinePlaybackCatalog(
       series = null,
       part = null,
     )
-    val dataChapters = chapters.map { chapter ->
-      val uri = OnlineUri.build(bookRef.source, bookRef.bookId, chapter.id)
-      Chapter(
-        id = ChapterId(uri),
-        name = chapter.title,
-        // prefer a duration measured from the actual stream; sources that do
-        // not report one fall back to a placeholder so the player never clips
-        // the chapter away - it gets corrected after the first play
-        duration = measuredDurations[uri]
-          ?: (chapter.durationSeconds.takeIf { it > 0 }?.let { it * 1_000L } ?: PLACEHOLDER_CHAPTER_DURATION_MS),
-        fileLastModified = Instant.EPOCH,
-        fileSize = 0,
-        markData = emptyList(),
-      )
-    }
-    return Book(content, dataChapters)
+    return AssembledOnline(bookRef = bookRef, content = content, chapters = chapters)
   }
+
+  private data class AssembledOnline(
+    val bookRef: OnlineBookRef,
+    val content: BookContent,
+    val chapters: List<OnlineChapter>,
+  )
 
   /**
    * Builds a display [Book] purely from the locally stored [OnlineBook] (no
@@ -422,7 +452,9 @@ public class OnlinePlaybackCatalog(
     if (measuredDurations[uri] == durationMs) return
     measuredDurations[uri] = durationMs
     _durationsVersion.value += 1
-    runBlocking {
+    // Memory is enough for the live player; persist off the caller thread
+    // (often main) so measuring a chapter never stalls the UI.
+    persistenceScope.launch {
       try {
         booksStore.updateData { books ->
           books.map { book ->
@@ -441,15 +473,21 @@ public class OnlinePlaybackCatalog(
             }
           }
         }
+      } catch (e: CancellationException) {
+        throw e
       } catch (e: Exception) {
         Logger.w("Failed to persist measured online chapter duration: $e")
       }
     }
   }
 
-  /** The synthesized [BookContent] of an online book, or null when not one. */
+  /**
+   * The synthesized [BookContent] of an online book, or null when not one.
+   * Cheaper than [book]: prepare only needs content (id, chapters ids, position),
+   * so it skips building every [Chapter] row.
+   */
   public suspend fun content(bookId: BookId): BookContent? {
-    return book(bookId)?.content
+    return assembleOnline(bookId)?.content
   }
 
   /**
@@ -457,35 +495,78 @@ public class OnlinePlaybackCatalog(
    * loading thread; network failures are reported through [playbackErrors]
    * and answered with null (which fails the load with a 404).
    *
-   * A url that was resolved shortly before is reused, and [resolvingBooks]
-   * reports the book while one of its resolves is in flight.
+   * A url that was resolved shortly before is reused, and concurrent callers
+   * for the same chapter share one in-flight resolve so a cold open does not
+   * pay the download/API cost twice.
    */
   public suspend fun resolveStreamUrl(ref: OnlineChapterRef): String? {
     val chapterUri = OnlineUri.build(ref.source, ref.bookId, ref.chapterId)
     cachedStreamUrl(chapterUri)?.let { return it }
-    val bookUri = OnlineUri.buildBookUri(ref.source, ref.bookId)
-    beginResolving(bookUri)
-    try {
-      val resolved = resolveStreamUrlInternal(ref) ?: return null
-      synchronized(stateLock) {
-        streamUrls[chapterUri] = CachedStreamUrl(resolved, SystemClock.elapsedRealtime())
+
+    while (true) {
+      val existing = inFlightResolves[chapterUri]
+      if (existing != null) {
+        return existing.await()
       }
-      return resolved
-    } finally {
-      endResolving(bookUri)
+      val deferred = CompletableDeferred<String?>()
+      val winner = inFlightResolves.putIfAbsent(chapterUri, deferred)
+      if (winner != null) {
+        return winner.await()
+      }
+
+      // capture after we own the slot so a concurrent invalidate that ran
+      // before putIfAbsent does not make a fresh resolve look stale
+      val epochAtStart = streamUrlEpoch[chapterUri] ?: 0
+      val bookUri = OnlineUri.buildBookUri(ref.source, ref.bookId)
+      beginResolving(bookUri)
+      try {
+        val resolved = resolveStreamUrlInternal(ref)
+        if (resolved != null && (streamUrlEpoch[chapterUri] ?: 0) == epochAtStart) {
+          // skip caching when invalidateStreamUrl raced this resolve: the url
+          // may already have been rejected by the data source
+          synchronized(stateLock) {
+            if ((streamUrlEpoch[chapterUri] ?: 0) == epochAtStart) {
+              streamUrls[chapterUri] = CachedStreamUrl(resolved, SystemClock.elapsedRealtime())
+            }
+          }
+        }
+        deferred.complete(resolved)
+        return resolved
+      } catch (e: CancellationException) {
+        deferred.cancel(e)
+        throw e
+      } catch (e: Exception) {
+        Logger.w(e, "Online stream resolve failed for $chapterUri")
+        deferred.complete(null)
+        return null
+      } finally {
+        endResolving(bookUri)
+        inFlightResolves.remove(chapterUri, deferred)
+      }
     }
   }
 
   /**
    * Drops the url cached for [ref]. The data source calls this when the server
    * rejects a url: direct links are signed and expire, so the next resolve has
-   * to ask the source for a fresh one. Returns whether a url was cached - only
-   * then is a retry likely to help.
+   * to ask the source for a fresh one.
+   *
+   * Always returns true so [OnlineStreamingDataSource] retries once: a resolve
+   * that raced an earlier invalidate may have handed out a url without putting
+   * it in the cache, and waiters of a cancelled in-flight job need the same
+   * second chance as a plain cache hit.
    */
   public fun invalidateStreamUrl(ref: OnlineChapterRef): Boolean {
-    return synchronized(stateLock) {
-      streamUrls.remove(OnlineUri.build(ref.source, ref.bookId, ref.chapterId)) != null
+    val chapterUri = OnlineUri.build(ref.source, ref.bookId, ref.chapterId)
+    // bump the epoch before clearing so an in-flight resolve that still holds
+    // the rejected url cannot publish it back into the cache
+    streamUrlEpoch.merge(chapterUri, 1) { current, _ -> current + 1 }
+    // drop the slot so the retry does not await the doomed in-flight job
+    inFlightResolves.remove(chapterUri)
+    synchronized(stateLock) {
+      streamUrls.remove(chapterUri)
     }
+    return true
   }
 
   private fun cachedStreamUrl(chapterUri: String): String? {

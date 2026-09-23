@@ -19,7 +19,6 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
-import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.runner.RunWith
 import voice.core.common.DispatcherProvider
@@ -421,7 +420,11 @@ class VoicePlayerTest {
       )
     }
     player.setMediaItem(mediaItemProvider.mediaItem(currentBook))
-    runCurrent()
+    // setBook now prepares a leading prefix on the IO dispatcher then calls
+    // setMediaItems on the exo player. Drain the test scheduler so the
+    // playlist is installed before awaitReady / seeks — otherwise
+    // runUntilPlaybackState waits forever on an empty player.
+    advanceUntilIdle()
   }
 
   @Test
