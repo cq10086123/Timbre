@@ -211,6 +211,32 @@ class OnlinePlaybackCatalogTest {
   }
 
   @Test
+  fun `invalidate prevents a racing resolve from re-caching a rejected url`() = runTest {
+    val ref = OnlineChapterRef(THIRD_PARTY_SOURCE, BOOK_ID, "c1")
+    val started = kotlinx.coroutines.CompletableDeferred<Unit>()
+    val release = kotlinx.coroutines.CompletableDeferred<Unit>()
+    coEvery { service.resolveDirectUrl(THIRD_PARTY_SOURCE, BOOK_ID, "c1") } coAnswers {
+      started.complete(Unit)
+      release.await()
+      "https://cdn.example.com/rejected.mp3"
+    }
+
+    val slow = async(Dispatchers.Default) { catalog.resolveStreamUrl(ref) }
+    started.await()
+    // data source rejected the url while resolve is still finishing
+    assertFalse(catalog.invalidateStreamUrl(ref))
+    release.complete(Unit)
+    assertEquals("https://cdn.example.com/rejected.mp3", slow.await())
+
+    // next resolve must hit the source again instead of serving the rejected url
+    coEvery { service.resolveDirectUrl(THIRD_PARTY_SOURCE, BOOK_ID, "c1") } returns STREAM_URL
+    assertEquals(STREAM_URL, catalog.resolveStreamUrl(ref))
+    coVerify(atLeast = 2) {
+      val _ = service.resolveDirectUrl(THIRD_PARTY_SOURCE, BOOK_ID, "c1")
+    }
+  }
+
+  @Test
   fun `the resolving state is reported per book`() = runTest {
     val ref = OnlineChapterRef(THIRD_PARTY_SOURCE, BOOK_ID, "c1")
     var resolvingWhileRunning: Set<String>? = null

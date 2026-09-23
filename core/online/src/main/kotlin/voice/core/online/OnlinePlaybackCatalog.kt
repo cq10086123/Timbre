@@ -135,6 +135,12 @@ public class OnlinePlaybackCatalog(
    */
   private val inFlightResolves = ConcurrentHashMap<String, Deferred<String?>>()
 
+  /**
+   * Bumped by [invalidateStreamUrl] so a resolve that outlives an invalidate
+   * cannot re-publish a rejected url into [streamUrls].
+   */
+  private val streamUrlEpoch = ConcurrentHashMap<String, Int>()
+
   /** Bumped whenever a measured duration lands, so the UI can rebuild. */
   private val _durationsVersion = MutableStateFlow(0)
   public val durationsVersion: kotlinx.coroutines.flow.StateFlow<Int> get() = _durationsVersion
@@ -508,13 +514,20 @@ public class OnlinePlaybackCatalog(
         return winner.await()
       }
 
+      // capture after we own the slot so a concurrent invalidate that ran
+      // before putIfAbsent does not make a fresh resolve look stale
+      val epochAtStart = streamUrlEpoch[chapterUri] ?: 0
       val bookUri = OnlineUri.buildBookUri(ref.source, ref.bookId)
       beginResolving(bookUri)
       try {
         val resolved = resolveStreamUrlInternal(ref)
-        if (resolved != null) {
+        if (resolved != null && (streamUrlEpoch[chapterUri] ?: 0) == epochAtStart) {
+          // skip caching when invalidateStreamUrl raced this resolve: the url
+          // may already have been rejected by the data source
           synchronized(stateLock) {
-            streamUrls[chapterUri] = CachedStreamUrl(resolved, SystemClock.elapsedRealtime())
+            if ((streamUrlEpoch[chapterUri] ?: 0) == epochAtStart) {
+              streamUrls[chapterUri] = CachedStreamUrl(resolved, SystemClock.elapsedRealtime())
+            }
           }
         }
         deferred.complete(resolved)
@@ -541,7 +554,9 @@ public class OnlinePlaybackCatalog(
    */
   public fun invalidateStreamUrl(ref: OnlineChapterRef): Boolean {
     val chapterUri = OnlineUri.build(ref.source, ref.bookId, ref.chapterId)
-    // drop any in-flight resolve so the next open asks the source again
+    // bump the epoch before clearing so an in-flight resolve that still holds
+    // the rejected url cannot publish it back into the cache
+    streamUrlEpoch.merge(chapterUri, 1) { current, _ -> current + 1 }
     inFlightResolves.remove(chapterUri)
     return synchronized(stateLock) {
       streamUrls.remove(chapterUri) != null

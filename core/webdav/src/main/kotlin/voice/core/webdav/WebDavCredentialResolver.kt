@@ -8,9 +8,11 @@ import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 
 /**
  * Resolves the credentials of a configured server for a given uri. Reads of
@@ -36,9 +38,13 @@ public class WebDavCredentialResolver(
 
   init {
     // Keep the snapshot warm so playback/loader threads rarely hit runBlocking.
+    // Decrypt on IO: the app CoroutineScope is Main.immediate, and keystore
+    // work must not run on the UI thread when the server list changes.
     scope.launch {
       serversStore.data.collect { servers ->
-        replaceCache(servers)
+        withContext(Dispatchers.IO) {
+          replaceCache(servers)
+        }
       }
     }
   }
