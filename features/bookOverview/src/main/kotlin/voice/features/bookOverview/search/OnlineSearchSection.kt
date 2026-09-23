@@ -171,8 +171,11 @@ internal fun OnlineSearchSection(
         Text(
           modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
           text = stringResource(
-            if (offline) StringsR.string.search_online_offline
-            else StringsR.string.search_online_error,
+            if (offline) {
+              StringsR.string.search_online_offline
+            } else {
+              StringsR.string.search_online_error
+            },
           ),
         )
       }
@@ -265,6 +268,7 @@ private fun OnlineChaptersDialog(
 ) {
   var reloadKey by remember { mutableIntStateOf(0) }
   val scope = rememberCoroutineScope()
+  val context = LocalContext.current
   // shelf membership is explicit: the dialog checks the stored books once and
   // the button toggles add/remove; tapping a chapter only starts playback
   val shelfKey = OnlineBookRef(book.source, book.bookId).key
@@ -327,7 +331,6 @@ private fun OnlineChaptersDialog(
     }
   }
   var offline by remember(book) { mutableStateOf(false) }
-  val context = LocalContext.current
   val state by produceState(initialValue = ChaptersUiState(), book, reloadKey) {
     value = ChaptersUiState(loading = true)
     offline = false
@@ -375,8 +378,11 @@ private fun OnlineChaptersDialog(
         ) {
           Text(
             stringResource(
-              if (offline) StringsR.string.search_online_offline
-              else StringsR.string.search_online_error,
+              if (offline) {
+                StringsR.string.search_online_offline
+              } else {
+                StringsR.string.search_online_error
+              },
             ),
           )
           state.errorMessage?.let { detail ->
