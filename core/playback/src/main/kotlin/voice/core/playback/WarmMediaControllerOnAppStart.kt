@@ -16,8 +16,9 @@ import voice.core.logging.api.Logger
 /**
  * Starts the [PlayerController] MediaController connection after the first
  * frame so a later play/prepare does not pay the binder + service cold start
- * on the critical path. Idle-handler deferred so Application.onCreate and the
- * first composition stay free of playback work.
+ * on the critical path. Double-posted so Application.onCreate and the first
+ * composition stay free of playback work; [PlayerController] itself defers
+ * the binder bind until first use so constructing this initializer is cheap.
  */
 @ContributesIntoSet(AppScope::class)
 @Inject
@@ -29,9 +30,10 @@ class WarmMediaControllerOnAppStart(
   private val scope: CoroutineScope = MainScope(dispatcherProvider)
 
   override fun onAppStart(application: Application) {
-    Handler(Looper.getMainLooper()).post {
-      // post one more frame so setContent / first draw can finish first
-      Handler(Looper.getMainLooper()).post {
+    val main = Handler(Looper.getMainLooper())
+    main.post {
+      // one more hop so setContent / first draw can finish first
+      main.post {
         scope.launch {
           runCatching { playerController.awaitConnect() }
             .onFailure { Logger.w(it, "Warming the media controller failed") }

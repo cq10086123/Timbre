@@ -61,7 +61,11 @@ class PlayerController(
   private val onlinePlaybackCatalog: OnlinePlaybackCatalog,
 ) {
 
-  private var _controller: Deferred<MediaController> = newControllerAsync()
+  /**
+   * Created on first use. Constructing [PlayerController] (e.g. from an app
+   * start warmer) must not bind [PlaybackService] during Application.onCreate.
+   */
+  private var _controller: Deferred<MediaController>? = null
 
   private fun newControllerAsync() = MediaController
     .Builder(context, SessionToken(context, ComponentName(context, PlaybackService::class.java)))
@@ -70,14 +74,18 @@ class PlayerController(
 
   private val controller: Deferred<MediaController>
     get() {
-      if (_controller.isCompleted) {
-        val completedController = _controller.getCompleted()
-        if (!completedController.isConnected) {
-          completedController.release()
-          _controller = newControllerAsync()
+      val existing = _controller
+      if (existing != null) {
+        if (existing.isCompleted) {
+          val completedController = existing.getCompleted()
+          if (!completedController.isConnected) {
+            completedController.release()
+            return newControllerAsync().also { _controller = it }
+          }
         }
+        return existing
       }
-      return _controller
+      return newControllerAsync().also { _controller = it }
     }
   private val scope = CoroutineScope(Dispatchers.Main.immediate)
 

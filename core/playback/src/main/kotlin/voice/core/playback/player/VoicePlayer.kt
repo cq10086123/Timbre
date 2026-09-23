@@ -312,6 +312,7 @@ class VoicePlayer(
 
   private var setBookJob: Job? = null
   private var playlistExpandJob: Job? = null
+  private var streamPrefetchJob: Job? = null
 
   // prepare()/play() arriving while setBook is still assembling ran on an
   // empty playlist and did nothing. The flag re-applies them once the items
@@ -326,6 +327,7 @@ class VoicePlayer(
   override fun stop() {
     setBookJob?.cancel()
     playlistExpandJob?.cancel()
+    streamPrefetchJob?.cancel()
     pendingPrepare = false
     super.stop()
   }
@@ -333,6 +335,7 @@ class VoicePlayer(
   override fun clearMediaItems() {
     setBookJob?.cancel()
     playlistExpandJob?.cancel()
+    streamPrefetchJob?.cancel()
     pendingPrepare = false
     super.clearMediaItems()
   }
@@ -384,6 +387,7 @@ class VoicePlayer(
     // cancelled so rapid book switches cannot apply out of order.
     setBookJob?.cancel()
     playlistExpandJob?.cancel()
+    streamPrefetchJob?.cancel()
     pendingPrepare = false
     setBookJob = scope.launch {
       // a failed assembly (book deleted, position no longer resolvable) must
@@ -392,8 +396,10 @@ class VoicePlayer(
       var assembled = false
       var expand: PreparedBook? = null
       val assemblyDuration = measureTime {
-        // one IO hop: load the book, window the playlist, resolve cover and
-        // (for online) prefetch the stream url so ExoPlayer's open hits cache
+        // one IO hop: load the book, window the playlist and resolve cover.
+        // Stream URL prefetch is started as soon as the chapter is known and
+        // is NOT awaited here — awaiting would serialize open behind a full
+        // network round trip; single-flight still coalesces with ExoPlayer.
         val prepared = withContext(dispatcherProvider.io) {
           prepareBook(mediaId.id)
         } ?: return@measureTime
@@ -431,8 +437,10 @@ class VoicePlayer(
   }
 
   /**
-   * Loads [bookId], builds a windowed playlist around the resume chapter and
-   * prefetches the online stream url when applicable.
+   * Loads [bookId] and builds a windowed playlist around the resume chapter.
+   * Online stream resolve is fired (not awaited) as soon as the chapter is
+   * known so it overlaps window/cover work; single-flight coalesces with the
+   * later ExoPlayer open.
    */
   private suspend fun prepareBook(bookId: BookId): PreparedBook? = coroutineScope {
     // books of the online source live in their own store: the room
@@ -444,15 +452,14 @@ class VoicePlayer(
     ) ?: return@coroutineScope null
 
     val isOnline = onlinePlaybackCatalog.isOnlineBookId(book.id)
-    val streamPrefetch = if (isOnline) {
-      async {
-        val ref = OnlineUri.parse(currentPlaybackItem.chapter.id.value) ?: return@async
-        // warm the catalog cache so the data source open does not wait on
-        // a cold resolve after setMediaItems/prepare
-        runCatching { onlinePlaybackCatalog.resolveStreamUrl(ref) }
+    if (isOnline) {
+      OnlineUri.parse(currentPlaybackItem.chapter.id.value)?.let { ref ->
+        // Player scope outlives this withContext so the resolve keeps running
+        // after prepareBook returns; cancelled on stop/clear/setBook.
+        streamPrefetchJob = scope.launch(dispatcherProvider.io) {
+          runCatching { onlinePlaybackCatalog.resolveStreamUrl(ref) }
+        }
       }
-    } else {
-      null
     }
     val coverDeferred = if (isOnline) {
       async {
@@ -482,7 +489,6 @@ class VoicePlayer(
           .build()
       }
     }
-    streamPrefetch?.await()
 
     PreparedBook(
       book = book,

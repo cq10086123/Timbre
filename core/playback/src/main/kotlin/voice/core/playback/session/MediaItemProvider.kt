@@ -176,11 +176,10 @@ class MediaItemProvider(
     }
     val from = (center - radius).coerceAtLeast(0)
     val toExclusive = (center + radius + 1).coerceAtMost(total)
-    val items = book.playbackItems(fromItemIndex = from)
-      .asSequence()
-      .take(toExclusive - from)
+    // both bounds matter: from alone would allocate every chapter after [from]
+    // for a book resumed near the end
+    val items = book.playbackItems(fromItemIndex = from, untilItemIndex = toExclusive)
       .map { mediaItem(it, book.content) }
-      .toList()
     return PlaybackWindow(
       items = items,
       indexInWindow = center - from,

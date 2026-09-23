@@ -130,11 +130,22 @@ class PlaybackItemsTest {
     val radius = 24
     val from = (center - radius).coerceAtLeast(0)
     val toExclusive = (center + radius + 1).coerceAtMost(100)
-    val window = book.playbackItems(fromItemIndex = from).take(toExclusive - from)
+    val window = book.playbackItems(fromItemIndex = from, untilItemIndex = toExclusive)
     assertEquals(expected = 49, actual = window.size)
     assertEquals(expected = from, actual = window.first().index)
     assertEquals(expected = center, actual = window[center - from].index)
     assertEquals(expected = toExclusive - 1, actual = window.last().index)
+  }
+
+  @Test
+  fun `ranged playback items stop at until index`() {
+    val chapters = (0 until 20).map { i ->
+      chapter(duration = 10_000, MarkData(startMs = 0, name = "C$i"))
+    }
+    val book = book(chapters)
+    // a late resume must not allocate every trailing chapter
+    val window = book.playbackItems(fromItemIndex = 15, untilItemIndex = 18)
+    assertEquals(expected = listOf(15, 16, 17), actual = window.map { it.index })
   }
 
   private fun chapter(
