@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
+// Dispatchers is still used by awaitStoreChapter (IO poll)
 import voice.core.data.BookId
 import voice.core.data.ChapterId
 import kotlin.test.Test
@@ -199,9 +200,11 @@ class OnlinePlaybackCatalogTest {
       STREAM_URL
     }
 
-    val first = async(Dispatchers.Default) { catalog.resolveStreamUrl(ref) }
+    // stay on the test scheduler: Dispatchers.Default + runTest can leave the
+    // suite waiting on non-deterministic thread hand-offs under CI load
+    val first = async { catalog.resolveStreamUrl(ref) }
     started.await()
-    val second = async(Dispatchers.Default) { catalog.resolveStreamUrl(ref) }
+    val second = async { catalog.resolveStreamUrl(ref) }
     // give the second caller a moment to attach to the in-flight deferred
     yield()
     release.complete(Unit)
@@ -222,7 +225,7 @@ class OnlinePlaybackCatalogTest {
       "https://cdn.example.com/rejected.mp3"
     }
 
-    val slow = async(Dispatchers.Default) { catalog.resolveStreamUrl(ref) }
+    val slow = async { catalog.resolveStreamUrl(ref) }
     started.await()
     // data source rejected the url while resolve is still finishing
     assertTrue(catalog.invalidateStreamUrl(ref))
