@@ -87,6 +87,8 @@ internal fun OnlineCacheDialog(
   progress: OnlineCacheState?,
   onSelectCount: (Int) -> Unit,
   onCustomCountChange: (String) -> Unit,
+  onSelectDelay: (Int) -> Unit,
+  onCustomDelayChange: (String) -> Unit,
   onStartCache: () -> Unit,
   onCancelCache: () -> Unit,
   onClearCache: () -> Unit,
@@ -184,6 +186,48 @@ internal fun OnlineCacheDialog(
               value = viewState.customCount,
               onValueChange = onCustomCountChange,
               label = { Text(stringResource(StringsR.string.online_cache_count_label)) },
+              singleLine = true,
+              keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+              text = stringResource(StringsR.string.online_cache_delay_label),
+              style = MaterialTheme.typography.bodyMedium,
+            )
+            Text(
+              modifier = Modifier.padding(top = 2.dp),
+              text = stringResource(StringsR.string.online_cache_delay_hint),
+              style = MaterialTheme.typography.bodySmall,
+            )
+            Row(
+              modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 8.dp),
+              horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+              CACHE_DELAY_PRESETS.forEach { preset ->
+                FilterChip(
+                  selected = viewState.customDelay.isBlank() && viewState.delaySeconds == preset,
+                  onClick = { onSelectDelay(preset) },
+                  label = {
+                    Text(
+                      if (preset == 0) {
+                        stringResource(StringsR.string.online_cache_delay_none)
+                      } else {
+                        stringResource(StringsR.string.online_cache_delay_seconds, preset)
+                      },
+                    )
+                  },
+                )
+              }
+            }
+            OutlinedTextField(
+              modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 8.dp),
+              value = viewState.customDelay,
+              onValueChange = onCustomDelayChange,
+              label = { Text(stringResource(StringsR.string.online_cache_delay_seconds_custom)) },
               singleLine = true,
               keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
             )

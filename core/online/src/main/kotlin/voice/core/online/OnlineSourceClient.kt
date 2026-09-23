@@ -18,7 +18,15 @@ public class OnlineSourceException(
   message: String,
   public val requiresRelogin: Boolean = false,
   cause: Throwable? = null,
-) : Exception(message, cause)
+) : Exception(message, cause) {
+  /** The "409"-style status code parsed from [message], or null when not an HTTP error. */
+  public val httpCode: Int?
+    get() = message
+      ?.takeIf { it.startsWith("HTTP ") }
+      ?.substringAfter("HTTP ")
+      ?.substringBefore(':')
+      ?.toIntOrNull()
+}
 
 @Serializable
 internal data class LoginRequest(

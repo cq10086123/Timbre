@@ -770,13 +770,23 @@ public class OnlinePlaybackCatalog(
 
     val deadline = SystemClock.elapsedRealtime() + RESOLVE_TIMEOUT_MS
     var taskId: String? = null
+    var submitAttempted = false
     while (true) {
       findDownloadedFile(ref.bookId, ref.chapterId, title, episode)?.let { return it }
       if (SystemClock.elapsedRealtime() >= deadline) break
-      if (taskId == null) {
-        taskId = service.submitDownload(ref.bookId, episode, endEpisode)
-          ?: break
-      } else {
+      if (!submitAttempted) {
+        submitAttempted = true
+        // The site owns one download slot per card. A 409 here means another
+        // task holds it - often this book's manual cache window (which paces
+        // one episode per server task) or the local plugin. That is not a
+        // failure of this chapter: keep polling for the file; the deadline
+        // still bounds the wait. Any other error fails the resolve as before.
+        try {
+          taskId = service.submitDownload(ref.bookId, episode, endEpisode)
+        } catch (e: OnlineSourceException) {
+          if (e.httpCode != 409) throw e
+        }
+      } else if (taskId != null) {
         val status = runCatching { service.downloadStatus(taskId) }.getOrNull()
         if (status != null && status.isFailed) break
       }
