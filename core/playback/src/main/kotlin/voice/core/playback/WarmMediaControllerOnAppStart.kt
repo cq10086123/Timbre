@@ -8,6 +8,7 @@ import dev.zacsweers.metro.ContributesIntoSet
 import dev.zacsweers.metro.Inject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import voice.core.common.DispatcherProvider
 import voice.core.common.MainScope
 import voice.core.initializer.AppInitializer
@@ -35,10 +36,20 @@ class WarmMediaControllerOnAppStart(
       // one more hop so setContent / first draw can finish first
       main.post {
         scope.launch {
-          runCatching { playerController.awaitConnect() }
-            .onFailure { Logger.w(it, "Warming the media controller failed") }
+          // never wait forever: a warming attempt that cannot connect (no
+          // service yet, tests, a stuck binder) must not keep a coroutine or
+          // the app start alive
+          val controller = withTimeoutOrNull(WARM_TIMEOUT_MS) {
+            playerController.awaitConnect()
+          }
+          if (controller == null) {
+            Logger.w("Warming the media controller timed out")
+          }
         }
       }
     }
   }
 }
+
+/** Upper bound for the warm up attempt; the real connect happens on demand. */
+private const val WARM_TIMEOUT_MS = 10_000L
