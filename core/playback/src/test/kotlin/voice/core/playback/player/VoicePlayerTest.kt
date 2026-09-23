@@ -1,5 +1,6 @@
 package voice.core.playback.player
 
+import android.os.Looper
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.test.utils.FakeMediaSource
@@ -21,6 +22,7 @@ import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.runner.RunWith
+import org.robolectric.Shadows.shadowOf
 import voice.core.common.DispatcherProvider
 import voice.core.data.Book
 import voice.core.data.BookId
@@ -44,6 +46,8 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.seconds
+import kotlin.time.TimeSource
 import kotlin.uuid.Uuid
 
 @RunWith(AndroidJUnit4::class)
@@ -467,8 +471,23 @@ class VoicePlayerTest {
     )
   }
 
+  /**
+   * Bounded replacement for TestPlayerRunHelper.runUntilPlaybackState: that
+   * helper waits forever, and setBook prepares the leading playback prefix on a
+   * real IO thread, so a late STATE_READY would pin the whole Gradle unit job
+   * instead of failing this single test.
+   */
   private fun awaitReady() {
-    TestPlayerRunHelper.runUntilPlaybackState(internalPlayer, Player.STATE_READY)
+    val mainLooper = Looper.getMainLooper()
+    val mark = TimeSource.Monotonic.markNow()
+    while (internalPlayer.playbackState != Player.STATE_READY) {
+      shadowOf(mainLooper).idle()
+      if (internalPlayer.playbackState == Player.STATE_READY) return
+      check(mark.elapsedNow() < READY_TIMEOUT) {
+        "the player never reached STATE_READY (state=${internalPlayer.playbackState})"
+      }
+      Thread.sleep(5)
+    }
   }
 
   @IgnorableReturnValue
@@ -501,3 +520,6 @@ class VoicePlayerTest {
     }
   }
 }
+
+/** Upper bound for STATE_READY waits; a stuck player must fail fast. */
+private val READY_TIMEOUT = 20.seconds
