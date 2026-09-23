@@ -14,6 +14,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import voice.core.analytics.api.Analytics
 import voice.core.common.DispatcherProvider
+import voice.core.data.Book
 import voice.core.data.BookContent
 import voice.core.data.BookId
 import voice.core.data.repo.BookRepository
@@ -382,44 +383,51 @@ class VoicePlayer(
       // prepare is gated on the items actually having been set
       var assembled = false
       val assemblyDuration = measureTime {
-        val book = withContext(dispatcherProvider.io) {
+        // one IO hop: load the book, resolve cover and build media items together
+        // so a cold online open does not bounce main↔io three times before sound
+        val prepared = withContext(dispatcherProvider.io) {
           // books of the online source live in their own store: the room
           // lookup misses, the online catalog synthesizes the book instead
-          repo.get(mediaId.id) ?: onlinePlaybackCatalog.book(mediaId.id)
-        } ?: return@measureTime
-        player.setPlaybackSpeed(book.content.playbackSpeed)
-        setSkipSilenceEnabled(book.content.skipSilence)
-        volumeGain.gain = Decibel(book.content.gain)
-        val currentPlaybackItem = book.playbackItemForPosition(
-          chapterId = book.content.currentChapter,
-          positionInChapterMs = book.content.positionInChapter,
-        ) ?: return@measureTime
-        val onlineCover = if (onlinePlaybackCatalog.isOnlineBookId(book.id)) {
-          onlinePlaybackCatalog.onlineCover(book.id)?.takeIf { it.isNotBlank() }?.let(android.net.Uri::parse)
-        } else {
-          null
-        }
-        val mediaItems = withContext(dispatcherProvider.io) {
-          mediaItemProvider.playbackItems(book)
-        }.let { items ->
-          // online books have no local cover file; the remote cover url still
-          // feeds the notification and Android Auto artwork
-          if (onlineCover == null) {
-            items
+          val book = repo.get(mediaId.id) ?: onlinePlaybackCatalog.book(mediaId.id)
+            ?: return@withContext null
+          val currentPlaybackItem = book.playbackItemForPosition(
+            chapterId = book.content.currentChapter,
+            positionInChapterMs = book.content.positionInChapter,
+          ) ?: return@withContext null
+          val onlineCover = if (onlinePlaybackCatalog.isOnlineBookId(book.id)) {
+            onlinePlaybackCatalog.onlineCover(book.id)?.takeIf { it.isNotBlank() }?.let(android.net.Uri::parse)
           } else {
-            items.map { item ->
-              item.buildUpon()
-                .setMediaMetadata(
-                  item.mediaMetadata.buildUpon().setArtworkUri(onlineCover).build(),
-                )
-                .build()
+            null
+          }
+          val mediaItems = mediaItemProvider.playbackItems(book).let { items ->
+            // online books have no local cover file; the remote cover url still
+            // feeds the notification and Android Auto artwork
+            if (onlineCover == null) {
+              items
+            } else {
+              items.map { item ->
+                item.buildUpon()
+                  .setMediaMetadata(
+                    item.mediaMetadata.buildUpon().setArtworkUri(onlineCover).build(),
+                  )
+                  .build()
+              }
             }
           }
-        }
+          PreparedBook(
+            book = book,
+            mediaItems = mediaItems,
+            startIndex = currentPlaybackItem.index,
+            startPositionMs = currentPlaybackItem.positionInMediaItem(book.content.positionInChapter),
+          )
+        } ?: return@measureTime
+        player.setPlaybackSpeed(prepared.book.content.playbackSpeed)
+        setSkipSilenceEnabled(prepared.book.content.skipSilence)
+        volumeGain.gain = Decibel(prepared.book.content.gain)
         player.setMediaItems(
-          mediaItems,
-          currentPlaybackItem.index,
-          currentPlaybackItem.positionInMediaItem(book.content.positionInChapter),
+          prepared.mediaItems,
+          prepared.startIndex,
+          prepared.startPositionMs,
         )
         assembled = true
       }
@@ -476,4 +484,11 @@ class VoicePlayer(
     val bookId = currentBookStoreId.data.first() ?: return
     repo.updateBook(bookId, update)
   }
+
+  private data class PreparedBook(
+    val book: Book,
+    val mediaItems: List<MediaItem>,
+    val startIndex: Int,
+    val startPositionMs: Long,
+  )
 }

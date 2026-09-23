@@ -5,11 +5,13 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.yield
 import voice.core.data.BookId
 import voice.core.data.ChapterId
 import kotlin.test.Test
@@ -172,6 +174,40 @@ class OnlinePlaybackCatalogTest {
       val _ = service.resolveDirectUrl(THIRD_PARTY_SOURCE, BOOK_ID, "c1")
     }
     assertFalse(catalog.invalidateStreamUrl(OnlineChapterRef(THIRD_PARTY_SOURCE, BOOK_ID, "unknown")))
+  }
+
+  @Test
+  fun `content skips building chapter rows`() = runTest {
+    coEvery { service.shelfBook("main::$BOOK_ID") } returns shelfBook()
+    val content = assertNotNull(catalog.content(bookId()))
+    assertEquals("凡人修仙传", content.name)
+    assertEquals(3, content.chapters.size)
+    assertEquals(OnlineUri.build(SOURCE, BOOK_ID, "c1"), content.currentChapter.value)
+  }
+
+  @Test
+  fun `concurrent resolves of the same chapter share one source call`() = runTest {
+    val ref = OnlineChapterRef(THIRD_PARTY_SOURCE, BOOK_ID, "c1")
+    val started = kotlinx.coroutines.CompletableDeferred<Unit>()
+    val release = kotlinx.coroutines.CompletableDeferred<Unit>()
+    var calls = 0
+    coEvery { service.resolveDirectUrl(THIRD_PARTY_SOURCE, BOOK_ID, "c1") } coAnswers {
+      calls++
+      started.complete(Unit)
+      release.await()
+      STREAM_URL
+    }
+
+    val first = async(Dispatchers.Default) { catalog.resolveStreamUrl(ref) }
+    started.await()
+    val second = async(Dispatchers.Default) { catalog.resolveStreamUrl(ref) }
+    // give the second caller a moment to attach to the in-flight deferred
+    yield()
+    release.complete(Unit)
+
+    assertEquals(STREAM_URL, first.await())
+    assertEquals(STREAM_URL, second.await())
+    assertEquals(1, calls)
   }
 
   @Test

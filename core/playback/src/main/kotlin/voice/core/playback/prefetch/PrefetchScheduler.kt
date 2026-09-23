@@ -107,8 +107,10 @@ public class PrefetchScheduler(
       val content = fresh.content
 
       // playback of the current chapter consumes its cached data, even when
-      // the CacheDataSource served it without opening the upstream
-      val currentUrl = book.chapters.firstOrNull { it.id == content.currentChapter }
+      // the CacheDataSource served it without opening the upstream. Use the
+      // freshly loaded chapter list: during an import the outer [book] snapshot
+      // would miss chapters that appeared after playback started.
+      val currentUrl = fresh.chapters.firstOrNull { it.id == content.currentChapter }
         ?.id?.toUri()?.toString()
       if (currentUrl != null && currentUrl != lastChapterUrl) {
         playbackCache.markConsumed(currentUrl)

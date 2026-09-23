@@ -135,6 +135,9 @@ public interface OnlineSourceGraph {
       onDurationResolved = { ref, durationMs ->
         catalog.recordMeasuredDuration(ref.source, ref.bookId, ref.chapterId, durationMs)
       },
+      hasMeasuredDuration = { ref ->
+        catalog.measuredDurationMs(ref.source, ref.bookId, ref.chapterId) != null
+      },
     )
   }
 }

@@ -25,6 +25,7 @@ public class OnlineStreamingDataSource internal constructor(
   private val urlResolver: (OnlineChapterRef) -> String?,
   private val onUrlRejected: (OnlineChapterRef) -> Boolean = { false },
   private val onDurationResolved: (OnlineChapterRef, Long) -> Unit = { _, _ -> },
+  private val hasMeasuredDuration: (OnlineChapterRef) -> Boolean = { false },
 ) : BaseDataSource(true) {
 
   private companion object {
@@ -35,8 +36,11 @@ public class OnlineStreamingDataSource internal constructor(
      * The probe waits at most this long for the head of the stream. A source
      * that trickles or stalls would otherwise delay the start of the chapter
      * for as long as it takes to fill the probe buffer.
+     *
+     * Kept short: a measured duration already lives in the catalog after the
+     * first successful play, so cold opens should not stall on slow CDNs.
      */
-    const val PROBE_TIMEOUT_MS = 2_000L
+    const val PROBE_TIMEOUT_MS = 400L
 
     /** Bytes read per step while the probe waits for more of the stream. */
     const val PROBE_STEP_BYTES = 8 * 1024
@@ -59,7 +63,9 @@ public class OnlineStreamingDataSource internal constructor(
     // and reset before regular reads start
     val buffered = java.io.BufferedInputStream(body.byteStream(), PROBE_BUFFER_BYTES)
     val contentLength = body.contentLength()
-    if (contentLength > 0) {
+    // skip the probe once a duration is known: it only delays first audio and
+    // the catalog already has a correct value from a previous play/probe-ahead
+    if (contentLength > 0 && !hasMeasuredDuration(ref)) {
       probeDuration(dataSpec, ref, contentLength, buffered)
     }
     inputStream = buffered
@@ -253,6 +259,7 @@ public class OnlineDataSourceFactory internal constructor(
   private val urlResolver: (OnlineChapterRef) -> String?,
   private val onUrlRejected: (OnlineChapterRef) -> Boolean = { false },
   private val onDurationResolved: (OnlineChapterRef, Long) -> Unit = { _, _ -> },
+  private val hasMeasuredDuration: (OnlineChapterRef) -> Boolean = { false },
 ) : DataSource.Factory {
 
   override fun createDataSource(): DataSource {
@@ -263,6 +270,7 @@ public class OnlineDataSourceFactory internal constructor(
       urlResolver = urlResolver,
       onUrlRejected = onUrlRejected,
       onDurationResolved = onDurationResolved,
+      hasMeasuredDuration = hasMeasuredDuration,
     )
   }
 }
