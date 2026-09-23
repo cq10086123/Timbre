@@ -46,9 +46,9 @@ internal fun Book.playbackItems(): List<PlaybackItem> {
  *
  * While a book is imported, its playlist only grows at the end. Building only
  * the appended tail keeps synchronizing a book with thousands of chapters
- * cheap instead of rebuilding every item for every imported batch. A resume
- * window around the current chapter uses both bounds so a late resume does
- * not allocate every trailing chapter.
+ * cheap instead of rebuilding every item for every imported batch. A leading
+ * resume prefix uses [untilItemIndex] so the open path does not allocate every
+ * trailing chapter before first audio.
  */
 internal fun Book.playbackItems(
   fromItemIndex: Int,

@@ -103,10 +103,10 @@ class PlayerController(
       chapterId = chapterId,
       positionInChapterMs = positionInChapterMs,
     ) ?: return@executeAfterPrepare
-    // VoicePlayer may first install a window around the resume chapter; absolute
-    // indexes only match once the full playlist has replaced that window.
-    val fullItemCount = book.chapters.sumOf { it.chapterMarks.size }
-    if (awaitAssembledPlaylist(controller, book.id, position.index, fullItemCount)) {
+    // Leading prefix already uses global indexes (item 0 = chapter 0). Wait
+    // until the target index exists — either in the prefix or after the tail
+    // was appended — without requiring the entire book to be loaded first.
+    if (awaitAssembledPlaylist(controller, book.id, position.index)) {
       controller.seekTo(position.index, position.positionInMediaItemMs)
     }
   }
@@ -129,14 +129,12 @@ class PlayerController(
     controller: MediaController,
     bookId: BookId,
     itemIndex: Int,
-    minItemCount: Int,
   ): Boolean {
     fun ready(): Boolean = playlistAssembled(
       currentMediaId = controller.currentMediaItem?.mediaId,
       mediaItemCount = controller.mediaItemCount,
       bookId = bookId,
       itemIndex = itemIndex,
-      minItemCount = minItemCount,
     )
     if (ready()) return true
     val assembled = withTimeoutOrNull(PLAYLIST_ASSEMBLY_TIMEOUT_MS) {
@@ -158,9 +156,10 @@ class PlayerController(
     } != null
     if (assembled) return true
     Logger.i("Playlist of $bookId was not assembled in time, item $itemIndex stays where it is")
-    // never seek into another book's timeline; also never seek by absolute
-    // index while only a resume window is loaded
-    return ready()
+    // the book is still worth seeking into when a playlist of it exists that
+    // has not grown to the item yet (prefix still expanding / partial import):
+    // the seek is dropped by the controller then, but never applied to another book
+    return playlistOfBookLoaded(controller.currentMediaItem?.mediaId, bookId)
   }
 
   fun pauseIfCurrentBookDifferentFrom(id: BookId) {
@@ -380,18 +379,15 @@ class PlayerController(
  * carries a book media id, and the playlist of another book must not pass
  * either - both would drop a seek just like an empty playlist does.
  *
- * [minItemCount] is the full mark count of the book: VoicePlayer may first
- * install a window around the resume chapter whose indexes are not global, so
- * a chapter pick must wait until that window has been expanded.
+ * Leading prefixes use global indexes (item 0 = first chapter), so reaching
+ * [itemIndex] is enough — the tail beyond the seek target may still be loading.
  */
 internal fun playlistAssembled(
   currentMediaId: String?,
   mediaItemCount: Int,
   bookId: BookId,
   itemIndex: Int,
-  minItemCount: Int = itemIndex + 1,
 ): Boolean {
-  if (mediaItemCount < minItemCount) return false
   if (mediaItemCount <= itemIndex) return false
   return playlistOfBookLoaded(currentMediaId, bookId)
 }

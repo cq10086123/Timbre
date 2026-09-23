@@ -38,25 +38,23 @@ class PlayerControllerTest {
   }
 
   @Test
-  fun `resume window is not treated as a full assembled playlist`() {
-    // VoicePlayer first installs ~49 items around the resume chapter; absolute
-    // indexes only match once the full list replaces that window.
-    assertFalse(
-      playlistAssembled(
-        currentMediaId = chapterMarkOf(bookId),
-        mediaItemCount = 49,
-        bookId = bookId,
-        itemIndex = 5,
-        minItemCount = 120,
-      ),
-    )
+  fun `leading prefix is ready once the target index exists`() {
+    // VoicePlayer installs [0, resume+ahead); global indexes already match, so
+    // a chapter pick inside the prefix must not wait for the full tail.
     assertTrue(
       playlistAssembled(
         currentMediaId = chapterMarkOf(bookId),
-        mediaItemCount = 120,
+        mediaItemCount = 50,
         bookId = bookId,
         itemIndex = 5,
-        minItemCount = 120,
+      ),
+    )
+    assertFalse(
+      playlistAssembled(
+        currentMediaId = chapterMarkOf(bookId),
+        mediaItemCount = 50,
+        bookId = bookId,
+        itemIndex = 50,
       ),
     )
   }

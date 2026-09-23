@@ -396,7 +396,7 @@ class VoicePlayer(
       var assembled = false
       var expand: PreparedBook? = null
       val assemblyDuration = measureTime {
-        // one IO hop: load the book, window the playlist and resolve cover.
+        // one IO hop: load the book, build a leading prefix and resolve cover.
         // Stream URL prefetch is started as soon as the chapter is known and
         // is NOT awaited here — awaiting would serialize open behind a full
         // network round trip; single-flight still coalesces with ExoPlayer.
@@ -428,8 +428,8 @@ class VoicePlayer(
       // log marks how long it took so a slow start can be attributed.
       Logger.i("setBook(${mediaItem.mediaId}) took $assemblyDuration")
       val toExpand = expand ?: return@launch
-      // fill the rest of a long book off the critical path so chapter picks
-      // and cross-chapter seeks see the full timeline shortly after audio starts
+      // append the tail off the critical path; indexes already match the final
+      // playlist so chapter picks inside the prefix work immediately
       playlistExpandJob = scope.launch {
         expandPlaylist(toExpand)
       }
@@ -437,10 +437,10 @@ class VoicePlayer(
   }
 
   /**
-   * Loads [bookId] and builds a windowed playlist around the resume chapter.
-   * Online stream resolve is fired (not awaited) as soon as the chapter is
-   * known so it overlaps window/cover work; single-flight coalesces with the
-   * later ExoPlayer open.
+   * Loads [bookId] and builds a leading playlist prefix through the resume
+   * chapter. Online stream resolve is fired (not awaited) as soon as the
+   * chapter is known so it overlaps prefix/cover work; single-flight coalesces
+   * with the later ExoPlayer open.
    */
   private suspend fun prepareBook(bookId: BookId): PreparedBook? = coroutineScope {
     // books of the online source live in their own store: the room
@@ -471,17 +471,19 @@ class VoicePlayer(
       null
     }
 
-    val window = mediaItemProvider.playbackItemsWindow(
+    // leading prefix: indexes == final full playlist, so chapter seeks and the
+    // import synchronizer stay correct while the tail is still missing
+    val prefix = mediaItemProvider.playbackItemsPrefix(
       book = book,
-      centerItemIndex = currentPlaybackItem.index,
+      resumeItemIndex = currentPlaybackItem.index,
     )
     val onlineCover = coverDeferred?.await()
     val mediaItems = if (onlineCover == null) {
-      window.items
+      prefix.items
     } else {
       // online books have no local cover file; the remote cover url still
       // feeds the notification and Android Auto artwork
-      window.items.map { item ->
+      prefix.items.map { item ->
         item.buildUpon()
           .setMediaMetadata(
             item.mediaMetadata.buildUpon().setArtworkUri(onlineCover).build(),
@@ -493,16 +495,22 @@ class VoicePlayer(
     PreparedBook(
       book = book,
       mediaItems = mediaItems,
-      startIndex = window.indexInWindow,
+      startIndex = prefix.resumeIndex,
       startPositionMs = currentPlaybackItem.positionInMediaItem(book.content.positionInChapter),
-      absoluteIndex = currentPlaybackItem.index,
-      needsFullPlaylist = window.isPartial,
+      needsFullPlaylist = prefix.isPartial,
     )
   }
 
+  /**
+   * Appends the remaining chapters after the leading prefix. Uses
+   * [Player.addMediaItems] so the playing item and its buffer are not replaced
+   * — critical for long-book listen feel.
+   */
   private suspend fun expandPlaylist(prepared: PreparedBook) {
-    val fullItems = withContext(dispatcherProvider.io) {
-      val raw = mediaItemProvider.playbackItems(prepared.book)
+    val prefixSize = prepared.mediaItems.size
+    val tail = withContext(dispatcherProvider.io) {
+      val raw = mediaItemProvider.playbackItems(prepared.book, fromItemIndex = prefixSize)
+      if (raw.isEmpty()) return@withContext emptyList()
       if (!onlinePlaybackCatalog.isOnlineBookId(prepared.book.id)) {
         return@withContext raw
       }
@@ -518,25 +526,29 @@ class VoicePlayer(
           .build()
       }
     }
+    if (tail.isEmpty()) return
     // drop the expansion when the user already switched books
-    val currentId = player.currentMediaItem?.mediaId
-    val playingBookId = currentId?.toMediaIdOrNull()?.bookId
+    val playingBookId = player.currentMediaItem?.mediaId?.toMediaIdOrNull()?.bookId
     if (playingBookId != null && playingBookId != prepared.book.id) {
       return
     }
-    // BookPlaylistSynchronizer may already have replaced the window with the
-    // full list; rewriting would only risk a position jump.
-    if (player.mediaItemCount >= fullItems.size) {
+    // import synchronizer or a previous expand may already have grown the list
+    val already = player.mediaItemCount
+    if (already >= prefixSize + tail.size) {
       return
     }
-    val positionMs = player.currentPosition.takeUnless { it == C.TIME_UNSET }
-      ?: prepared.startPositionMs
-    // match by media id so a chapter skip inside the window survives expansion
-    val targetIndex = fullItems.indexOfFirst { it.mediaId == currentId }
-      .takeIf { it >= 0 }
-      ?: prepared.absoluteIndex.coerceIn(0, fullItems.lastIndex)
-    player.setMediaItems(fullItems, targetIndex, positionMs.coerceAtLeast(0L))
-    Logger.i("Expanded playlist of ${prepared.book.id} to ${fullItems.size} items")
+    val missing = if (already > prefixSize) {
+      // something else appended a shorter tail; only add what is still missing
+      tail.drop(already - prefixSize)
+    } else {
+      tail
+    }
+    if (missing.isEmpty()) return
+    player.addMediaItems(already, missing)
+    Logger.i(
+      "Expanded playlist of ${prepared.book.id}: " +
+        "prefix=$prefixSize +${missing.size} → ${already + missing.size}",
+    )
   }
 
   override fun setPlaybackSpeed(speed: Float) {
@@ -582,11 +594,12 @@ class VoicePlayer(
   private data class PreparedBook(
     val book: Book,
     val mediaItems: List<MediaItem>,
-    /** Seek index inside [mediaItems] (window-relative). */
+    /**
+     * Resume index inside [mediaItems]. For a leading prefix this is also the
+     * final full-playlist index, so chapter seeks need not wait for the tail.
+     */
     val startIndex: Int,
     val startPositionMs: Long,
-    /** Global playlist index of the resume chapter. */
-    val absoluteIndex: Int,
     val needsFullPlaylist: Boolean,
   )
 }

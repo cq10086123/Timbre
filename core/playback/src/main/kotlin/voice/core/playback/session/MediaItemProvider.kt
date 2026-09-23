@@ -144,56 +144,48 @@ class MediaItemProvider(
   }
 
   /**
-   * A window of playlist items around [centerItemIndex] so a book with
-   * thousands of chapters can start without allocating every [MediaItem] on
-   * the critical path. [PlaybackWindow.indexInWindow] is the seek index for
-   * [androidx.media3.common.Player.setMediaItems]; [absoluteStartIndex] lets
-   * the caller expand to the full list without losing the playing chapter.
+   * A leading playlist prefix through [resumeItemIndex] plus a small ahead
+   * buffer. Indexes match the final full playlist (item 0 is always chapter 0),
+   * so seeks and [BookPlaylistSynchronizer] appends stay correct while the tail
+   * is still being built. Prefer this over a mid-book window: replacing a
+   * non-prefix timeline mid-playback is what made long-book resume feel broken.
    */
-  internal fun playbackItemsWindow(
+  internal fun playbackItemsPrefix(
     book: Book,
-    centerItemIndex: Int,
-    radius: Int = PLAYLIST_WINDOW_RADIUS,
-  ): PlaybackWindow {
+    resumeItemIndex: Int,
+    ahead: Int = PLAYLIST_PREFIX_AHEAD,
+  ): PlaybackPrefix {
     val total = book.chapters.sumOf { it.chapterMarks.size }
     if (total == 0) {
-      return PlaybackWindow(
+      return PlaybackPrefix(
         items = emptyList(),
-        indexInWindow = 0,
-        absoluteStartIndex = 0,
+        resumeIndex = 0,
         totalItemCount = 0,
       )
     }
-    val center = centerItemIndex.coerceIn(0, total - 1)
-    if (total <= radius * 2 + 1) {
+    val resume = resumeItemIndex.coerceIn(0, total - 1)
+    val until = (resume + 1 + ahead).coerceAtMost(total)
+    if (until >= total) {
       val items = playbackItems(book)
-      return PlaybackWindow(
+      return PlaybackPrefix(
         items = items,
-        indexInWindow = center,
-        absoluteStartIndex = 0,
+        resumeIndex = resume,
         totalItemCount = total,
       )
     }
-    val from = (center - radius).coerceAtLeast(0)
-    val toExclusive = (center + radius + 1).coerceAtMost(total)
-    // both bounds matter: from alone would allocate every chapter after [from]
-    // for a book resumed near the end
-    val items = book.playbackItems(fromItemIndex = from, untilItemIndex = toExclusive)
+    val items = book.playbackItems(fromItemIndex = 0, untilItemIndex = until)
       .map { mediaItem(it, book.content) }
-    return PlaybackWindow(
+    return PlaybackPrefix(
       items = items,
-      indexInWindow = center - from,
-      absoluteStartIndex = from,
+      resumeIndex = resume,
       totalItemCount = total,
     )
   }
 
-  internal data class PlaybackWindow(
+  internal data class PlaybackPrefix(
     val items: List<MediaItem>,
-    /** Index of the resume chapter inside [items]. */
-    val indexInWindow: Int,
-    /** Global playlist index of [items].first(). */
-    val absoluteStartIndex: Int,
+    /** Global playlist index of the resume chapter (same as final full list). */
+    val resumeIndex: Int,
     val totalItemCount: Int,
   ) {
     val isPartial: Boolean
@@ -201,62 +193,40 @@ class MediaItemProvider(
   }
 
   private companion object {
-    /** Chapters kept on either side of the resume point for a fast open. */
-    const val PLAYLIST_WINDOW_RADIUS = 24
+    /** Chapters kept after the resume point so next/skip work before the tail lands. */
+    const val PLAYLIST_PREFIX_AHEAD = 16
   }
 
   /**
-   * The media ids of [limit] playback items of [book] starting at global index
-   * [fromItemIndex], in playlist order. Used to check that an existing
-   * playlist is still a prefix (or a mid-book window) of the book without
-   * assembling every item of a big book.
+   * The media ids of the first [limit] playback items of [book], in playlist
+   * order. Used to check that an existing playlist is still a prefix of the
+   * book without assembling every item of a big book.
    */
   internal fun playbackItemIds(
     book: Book,
     limit: Int,
-    fromItemIndex: Int = 0,
   ): List<String> {
     if (limit <= 0) return emptyList()
     val ids = ArrayList<String>(limit)
     var index = 0
     bookChapters@ for (chapter in book.chapters) {
       for (markIndex in chapter.chapterMarks.indices) {
-        if (index >= fromItemIndex + limit) {
+        if (index >= limit) {
           break@bookChapters
         }
-        if (index >= fromItemIndex) {
-          val mark = chapter.chapterMarks[markIndex]
-          val mediaId = MediaId.ChapterMark(
-            bookId = book.id,
-            chapterId = chapter.id,
-            markIndex = markIndex,
-            startMs = mark.startMs,
-            endMs = mark.endMs,
-          )
-          ids += Json.encodeToString(MediaId.serializer(), mediaId)
-        }
+        val mark = chapter.chapterMarks[markIndex]
+        val mediaId = MediaId.ChapterMark(
+          bookId = book.id,
+          chapterId = chapter.id,
+          markIndex = markIndex,
+          startMs = mark.startMs,
+          endMs = mark.endMs,
+        )
+        ids += Json.encodeToString(MediaId.serializer(), mediaId)
         index++
       }
     }
     return ids
-  }
-
-  /** Global playlist index of [mediaId] in [book], or null when not a mark of it. */
-  internal fun indexOfPlaybackItem(
-    book: Book,
-    mediaId: String,
-  ): Int? {
-    val parsed = mediaId.toMediaIdOrNull() as? MediaId.ChapterMark ?: return null
-    if (parsed.bookId != book.id) return null
-    var index = 0
-    for (chapter in book.chapters) {
-      if (chapter.id == parsed.chapterId) {
-        if (parsed.markIndex !in chapter.chapterMarks.indices) return null
-        return index + parsed.markIndex
-      }
-      index += chapter.chapterMarks.size
-    }
-    return null
   }
 
   suspend fun children(id: String): List<MediaItem>? {
