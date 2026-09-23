@@ -8,6 +8,7 @@ import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.launch
 import voice.core.data.BookId
 import voice.core.data.repo.BookRepository
+import voice.core.online.OnlineUri
 import voice.features.bookOverview.bottomSheet.BottomSheetItem
 import voice.features.bookOverview.bottomSheet.BottomSheetItemViewModel
 import voice.features.bookOverview.di.BookOverviewScope
@@ -22,6 +23,9 @@ class EditBookTitleViewModel(private val repo: BookRepository) : BottomSheetItem
   internal val state: State<EditBookTitleState?> get() = _state
 
   override suspend fun items(bookId: BookId): List<BottomSheetItem> {
+    // online books live on the online shelf, not in the repository: renaming
+    // is not supported for them
+    if (OnlineUri.parseBookUri(bookId.value) != null) return emptyList()
     return listOf(BottomSheetItem.Title)
   }
 

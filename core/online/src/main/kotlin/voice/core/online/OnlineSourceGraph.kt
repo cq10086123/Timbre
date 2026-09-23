@@ -1,5 +1,6 @@
 package voice.core.online
 
+import android.app.Application
 import androidx.datastore.core.DataStore
 import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.ContributesTo
@@ -12,6 +13,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.builtins.ListSerializer
 import okhttp3.OkHttpClient
+import java.io.File
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 
@@ -82,6 +84,12 @@ public interface OnlineSourceGraph {
     return OnlineSourceClient.create()
   }
 
+  @Provides
+  @SingleIn(AppScope::class)
+  public fun onlineChapterFileCache(application: Application): OnlineChapterFileCache {
+    return OnlineChapterFileCache(File(application.filesDir, OnlineChapterFileCache.CACHE_DIR))
+  }
+
   /**
    * The client for streaming audio: no call timeout, because one call stays
    * open for a whole chapter (the api client's 90s call timeout would kill it
@@ -102,6 +110,7 @@ public interface OnlineSourceGraph {
   @SingleIn(AppScope::class)
   public fun onlineDataSourceFactory(
     catalog: OnlinePlaybackCatalog,
+    fileCache: OnlineChapterFileCache,
     @OnlineSourceBaseUrlStore baseUrlStore: DataStore<String>,
     @OnlineSourceTokenStore tokenStore: DataStore<String>,
     @OnlineSourceStreamingClient streamingClient: OkHttpClient,
@@ -138,6 +147,7 @@ public interface OnlineSourceGraph {
       hasMeasuredDuration = { ref ->
         catalog.measuredDurationMs(ref.source, ref.bookId, ref.chapterId) != null
       },
+      fileCache = fileCache,
     )
   }
 }

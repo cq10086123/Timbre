@@ -7,12 +7,17 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import voice.core.data.Book
 import voice.core.data.BookContent
 import voice.core.data.BookId
 import voice.core.data.ChapterId
 import voice.core.data.repo.BookContentRepo
 import voice.core.data.repo.BookRepository
 import voice.core.logging.api.Logger
+import voice.core.online.OnlinePlaybackCatalog
+import voice.core.online.OnlineUri
 import voice.core.playback.di.PlaybackScope
 
 /**
@@ -23,20 +28,33 @@ import voice.core.playback.di.PlaybackScope
  * partially imported book a prefix of the final playlist. New chapters can
  * therefore be added at the end without touching the chapter that is currently
  * playing.
+ *
+ * Online books grow the same way when their chapter list is refreshed, so the
+ * online shelf is watched as well and refreshed chapters are appended without
+ * interrupting playback.
  */
 @Inject
 @SingleIn(PlaybackScope::class)
 class BookPlaylistSynchronizer(
   private val bookRepository: BookRepository,
   private val contentRepo: BookContentRepo,
+  private val onlinePlaybackCatalog: OnlinePlaybackCatalog,
   private val mediaItemProvider: MediaItemProvider,
   private val scope: CoroutineScope,
 ) {
 
   private var player: Player? = null
   private var job: Job? = null
+  private var onlineJob: Job? = null
   private var lastMediaId: String? = null
   private var lastBookId: BookId? = null
+
+  /**
+   * Serializes playlist surgery: the room and the online collectors run on
+   * their own coroutines and must never rebuild the playlist interleaved
+   * (e.g. while switching between a local and an online book).
+   */
+  private val syncMutex = Mutex()
 
   /** The chapters the playlist was last synchronized with. */
   private var syncedChapters: List<ChapterId>? = null
@@ -53,6 +71,7 @@ class BookPlaylistSynchronizer(
   fun attachTo(player: Player) {
     this.player = player
     job?.cancel()
+    onlineJob?.cancel()
     job = scope.launch {
       contentRepo.flow().collectLatest { contents ->
         val player = this@BookPlaylistSynchronizer.player ?: return@collectLatest
@@ -63,7 +82,27 @@ class BookPlaylistSynchronizer(
         if (content.chapters === syncedChapters || content.chapters == syncedChapters) {
           return@collectLatest
         }
-        sync(player, content)
+        syncMutex.withLock {
+          sync(player, content)
+        }
+      }
+    }
+    onlineJob = scope.launch {
+      // the online shelf has no room row: refreshed chapters arrive here.
+      // The chapter ids are compared before the book is assembled, so the
+      // frequent position persists (which also emit) stay cheap.
+      onlinePlaybackCatalog.shelfBooks().collectLatest { books ->
+        val player = this@BookPlaylistSynchronizer.player ?: return@collectLatest
+        val bookId = player.currentBookId() ?: return@collectLatest
+        if (!onlinePlaybackCatalog.isOnlineBookId(bookId)) return@collectLatest
+        val online = books.firstOrNull { OnlineUri.buildBookUri(it.source, it.bookId) == bookId.value }
+          ?: return@collectLatest
+        val chapterIds = online.chapters.map { ChapterId(OnlineUri.build(online.source, online.bookId, it.id)) }
+        if (chapterIds == syncedChapters) return@collectLatest
+        val book = onlinePlaybackCatalog.book(bookId) ?: return@collectLatest
+        syncMutex.withLock {
+          syncBook(player, book)
+        }
       }
     }
   }
@@ -80,6 +119,20 @@ class BookPlaylistSynchronizer(
       return
     }
     val book = bookRepository.get(content.id) ?: return
+    syncBook(player, book)
+  }
+
+  private suspend fun syncBook(
+    player: Player,
+    book: Book,
+  ) {
+    val playlistSize = player.mediaItemCount
+    if (playlistSize == 0) {
+      // no book is loaded, the next playback start builds the playlist anyway
+      syncedChapters = null
+      syncedItemIds = null
+      return
+    }
     val itemCount = book.chapters.sumOf { it.chapterMarks.size }
     if (itemCount == playlistSize) {
       syncedChapters = book.content.chapters

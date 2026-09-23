@@ -44,6 +44,8 @@ import voice.features.bookOverview.bottomSheet.BottomSheetItem
 import voice.features.bookOverview.deleteBook.DeleteBookDialog
 import voice.features.bookOverview.di.BookOverviewGraph
 import voice.features.bookOverview.editTitle.EditBookTitleDialog
+import voice.features.bookOverview.onlineActions.OnlineCacheDialog
+import voice.features.bookOverview.onlineActions.OnlineRefreshDialog
 import voice.features.bookOverview.overview.BookOverviewCategory
 import voice.features.bookOverview.overview.BookOverviewItemViewState
 import voice.features.bookOverview.overview.BookOverviewLayoutMode
@@ -77,6 +79,7 @@ fun BookOverviewScreen(modifier: Modifier = Modifier) {
   val bottomSheetViewModel = bookGraph.bottomSheetViewModel
   val deleteBookViewModel = bookGraph.deleteBookViewModel
   val fileCoverViewModel = bookGraph.fileCoverViewModel
+  val onlineBookActionsViewModel = bookGraph.onlineBookActionsViewModel
 
   LaunchedEffect(Unit) {
     bookOverviewViewModel.attach()
@@ -144,6 +147,35 @@ fun BookOverviewScreen(modifier: Modifier = Modifier) {
       onConfirmEditTitle = editBookTitleViewModel::onConfirmEditTitle,
       viewState = editBookTitleState,
       onUpdateEditTitle = editBookTitleViewModel::onUpdateEditTitle,
+    )
+  }
+  val onlineRefreshState = onlineBookActionsViewModel.refreshState.value
+  if (onlineRefreshState != null) {
+    OnlineRefreshDialog(
+      viewState = onlineRefreshState,
+      onDismiss = onlineBookActionsViewModel::onDismissRefresh,
+    )
+  }
+  val onlineCacheState = onlineBookActionsViewModel.cacheDialog.value
+  if (onlineCacheState != null) {
+    val progress = remember(onlineCacheState.bookId) {
+      onlineBookActionsViewModel.cacheProgress(onlineCacheState.bookId.value)
+    }.collectAsState(initial = null).value
+    // a finished job changed what is cached: reload the dialog numbers
+    LaunchedEffect(progress?.downloading) {
+      if (progress != null && !progress.downloading) {
+        onlineBookActionsViewModel.reloadCacheInfo(onlineCacheState.bookId)
+      }
+    }
+    OnlineCacheDialog(
+      viewState = onlineCacheState,
+      progress = progress,
+      onSelectCount = onlineBookActionsViewModel::onSelectCount,
+      onCustomCountChange = onlineBookActionsViewModel::onCustomCountChange,
+      onStartCache = onlineBookActionsViewModel::onStartCache,
+      onCancelCache = onlineBookActionsViewModel::onCancelCache,
+      onClearCache = onlineBookActionsViewModel::onClearCache,
+      onDismiss = onlineBookActionsViewModel::onDismissCache,
     )
   }
 

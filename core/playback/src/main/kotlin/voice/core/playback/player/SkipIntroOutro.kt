@@ -13,6 +13,8 @@ import kotlinx.coroutines.launch
 import voice.core.data.BookContent
 import voice.core.data.BookId
 import voice.core.data.repo.BookContentRepo
+import voice.core.online.OnlinePlaybackCatalog
+import voice.core.online.OnlineUri
 import voice.core.playback.di.PlaybackScope
 import voice.core.playback.session.bookId
 import voice.core.playback.session.toMediaIdOrNull
@@ -39,6 +41,7 @@ import kotlin.time.Duration.Companion.milliseconds
 @SingleIn(PlaybackScope::class)
 class SkipIntroOutro(
   private val contentRepo: BookContentRepo,
+  private val onlinePlaybackCatalog: OnlinePlaybackCatalog,
   private val scope: CoroutineScope,
 ) : Player.Listener {
 
@@ -49,6 +52,12 @@ class SkipIntroOutro(
 
   /** The book whose content the values above were loaded from. */
   private var loadedForBookId: BookId? = null
+
+  /** Skip values of the online shelf by canonical book uri. */
+  private var onlineSkipSettings: Map<String, Pair<Long, Long>> = emptyMap()
+
+  /** True once the online shelf emitted, so an online book waits for its values. */
+  private var onlineShelfLoaded = false
 
   /**
    * The most recent content snapshot. A snapshot that arrives while no media
@@ -70,6 +79,17 @@ class SkipIntroOutro(
         latchContentForCurrentItem()
       }
     }
+    // online books have no room row: their values live on the online shelf.
+    // Collected separately so changing them in the player applies immediately.
+    scope.launch {
+      onlinePlaybackCatalog.shelfBooks().collectLatest { books ->
+        onlineSkipSettings = books.associate { book ->
+          OnlineUri.buildBookUri(book.source, book.bookId) to (book.skipIntroMs to book.skipOutroMs)
+        }
+        onlineShelfLoaded = true
+        latchContentForCurrentItem()
+      }
+    }
     startTicking()
   }
 
@@ -77,6 +97,16 @@ class SkipIntroOutro(
   private fun latchContentForCurrentItem() {
     val player = player ?: return
     val bookId = player.currentBookId() ?: return
+    if (onlinePlaybackCatalog.isOnlineBookId(bookId)) {
+      // wait for the shelf instead of latching a 0 that would be consumed
+      // without a skip ever happening
+      if (!onlineShelfLoaded) return
+      val (intro, outro) = onlineSkipSettings[bookId.value] ?: (0L to 0L)
+      skipIntroMs = intro.coerceAtLeast(0L)
+      skipOutroMs = outro.coerceAtLeast(0L)
+      loadedForBookId = bookId
+      return
+    }
     val content = latestContents.firstOrNull { it.id == bookId } ?: return
     skipIntroMs = content.skipIntro.coerceAtLeast(0L)
     skipOutroMs = content.skipOutro.coerceAtLeast(0L)

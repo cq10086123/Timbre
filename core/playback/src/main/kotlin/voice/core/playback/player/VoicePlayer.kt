@@ -578,13 +578,27 @@ class VoicePlayer(
 
   fun setSkipIntro(skipIntroMs: Long) {
     scope.launch {
-      updateBook { it.copy(skipIntro = skipIntroMs.coerceAtLeast(0)) }
+      val value = skipIntroMs.coerceAtLeast(0)
+      val bookId = currentBookStoreId.data.first()
+      // online books have no room row: their values live on the online shelf
+      if (bookId != null && onlinePlaybackCatalog.isOnlineBookId(bookId)) {
+        onlinePlaybackCatalog.setSkipIntro(bookId, value)
+      } else {
+        updateBook { it.copy(skipIntro = value) }
+      }
     }
   }
 
   fun setSkipOutro(skipOutroMs: Long) {
     scope.launch {
-      updateBook { it.copy(skipOutro = skipOutroMs.coerceAtLeast(0)) }
+      val value = skipOutroMs.coerceAtLeast(0)
+      val bookId = currentBookStoreId.data.first()
+      // online books have no room row: their values live on the online shelf
+      if (bookId != null && onlinePlaybackCatalog.isOnlineBookId(bookId)) {
+        onlinePlaybackCatalog.setSkipOutro(bookId, value)
+      } else {
+        updateBook { it.copy(skipOutro = value) }
+      }
     }
   }
 

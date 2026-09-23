@@ -16,6 +16,8 @@ import voice.core.data.repo.BookRepository
 import voice.core.data.toUri
 import voice.core.logging.api.Logger
 import voice.core.online.OnlineBook
+import voice.core.online.OnlineBookCacheManager
+import voice.core.online.OnlineChapterFileCache
 import voice.core.online.OnlineSourceBooksStore
 import voice.core.online.OnlineUri
 import voice.core.scanner.MediaScanTrigger
@@ -31,7 +33,9 @@ class DeleteBookViewModel(
   private val mediaScanTrigger: MediaScanTrigger,
   private val bookRepository: BookRepository,
   @OnlineSourceBooksStore private val onlineBooksStore: DataStore<List<OnlineBook>>,
-  dispatcherProvider: DispatcherProvider,
+  private val cacheManager: OnlineBookCacheManager,
+  private val fileCache: OnlineChapterFileCache,
+  private val dispatcherProvider: DispatcherProvider,
 ) : BottomSheetItemViewModel {
 
   private val scope = MainScope(dispatcherProvider)
@@ -79,8 +83,13 @@ class DeleteBookViewModel(
     if (state != null) {
       scope.launch {
         // online books are not in room: dropping them from the online shelf
-        // store is the whole delete
+        // store is the whole delete, plus their manually cached chapters so
+        // no orphaned downloads are left behind
         if (state.id.value.startsWith("online://")) {
+          cacheManager.cancel(state.id)
+          OnlineUri.parseBookUri(state.id.value)?.let { bookRef ->
+            fileCache.clearBook(bookRef.source, bookRef.bookId)
+          }
           onlineBooksStore.updateData { books ->
             books.filterNot { book ->
               OnlineUri.buildBookUri(book.source, book.bookId) == state.id.value
