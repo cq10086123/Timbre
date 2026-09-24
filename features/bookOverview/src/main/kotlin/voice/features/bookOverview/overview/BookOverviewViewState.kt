@@ -29,7 +29,6 @@ data class BookOverviewViewState(
       isLoading = true,
       searchActive = false,
       searchViewState = BookSearchViewState.EmptySearch(
-        suggestedAuthors = emptyList(),
         recentQueries = emptyList(),
         query = "",
       ),

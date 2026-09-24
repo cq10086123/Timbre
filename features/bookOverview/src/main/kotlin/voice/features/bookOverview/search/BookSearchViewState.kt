@@ -15,7 +15,6 @@ sealed interface BookSearchViewState {
   ) : BookSearchViewState
 
   data class EmptySearch(
-    val suggestedAuthors: List<String>,
     val recentQueries: List<String>,
     override val query: String,
   ) : BookSearchViewState

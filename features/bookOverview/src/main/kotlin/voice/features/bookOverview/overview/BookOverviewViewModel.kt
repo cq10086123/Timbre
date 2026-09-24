@@ -10,7 +10,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
@@ -23,12 +22,10 @@ import kotlinx.coroutines.flow.sample
 import kotlinx.coroutines.launch
 import voice.core.common.DispatcherProvider
 import voice.core.common.MainScope
-import voice.core.common.comparator.sortedNaturally
 import voice.core.data.Book
 import voice.core.data.BookId
 import voice.core.data.GridMode
 import voice.core.data.KioskModeDemoData
-import voice.core.data.repo.BookContentRepo
 import voice.core.data.repo.BookRepository
 import voice.core.data.repo.internals.dao.RecentBookSearchDao
 import voice.core.data.store.CurrentBookStore
@@ -75,7 +72,6 @@ class BookOverviewViewModel(
   private val navigator: Navigator,
   private val recentBookSearchDao: RecentBookSearchDao,
   private val search: BookSearch,
-  private val contentRepo: BookContentRepo,
   private val deviceHasStoragePermissionBug: DeviceHasStoragePermissionBug,
   @FolderPickerInSettingsFeatureFlagQualifier
   private val folderPickerInSettingsFeatureFlag: FeatureFlag<Boolean>,
@@ -226,14 +222,6 @@ class BookOverviewViewModel(
       LaunchedEffect(query) {
         searchBooks = search.search(query).map { it.toItemViewState() }
       }
-      val suggestedAuthors: List<String> by produceState(initialValue = emptyList()) {
-        value = contentRepo.all()
-          .filter { it.isActive }
-          .mapNotNull { it.author }
-          .toSet()
-          .sortedNaturally()
-      }
-
       val bookSearchViewState = if (query.isNotBlank()) {
         BookSearchViewState.SearchResults(
           query = query,
@@ -243,7 +231,6 @@ class BookOverviewViewModel(
       } else {
         BookSearchViewState.EmptySearch(
           recentQueries = recentBookSearch,
-          suggestedAuthors = suggestedAuthors,
           query = query,
         )
       }
@@ -251,7 +238,6 @@ class BookOverviewViewModel(
     } else {
       BookSearchViewState.EmptySearch(
         recentQueries = emptyList(),
-        suggestedAuthors = emptyList(),
         query = query,
       )
     }
@@ -281,7 +267,6 @@ class BookOverviewViewModel(
       searchActive = false,
       searchViewState = BookSearchViewState.EmptySearch(
         recentQueries = emptyList(),
-        suggestedAuthors = KioskModeDemoData.demoAudiobooks.map { it.author },
         query = "",
       ),
       showStoragePermissionBugCard = false,

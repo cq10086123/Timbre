@@ -30,7 +30,6 @@
     <string name="common.error.generic.message">发生了错误😢</string>
     <string name="common.error.generic.retry">重试</string>
     <string name="cover.content_description.selectable">显示可选封面</string>
-    <string name="cover.search.author.content_description">作者</string>
     <string name="cover.search.empty.message">没有找到封面，换个关键词试试，或检查网络后重试。</string>
     <string name="cover.search.recent.content_description">近期查询</string>
     <string name="cover.title">封面</string>

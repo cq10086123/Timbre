@@ -25,7 +25,6 @@ import voice.core.data.Book
 import voice.core.data.BookId
 import voice.core.data.GridMode
 import voice.core.data.KioskModeDemoData
-import voice.core.data.repo.BookContentRepo
 import voice.core.data.repo.BookRepository
 import voice.core.data.repo.internals.dao.RecentBookSearchDao
 import voice.core.featureflag.MemoryFeatureFlag
@@ -90,7 +89,6 @@ class BookOverviewViewModelTest {
       search = mockk<BookSearch> {
         coEvery { search(any()) } returns emptyList()
       },
-      contentRepo = mockk<BookContentRepo>(),
       deviceHasStoragePermissionBug = mockk<DeviceHasStoragePermissionBug> {
         every { hasBug } returns MutableStateFlow(false)
       },
@@ -267,7 +265,6 @@ class BookOverviewViewModelTest {
       search = mockk<BookSearch> {
         coEvery { search(any()) } returns emptyList()
       },
-      contentRepo = mockk<BookContentRepo>(),
       deviceHasStoragePermissionBug = mockk<DeviceHasStoragePermissionBug> {
         every { hasBug } returns MutableStateFlow(false)
       },
@@ -417,9 +414,6 @@ class BookOverviewViewModelTest {
       recentBookSearchDao = recentBookSearchDao,
       search = mockk<BookSearch> {
         coEvery { search(any()) } returns emptyList()
-      },
-      contentRepo = mockk<BookContentRepo> {
-        coEvery { all() } returns emptyList()
       },
       deviceHasStoragePermissionBug = mockk<DeviceHasStoragePermissionBug> {
         every { hasBug } returns MutableStateFlow(false)

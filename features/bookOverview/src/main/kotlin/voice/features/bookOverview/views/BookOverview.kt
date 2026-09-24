@@ -363,7 +363,6 @@ internal class BookOverviewPreviewParameterProvider : PreviewParameterProvider<B
       isLoading = true,
       searchActive = true,
       searchViewState = BookSearchViewState.EmptySearch(
-        suggestedAuthors = emptyList(),
         recentQueries = emptyList(),
         query = "",
       ),
