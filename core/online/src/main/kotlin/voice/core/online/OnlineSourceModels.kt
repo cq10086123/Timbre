@@ -43,6 +43,7 @@ public data class OnlineBatchStatus(
   val status: String = "",
   val total: Int = 0,
   val completed: Int = 0,
+  val error: String? = null,
 ) {
   public val isDone: Boolean
     get() = status == "done" || status == "completed"

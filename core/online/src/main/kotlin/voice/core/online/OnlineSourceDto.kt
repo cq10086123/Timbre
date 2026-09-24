@@ -92,6 +92,7 @@ internal data class IntfAudioResponse(
 @Serializable
 internal data class BatchSubmitResponse(
   val success: Boolean = false,
+  val error: String? = null,
   @SerialName("task_id") val taskId: String = "",
 )
 
@@ -101,6 +102,7 @@ internal data class BatchStatusResponse(
   val status: String = "",
   val total: Int = 0,
   val completed: Int = 0,
+  val error: String? = null,
 )
 
 @Serializable

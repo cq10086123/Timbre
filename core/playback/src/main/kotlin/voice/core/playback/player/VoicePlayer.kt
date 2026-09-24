@@ -19,6 +19,7 @@ import voice.core.common.DispatcherProvider
 import voice.core.data.Book
 import voice.core.data.BookContent
 import voice.core.data.BookId
+import voice.core.data.ChapterId
 import voice.core.data.repo.BookRepository
 import voice.core.data.store.AutoRewindAmountStore
 import voice.core.data.store.BtSkipToChapterStore
@@ -101,8 +102,71 @@ class VoicePlayer(
     }
   }
 
+  /**
+   * Wakes up once the current chapter is actually playing and then lazily
+   * resolves stream urls for the next chapters. Resolving them earlier would
+   * contend with the first-play network path; doing it here keeps the critical
+   * path short while making chapter skips feel instant.
+   */
+  private val aheadPrefetchListener = object : Player.Listener {
+    override fun onPlaybackStateChanged(playbackState: Int) {
+      if (playbackState != STATE_READY || !player.playWhenReady) return
+      val bookId = player.currentMediaItem?.mediaId?.toMediaIdOrNull()?.bookId ?: return
+      if (!onlinePlaybackCatalog.isOnlineBookId(bookId)) return
+      if (lastPrefetchedBookId == bookId) return
+      lastPrefetchedBookId = bookId
+      aheadPrefetchJob?.cancel()
+      aheadPrefetchJob = scope.launch(dispatcherProvider.io) {
+        val currentChapterId = player.currentMediaItem?.mediaId?.toMediaIdOrNull()
+          ?.takeIf { it is MediaId.Chapter }?.let { (it as MediaId.Chapter).chapterId }
+          ?: return@launch
+        warmNextChapters(bookId, currentChapterId, count = 2)
+      }
+    }
+
+    override fun onMediaItemTransition(
+      mediaItem: MediaItem?,
+      reason: Int,
+    ) {
+      // a chapter switch inside the same online book gives the next chapter
+      // a fresh chance to prefetch its own following chapters
+      val bookId = mediaItem?.mediaId?.toMediaIdOrNull()?.bookId ?: return
+      if (!onlinePlaybackCatalog.isOnlineBookId(bookId)) return
+      val currentChapterId = mediaItem.mediaId.toMediaIdOrNull()
+        ?.takeIf { it is MediaId.Chapter }?.let { (it as MediaId.Chapter).chapterId }
+        ?: return
+      aheadPrefetchJob?.cancel()
+      aheadPrefetchJob = scope.launch(dispatcherProvider.io) {
+        warmNextChapters(bookId, currentChapterId, count = 1)
+      }
+    }
+  }
+
+  private suspend fun warmNextChapters(
+    bookId: BookId,
+    currentChapterId: ChapterId,
+    count: Int,
+  ) {
+    val book = onlinePlaybackCatalog.book(bookId) ?: return
+    val currentIndex = book.chapters.indexOfFirst { it.id == currentChapterId }
+    if (currentIndex < 0) return
+    book.chapters
+      .drop(currentIndex + 1)
+      .take(count)
+      .forEach { chapter ->
+        // stop warming if the user already left this book or stopped playback
+        if (!player.isPlaying || player.currentMediaItem?.mediaId?.toMediaIdOrNull()?.bookId != bookId) {
+          return
+        }
+        val ref = OnlineUri.parse(chapter.id.value) ?: return@forEach
+        runCatching { onlinePlaybackCatalog.resolveStreamUrl(ref) }
+          .onFailure { Logger.w(it, "Ahead stream resolve failed for $ref") }
+      }
+  }
+
   init {
     player.addListener(endOfChapterSleepTimerListener)
+    player.addListener(aheadPrefetchListener)
   }
 
   fun forceSeekToNext() {
@@ -313,11 +377,13 @@ class VoicePlayer(
   private var setBookJob: Job? = null
   private var playlistExpandJob: Job? = null
   private var streamPrefetchJob: Job? = null
+  private var aheadPrefetchJob: Job? = null
 
   // prepare()/play() arriving while setBook is still assembling ran on an
   // empty playlist and did nothing. The flag re-applies them once the items
   // land; play() needs no flag because playWhenReady persists on the player.
   private var pendingPrepare = false
+  private var lastPrefetchedBookId: BookId? = null
 
   override fun prepare() {
     pendingPrepare = true
@@ -328,7 +394,9 @@ class VoicePlayer(
     setBookJob?.cancel()
     playlistExpandJob?.cancel()
     streamPrefetchJob?.cancel()
+    cancelAheadPrefetch()
     pendingPrepare = false
+    lastPrefetchedBookId = null
     super.stop()
   }
 
@@ -336,8 +404,15 @@ class VoicePlayer(
     setBookJob?.cancel()
     playlistExpandJob?.cancel()
     streamPrefetchJob?.cancel()
+    cancelAheadPrefetch()
     pendingPrepare = false
+    lastPrefetchedBookId = null
     super.clearMediaItems()
+  }
+
+  private fun cancelAheadPrefetch() {
+    aheadPrefetchJob?.cancel()
+    aheadPrefetchJob = null
   }
 
   override fun setMediaItem(
@@ -388,6 +463,8 @@ class VoicePlayer(
     setBookJob?.cancel()
     playlistExpandJob?.cancel()
     streamPrefetchJob?.cancel()
+    cancelAheadPrefetch()
+    lastPrefetchedBookId = null
     pendingPrepare = false
     setBookJob = scope.launch {
       // a failed assembly (book deleted, position no longer resolvable) must

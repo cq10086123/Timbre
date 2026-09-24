@@ -786,9 +786,22 @@ public class OnlinePlaybackCatalog(
         } catch (e: OnlineSourceException) {
           if (e.httpCode != 409) throw e
         }
+        if (taskId == null) {
+          return fail(
+            ref,
+            OnlinePlaybackErrorKind.CONTENT,
+            "The server rejected the download request (no task id)",
+          )
+        }
       } else if (taskId != null) {
         val status = runCatching { service.downloadStatus(taskId) }.getOrNull()
-        if (status != null && status.isFailed) break
+        if (status != null && status.isFailed) {
+          return fail(
+            ref,
+            OnlinePlaybackErrorKind.CONTENT,
+            status.error ?: "Download task failed",
+          )
+        }
       }
       delay(POLL_INTERVAL_MS)
     }
@@ -911,7 +924,13 @@ public class OnlinePlaybackCatalog(
     private const val POSITION_PERSIST_INTERVAL_MS = 3_000L
     private const val RESOLVE_TIMEOUT_MS = 90_000L
     private const val POLL_INTERVAL_MS = 1_500L
-    private const val ALBUMS_CACHE_MS = 10_000L
+
+    /**
+     * Keep the album list cache short during resolve polling: the first play
+     * must notice as soon as the server finishes the download.
+     */
+    private const val ALBUMS_CACHE_MS = 1_000L
+
     private const val ERROR_DEDUPE_MS = 30_000L
     private const val PLACEHOLDER_CHAPTER_DURATION_MS = 30 * 60_000L
 

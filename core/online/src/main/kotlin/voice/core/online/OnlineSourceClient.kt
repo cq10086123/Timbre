@@ -293,6 +293,11 @@ public class OnlineSourceClient internal constructor(
       BatchRequest(albumId = bookId, startEpisode = startEpisode, endEpisode = endEpisode),
     )
     val response = post(normalize(baseUrl) + "/api/download/batch", body, BatchSubmitResponse.serializer(), token)
+    if (!response.success) {
+      throw OnlineSourceException(
+        response.error?.takeIf { it.isNotBlank() }?.let { "submit failed: $it" } ?: "submit failed",
+      )
+    }
     return response.taskId.ifBlank { null }
   }
 
@@ -307,6 +312,7 @@ public class OnlineSourceClient internal constructor(
       status = response.status,
       total = response.total,
       completed = response.completed,
+      error = response.error,
     )
   }
 
