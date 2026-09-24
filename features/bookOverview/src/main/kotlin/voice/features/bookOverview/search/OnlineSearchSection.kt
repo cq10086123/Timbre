@@ -59,7 +59,7 @@ private const val SEARCH_DEBOUNCE_MILLIS = 500L
 
 /**
  * Self contained "online" section of the book search: dynamic source chips
- * (exactly the interfaces the download server exposes) plus the results of
+ * (enabled, supported interfaces from the download server) plus the results of
  * the currently selected source. Renders nothing when the online source is
  * not enabled in the settings.
  */

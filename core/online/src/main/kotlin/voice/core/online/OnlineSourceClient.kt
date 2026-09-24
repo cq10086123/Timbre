@@ -89,13 +89,16 @@ public class OnlineSourceClient internal constructor(
     response.token
   }
 
-  /** Lists every search source the site currently exposes. */
+  /** Lists enabled search sources supported by the app. */
   public suspend fun interfaces(
     baseUrl: String,
     token: String,
   ): List<OnlineSourceInfo> {
     val response = get(normalize(baseUrl) + "/api/interfaces", InterfacesResponse.serializer(), token)
-    return response.interfaces.filter { it.enabled }
+    // Older servers may still advertise the removed official source.
+    return response.interfaces.filter {
+      it.enabled && !it.name.trim().equals("official", ignoreCase = true)
+    }
   }
 
   /** Search in one source (A, B, ...). */
