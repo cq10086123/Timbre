@@ -44,15 +44,15 @@ class OnlinePlaybackCatalogTest {
 
   @Test
   fun `book uri round trip`() {
-    val uri = OnlineUri.buildBookUri("main", "abc/42")
-    assertEquals(OnlineBookRef("main", "abc/42"), OnlineUri.parseBookUri(uri))
+    val uri = OnlineUri.buildBookUri("A", "abc/42")
+    assertEquals(OnlineBookRef("A", "abc/42"), OnlineUri.parseBookUri(uri))
   }
 
   @Test
   fun `non online uris do not parse as book`() {
     assertNull(OnlineUri.parseBookUri("https://example.com/a"))
-    assertNull(OnlineUri.parseBookUri("online://play?s=main&b=42&c=1"))
-    assertNull(OnlineUri.parseBookUri("online://book/main"))
+    assertNull(OnlineUri.parseBookUri("online://play?s=A&b=42&c=1"))
+    assertNull(OnlineUri.parseBookUri("online://book/A"))
   }
 
   @Test
@@ -63,7 +63,7 @@ class OnlinePlaybackCatalogTest {
 
   @Test
   fun `synthesizes a book with online chapter uris`() = runTest {
-    coEvery { service.shelfBook("main::$BOOK_ID") } returns shelfBook()
+    coEvery { service.shelfBook("A::$BOOK_ID") } returns shelfBook()
 
     val book = assertNotNull(catalog.book(bookId()))
     assertEquals("凡人修仙传", book.content.name)
@@ -82,7 +82,7 @@ class OnlinePlaybackCatalogTest {
 
   @Test
   fun `starts at the requested chapter`() = runTest {
-    coEvery { service.shelfBook("main::$BOOK_ID") } returns shelfBook()
+    coEvery { service.shelfBook("A::$BOOK_ID") } returns shelfBook()
     catalog.requestStartAt(SOURCE, BOOK_ID, "c2")
 
     val book = assertNotNull(catalog.book(bookId()))
@@ -97,40 +97,6 @@ class OnlinePlaybackCatalogTest {
     assertNull(catalog.book(BookId("content://media/1")))
     assertNull(catalog.book(bookId()))
     assertNull(catalog.content(bookId()))
-  }
-
-  @Test
-  fun `episode number comes from the title with a positional fallback`() {
-    assertEquals(1, OnlinePlaybackCatalog.episodeNumber("第1集 二愣子", 5))
-    assertEquals(23, OnlinePlaybackCatalog.episodeNumber("第023集", 5))
-    assertEquals(6, OnlinePlaybackCatalog.episodeNumber("没有数字的标题", 5))
-  }
-
-  @Test
-  fun `file matching accepts padded and plain episode numbers`() {
-    assertTrue(OnlinePlaybackCatalog.fileMatchesEpisode("第12集.mp3", 12))
-    assertTrue(OnlinePlaybackCatalog.fileMatchesEpisode("0012.mp3", 12))
-    assertFalse(OnlinePlaybackCatalog.fileMatchesEpisode("第112集.mp3", 12))
-    assertFalse(OnlinePlaybackCatalog.fileMatchesEpisode("封面.jpg", 12))
-  }
-
-  @Test
-  fun `title similarity is a loose containment match`() {
-    assertTrue(OnlinePlaybackCatalog.titleSimilar("凡人修仙传", "凡人修仙传"))
-    assertTrue(OnlinePlaybackCatalog.titleSimilar("凡人修仙传（精校版）", "凡人修仙传"))
-    assertFalse(OnlinePlaybackCatalog.titleSimilar("仙逆", "凡人修仙传"))
-    assertFalse(OnlinePlaybackCatalog.titleSimilar("", "凡人修仙传"))
-  }
-
-  @Test
-  fun `title overlap prefers the closest album of the same series`() {
-    val title = "我的26岁女房客丨头陀渊工作室丨超级大坦克科比著"
-    val official = "【官方续集】我的26岁女房客丨头陀渊工作室丨海岛孤帆丨超级大坦克科比著丨爆笑都市"
-    val free = "我的26岁女房客丨爆笑都市爽文丨全文VIP免费"
-    assertTrue(OnlinePlaybackCatalog.titleOverlap(official, title) > OnlinePlaybackCatalog.titleOverlap(free, title))
-    assertTrue(OnlinePlaybackCatalog.titleOverlap("三国英雄传之曹操 熊猫啃书", "三国英雄传之曹操 熊猫啃书") > 0)
-    // disjoint titles share no character run at all
-    assertEquals(0, OnlinePlaybackCatalog.titleOverlap("盗墓笔记", "凡人修仙传"))
   }
 
   @Test
@@ -160,8 +126,8 @@ class OnlinePlaybackCatalogTest {
     val thirdPartyId = BookId(OnlineUri.buildBookUri("A", BOOK_ID))
     catalog.stashForPlayback(shelfBook().copy(source = "A", cover = "https://example.com/a.jpg"))
 
-    // a measurement for the main catalog must not leak into source A books
-    catalog.recordMeasuredDuration("main", BOOK_ID, "c3", 120_000L)
+    // a measurement for source B must not leak into source A books
+    catalog.recordMeasuredDuration("B", BOOK_ID, "c3", 120_000L)
     assertEquals(30 * 60_000L, assertNotNull(catalog.book(thirdPartyId)).chapters[2].duration)
 
     catalog.recordMeasuredDuration("A", BOOK_ID, "c3", 90_000L)
@@ -192,7 +158,7 @@ class OnlinePlaybackCatalogTest {
 
   @Test
   fun `content skips building chapter rows`() = runTest {
-    coEvery { service.shelfBook("main::$BOOK_ID") } returns shelfBook()
+    coEvery { service.shelfBook("A::$BOOK_ID") } returns shelfBook()
     val content = assertNotNull(catalog.content(bookId()))
     assertEquals("凡人修仙传", content.name)
     assertEquals(3, content.chapters.size)
@@ -281,7 +247,7 @@ class OnlinePlaybackCatalogTest {
 
   @Test
   fun `a persisted shelf position resumes the book`() = runTest {
-    coEvery { service.shelfBook("main::$BOOK_ID") } returns
+    coEvery { service.shelfBook("A::$BOOK_ID") } returns
       shelfBook().copy(currentChapterId = "c2", positionMs = 42_000L)
     val catalog = OnlinePlaybackCatalog(service, FakeBooksStore())
 
@@ -292,7 +258,7 @@ class OnlinePlaybackCatalogTest {
 
   @Test
   fun `a session position wins over the persisted one`() = runTest {
-    coEvery { service.shelfBook("main::$BOOK_ID") } returns
+    coEvery { service.shelfBook("A::$BOOK_ID") } returns
       shelfBook().copy(currentChapterId = "c2", positionMs = 42_000L)
     val catalog = OnlinePlaybackCatalog(service, FakeBooksStore())
 
@@ -366,7 +332,7 @@ class OnlinePlaybackCatalogTest {
       ),
     )
     val catalog = OnlinePlaybackCatalog(service, store)
-    coEvery { service.shelfBook("main::$BOOK_ID") } returns store.data.first().single()
+    coEvery { service.shelfBook("A::$BOOK_ID") } returns store.data.first().single()
     coEvery { service.refreshChapters(SOURCE, BOOK_ID) } returns shelfBook().chapters +
       OnlineChapter(id = "c4", title = "第4集", durationSeconds = 1700)
 
@@ -385,7 +351,7 @@ class OnlinePlaybackCatalogTest {
   fun `refresh prefers measured durations over empty fresh ones`() = runTest {
     val store = FakeBooksStore(listOf(shelfBook()))
     val catalog = OnlinePlaybackCatalog(service, store)
-    coEvery { service.shelfBook("main::$BOOK_ID") } returns store.data.first().single()
+    coEvery { service.shelfBook("A::$BOOK_ID") } returns store.data.first().single()
     // the stream measured c3 while the source still reports nothing
     catalog.recordMeasuredDuration(SOURCE, BOOK_ID, "c3", 120_000L)
     coEvery { service.refreshChapters(SOURCE, BOOK_ID) } returns shelfBook().chapters
@@ -401,7 +367,7 @@ class OnlinePlaybackCatalogTest {
   fun `a failed refresh keeps the stored chapters`() = runTest {
     val store = FakeBooksStore(listOf(shelfBook()))
     val catalog = OnlinePlaybackCatalog(service, store)
-    coEvery { service.shelfBook("main::$BOOK_ID") } returns shelfBook()
+    coEvery { service.shelfBook("A::$BOOK_ID") } returns shelfBook()
     coEvery { service.refreshChapters(SOURCE, BOOK_ID) } throws OnlineSourceException("boom")
 
     val result = catalog.refreshChapters(bookId())
@@ -421,7 +387,7 @@ class OnlinePlaybackCatalogTest {
     val stored = store.data.first().single()
     assertEquals(5_000L, stored.skipIntroMs)
     assertEquals(7_000L, stored.skipOutroMs)
-    coEvery { service.shelfBook("main::$BOOK_ID") } returns stored
+    coEvery { service.shelfBook("A::$BOOK_ID") } returns stored
     val book = assertNotNull(catalog.book(bookId()))
     assertEquals(5_000L, book.content.skipIntro)
     assertEquals(7_000L, book.content.skipOutro)
@@ -446,7 +412,7 @@ class OnlinePlaybackCatalogTest {
   }
 
   private companion object {
-    const val SOURCE = "main"
+    const val SOURCE = "A"
     const val BOOK_ID = "42"
     const val THIRD_PARTY_SOURCE = "A"
     const val STREAM_URL = "https://cdn.example.com/c1.mp3"

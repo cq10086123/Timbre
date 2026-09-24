@@ -50,7 +50,6 @@ import voice.core.online.OnlineBookRef
 import voice.core.online.OnlineChapter
 import voice.core.online.OnlinePlaybackCatalog
 import voice.core.online.OnlineSearchResult
-import voice.core.online.OnlineSourceClient
 import voice.core.online.OnlineSourceService
 import voice.core.online.OnlineSourceServiceProvider
 import voice.core.online.OnlineUri
@@ -78,19 +77,22 @@ internal fun OnlineSearchSection(
   }
   if (!configured || query.isBlank()) return
 
+  var sourcesLoaded by remember { mutableStateOf(false) }
+  var sourcesFailed by remember { mutableStateOf(false) }
   val sources by produceState(initialValue = emptyList()) {
-    val intf = runCatching { service.sources() }.getOrDefault(emptyList())
-      // "official" interfaces need a VIP account + browser automation on the
-      // server for chapter access, so their results can never be played here
-      .filterNot { it.type == "official" }
-    value = listOf(
-      voice.core.online.OnlineSourceInfo(
-        name = OnlineSourceClient.SOURCE_MAIN,
-        displayName = "",
-      ),
-    ) + intf
+    val loaded = runCatching { service.sources() }
+    value = loaded.getOrDefault(emptyList())
+    sourcesFailed = loaded.isFailure
+    sourcesLoaded = true
   }
-  var selectedSource by remember { mutableStateOf(OnlineSourceClient.SOURCE_MAIN) }
+  var selectedSource by remember { mutableStateOf("") }
+  // the chips arrive asynchronously: default to the first source the server
+  // exposes, and re-default when the current one disappears
+  LaunchedEffect(sources) {
+    if (sources.isNotEmpty() && sources.none { it.name == selectedSource }) {
+      selectedSource = sources.first().name
+    }
+  }
   var loading by remember { mutableStateOf(false) }
   var failed by remember { mutableStateOf(false) }
   var offline by remember { mutableStateOf(false) }
@@ -99,7 +101,7 @@ internal fun OnlineSearchSection(
   var chaptersFor by remember { mutableStateOf<OnlineSearchResult?>(null) }
 
   LaunchedEffect(query, selectedSource) {
-    if (query.isBlank()) {
+    if (query.isBlank() || selectedSource.isBlank()) {
       results = emptyList()
       return@LaunchedEffect
     }
@@ -122,7 +124,7 @@ internal fun OnlineSearchSection(
   }
 
   Column(modifier = modifier.fillMaxWidth()) {
-    // source chips: one per interface the server exposes, plus the main catalog
+    // source chips: one per interface the server exposes
     Row(
       modifier = Modifier
         .fillMaxWidth()
@@ -135,7 +137,7 @@ internal fun OnlineSearchSection(
         text = stringResource(StringsR.string.search_online_section_title),
         modifier = Modifier.padding(end = 4.dp),
       )
-      if (sources.isEmpty()) {
+      if (!sourcesLoaded) {
         CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
       }
       sources.forEach { source ->
@@ -144,20 +146,16 @@ internal fun OnlineSearchSection(
           onClick = { selectedSource = source.name },
           label = {
             Text(
-              text = source.displayName.ifBlank {
-                if (source.name == OnlineSourceClient.SOURCE_MAIN) {
-                  stringResource(StringsR.string.search_online_source_main)
-                } else {
-                  source.name
-                }
-              },
+              text = source.displayName.ifBlank { source.name },
             )
           },
         )
       }
     }
     when {
-      loading -> {
+      loading || !sourcesLoaded -> {
+        // shows the spinner while the source chips load, so an empty result
+        // text does not flash before the first search can start
         Row(
           modifier = Modifier
             .fillMaxWidth()
@@ -167,7 +165,7 @@ internal fun OnlineSearchSection(
           CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
         }
       }
-      failed -> {
+      failed || sourcesFailed -> {
         Text(
           modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
           text = stringResource(

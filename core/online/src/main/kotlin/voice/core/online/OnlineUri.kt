@@ -6,8 +6,7 @@ import java.net.URLEncoder
 /**
  * Canonical uri for an online chapter: `online://play?s=<source>&b=<bookId>&c=<chapterId>`.
  * The media pipeline hands these to [OnlineStreamingDataSource], which turns
- * them into real audio streams (direct link for script sources, downloaded
- * file for the main catalog).
+ * them into the direct audio stream links the sources hand out.
  *
  * An online book itself is addressed by `online://book/<source>/<bookId>`,
  * which serves as its [voice.core.data.BookId] without ever touching Room.

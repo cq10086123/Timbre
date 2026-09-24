@@ -141,15 +141,4 @@ class OnlineDurationProbeAheadTest {
     verify(exactly = 0) { catalog.recordMeasuredDuration(any(), any(), any(), any()) }
   }
 
-  @Test
-  fun `skips the main catalog`() = runTest {
-    val catalog = mockk<OnlinePlaybackCatalog>()
-
-    probeAhead(catalog, metered = false).probeUpcomingInternal(
-      BookId(OnlineUri.buildBookUri("main", "b")),
-      ChapterId(OnlineUri.build("main", "b", "c1")),
-    )
-
-    verify(exactly = 0) { catalog.recordMeasuredDuration(any(), any(), any(), any()) }
-  }
 }

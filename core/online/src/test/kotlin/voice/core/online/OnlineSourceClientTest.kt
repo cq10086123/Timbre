@@ -49,29 +49,9 @@ class OnlineSourceClientTest {
     val login = server.takeRequest() // login POST
     assertEquals(expected = "/api/auth/login", actual = login.url.encodedPath)
     val body = login.body?.utf8().orEmpty()
-    assertTrue(body.contains("\"code\":\"XM-TEST-CARD\""))
-    assertTrue(body.contains("\"captchaId\":\"cid-1\""))
-    assertTrue(body.contains("\"captcha\":\"TN42\""))
-  }
-
-  @Test
-  fun mainSearchMapsWithMainSource() = runTest {
-    server.enqueue(
-      ok(
-        """{"success":true,"results":[{"albumId":61310701,"title":"T1","author":"A1","tracks":2115,
-           "cover":"c.png","intro":"i"}]}""",
-      ),
-    )
-
-    val results = client.searchMain(baseUrl(), token = "t", keyword = "凡人")
-
-    assertEquals(expected = 1, actual = results.size)
-    assertEquals(expected = OnlineSourceClient.SOURCE_MAIN, actual = results[0].source)
-    assertEquals(expected = "61310701", actual = results[0].bookId)
-    assertEquals(expected = 2115, actual = results[0].trackCount)
-    val recorded = server.takeRequest()
-    assertEquals(expected = "/api/search", actual = recorded.url.encodedPath)
-    assertEquals(expected = "凡人", actual = recorded.url.queryParameter("keyword"))
+    assertTrue(body.contains(""""code":"XM-TEST-CARD""""))
+    assertTrue(body.contains(""""captchaId":"cid-1""""))
+    assertTrue(body.contains(""""captcha":"TN42""""))
   }
 
   @Test
@@ -85,24 +65,6 @@ class OnlineSourceClientTest {
     assertEquals(expected = 1, actual = results.size)
     assertEquals(expected = "A", actual = results[0].source)
     assertEquals(expected = "ujLrCd", actual = results[0].bookId)
-  }
-
-  @Test
-  fun mainAlbumListNormalizesIdsAndOrders() = runTest {
-    server.enqueue(
-      ok(
-        """{"success":true,"album_title":"B","track_total":2,
-           "tracks":[{"trackId":516265274,"title":"c1","duration":677},
-                     {"trackId":516265275,"title":"c2","duration":700}]}""",
-      ),
-    )
-
-    val chapters = client.mainAlbumList(baseUrl(), token = "t", bookId = "61310701")
-
-    assertEquals(expected = 2, actual = chapters.size)
-    assertEquals(expected = "516265274", actual = chapters[0].id)
-    assertEquals(expected = 1, actual = chapters[0].order)
-    assertEquals(expected = 700, actual = chapters[1].durationSeconds)
   }
 
   @Test
@@ -135,18 +97,9 @@ class OnlineSourceClientTest {
   }
 
   @Test
-  fun fileUrlPercentEncodesEachPathSegment() {
-    val url = client.fileUrl(baseUrl(), "凡人修仙传/第1集.mp3")
-    assertEquals(
-      expected = baseUrl() + "/api/files/file/%E5%87%A1%E4%BA%BA%E4%BF%AE%E4%BB%99%E4%BC%A0/%E7%AC%AC1%E9%9B%86.mp3",
-      actual = url,
-    )
-  }
-
-  @Test
   fun unauthorizedRaisesReloginException() = runTest {
     server.enqueue(MockResponse.Builder().code(401).body("""{"detail":"no"}""").build())
-    val result = runCatching { client.searchMain(baseUrl(), token = "expired", keyword = "x") }
+    val result = runCatching { client.searchSource(baseUrl(), token = "expired", source = "A", keyword = "x") }
     assertTrue(result.isFailure, "expected failure, got: ${result.getOrNull()}")
     val exception = result.exceptionOrNull()
     assertTrue(exception is OnlineSourceException && exception.requiresRelogin, "actual: $exception")

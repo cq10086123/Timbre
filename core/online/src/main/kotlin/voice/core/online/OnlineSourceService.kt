@@ -50,8 +50,7 @@ public class OnlineSourceService internal constructor(
   }
 
   /**
-   * Searches one source. [source] is either [OnlineSourceClient.SOURCE_MAIN]
-   * or an interface name from [sources].
+   * Searches one source. [source] is an interface name from [sources].
    */
   public suspend fun search(
     source: String,
@@ -59,11 +58,7 @@ public class OnlineSourceService internal constructor(
   ): List<OnlineSearchResult> {
     val (base, _) = authed()
     return withRelogin {
-      if (source == OnlineSourceClient.SOURCE_MAIN) {
-        client.searchMain(base, it, keyword)
-      } else {
-        client.searchSource(base, it, source, keyword)
-      }
+      client.searchSource(base, it, source, keyword)
     }
   }
 
@@ -104,52 +99,22 @@ public class OnlineSourceService internal constructor(
   ): List<OnlineChapter> {
     val (base, _) = authed()
     return withRelogin {
-      if (source == OnlineSourceClient.SOURCE_MAIN) {
-        val response = client.mainAlbumListResponse(base, it, bookId)
-        if (!response.first) {
-          throw OnlineSourceException(response.second ?: "the source returned no chapter list")
-        }
-        response.third
-      } else {
-        val response = client.sourceAlbumListResponse(base, it, source, bookId)
-        if (!response.first) {
-          throw OnlineSourceException(response.second ?: "the source returned no chapter list")
-        }
-        response.third
+      val response = client.sourceAlbumListResponse(base, it, source, bookId)
+      if (!response.first) {
+        throw OnlineSourceException(response.second ?: "the source returned no chapter list")
       }
+      response.third
     }
   }
 
-  /** Resolves a temporary direct streaming url for one chapter (pluggable sources). */
+  /** Resolves a temporary direct streaming url for one chapter. */
   public suspend fun resolveDirectUrl(
     source: String,
     bookId: String,
     chapterId: String,
   ): String? {
-    if (source == OnlineSourceClient.SOURCE_MAIN) return null
     val (base, _) = authed()
     return withRelogin { client.sourceAudio(base, it, source, bookId, chapterId) }
-  }
-
-  /** Submits a server side download and returns the task id. */
-  public suspend fun submitDownload(
-    bookId: String,
-    startEpisode: Int,
-    endEpisode: Int,
-  ): String? {
-    val (base, _) = authed()
-    return withRelogin { client.submitBatch(base, it, bookId, startEpisode, endEpisode) }
-  }
-
-  public suspend fun downloadStatus(taskId: String): OnlineBatchStatus {
-    val (base, _) = authed()
-    return withRelogin { client.batchStatus(base, it, taskId) }
-  }
-
-  /** The albums already downloaded on the site (each with its files). */
-  public suspend fun downloadedAlbums(): List<FilesAlbum> {
-    val (base, _) = authed()
-    return withRelogin { client.downloadedAlbums(base, it) }
   }
 
   /** The books added from the online source, most recently added first. */
@@ -233,12 +198,6 @@ public class OnlineSourceService internal constructor(
   public suspend fun invalidateToken() {
     tokenStore.updateData { "" }
     cachedToken = null
-  }
-
-  /** Builds the streaming url for a file downloaded on the site. */
-  public suspend fun downloadedFileUrl(path: String): String {
-    val base = baseUrlStore.data.first()
-    return client.fileUrl(base, path)
   }
 
   /** Writes the settings coming from the preferences screen. */

@@ -106,23 +106,6 @@ class OnlineBookCacheManagerTest {
   }
 
   @Test
-  fun `main catalog submits one episode per server task`() = runTest {
-    manager = createManager()
-    val mainBookId = BookId(OnlineUri.buildBookUri("main", "b1"))
-    stubBook(source = "main")
-    enqueueAudio()
-    coEvery { catalog.resolveStreamUrl(any()) } returns server.url("/audio.mp3").toString()
-    coEvery { service.submitDownload(any(), any(), any()) } returns "task"
-
-    manager.cacheUpcoming(mainBookId, 2, 0)
-    await("both chapters to be cached") { fileCache.cachedFileCount("main", "b1") == 2 }
-
-    // one single-episode server task per chapter, not one task for the window
-    coVerify { val _ = service.submitDownload("b1", 2, 2) }
-    coVerify { val _ = service.submitDownload("b1", 3, 3) }
-  }
-
-  @Test
   fun `clearBook drops the cached files`() = runTest {
     manager = createManager()
     val ref = OnlineChapterRef("A", "b1", "c1")

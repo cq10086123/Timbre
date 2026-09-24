@@ -18,15 +18,7 @@ public class OnlineSourceException(
   message: String,
   public val requiresRelogin: Boolean = false,
   cause: Throwable? = null,
-) : Exception(message, cause) {
-  /** The "409"-style status code parsed from [message], or null when not an HTTP error. */
-  public val httpCode: Int?
-    get() = message
-      ?.takeIf { it.startsWith("HTTP ") }
-      ?.substringAfter("HTTP ")
-      ?.substringBefore(':')
-      ?.toIntOrNull()
-}
+) : Exception(message, cause)
 
 @Serializable
 internal data class LoginRequest(
@@ -37,22 +29,12 @@ internal data class LoginRequest(
 )
 
 @Serializable
-internal data class MainAlbumListRequest(@SerialName("album_id") val albumId: String)
-
-@Serializable
 internal data class IntfBookRequest(@SerialName("book_id") val bookId: String)
 
 @Serializable
 internal data class AudioRequest(
   @SerialName("book_id") val bookId: String,
   @SerialName("chapter_id") val chapterId: String,
-)
-
-@Serializable
-internal data class BatchRequest(
-  @SerialName("album_id") val albumId: String,
-  @SerialName("start_episode") val startEpisode: Int,
-  @SerialName("end_episode") val endEpisode: Int,
 )
 
 /**
@@ -116,28 +98,7 @@ public class OnlineSourceClient internal constructor(
     return response.interfaces.filter { it.enabled }
   }
 
-  /** Search in the main (Ximalaya account backed) catalog. */
-  public suspend fun searchMain(
-    baseUrl: String,
-    token: String,
-    keyword: String,
-  ): List<OnlineSearchResult> {
-    val url = normalize(baseUrl) + "/api/search?keyword=" + enc(keyword)
-    val response = get(url, MainSearchResponse.serializer(), token)
-    return response.results.map {
-      OnlineSearchResult(
-        source = SOURCE_MAIN,
-        bookId = it.albumId,
-        title = it.title,
-        author = it.author.orEmpty(),
-        cover = it.cover.orEmpty(),
-        intro = it.intro.orEmpty(),
-        trackCount = it.tracks,
-      )
-    }
-  }
-
-  /** Search in one pluggable source (A, B, ...). */
+  /** Search in one source (A, B, ...). */
   public suspend fun searchSource(
     baseUrl: String,
     token: String,
@@ -159,29 +120,7 @@ public class OnlineSourceClient internal constructor(
     }
   }
 
-  /** Chapter list of a main-catalog book, keeping the server error message. */
-  public suspend fun mainAlbumListResponse(
-    baseUrl: String,
-    token: String,
-    bookId: String,
-  ): Triple<Boolean, String?, List<OnlineChapter>> {
-    val body = json.encodeToString(MainAlbumListRequest.serializer(), MainAlbumListRequest(albumId = bookId))
-    val response = post(
-      normalize(baseUrl) + "/api/download/album-list",
-      body,
-      MainAlbumListResponse.serializer(),
-      token,
-    )
-    return Triple(
-      response.success,
-      response.error,
-      response.tracks.mapIndexed { index, t ->
-        OnlineChapter(id = t.trackId, title = t.title, durationSeconds = t.duration, order = index + 1)
-      },
-    )
-  }
-
-  /** Chapter list of a pluggable-source book, keeping the server error message. */
+  /** Chapter list of a source book, keeping the server error message. */
   public suspend fun sourceAlbumListResponse(
     baseUrl: String,
     token: String,
@@ -209,25 +148,7 @@ public class OnlineSourceClient internal constructor(
     )
   }
 
-  /** Full chapter list of a main-catalog book (cached by the caller). */
-  public suspend fun mainAlbumList(
-    baseUrl: String,
-    token: String,
-    bookId: String,
-  ): List<OnlineChapter> {
-    val body = json.encodeToString(MainAlbumListRequest.serializer(), MainAlbumListRequest(albumId = bookId))
-    val response = post(
-      normalize(baseUrl) + "/api/download/album-list",
-      body,
-      MainAlbumListResponse.serializer(),
-      token,
-    )
-    return response.tracks.mapIndexed { index, t ->
-      OnlineChapter(id = t.trackId, title = t.title, durationSeconds = t.duration, order = index + 1)
-    }
-  }
-
-  /** Full chapter list of a pluggable-source book. */
+  /** Full chapter list of a source book. */
   public suspend fun sourceAlbumList(
     baseUrl: String,
     token: String,
@@ -252,7 +173,7 @@ public class OnlineSourceClient internal constructor(
   }
 
   /**
-   * Resolves a direct streaming url for one chapter of a pluggable-source
+   * Resolves a direct streaming url for one chapter of a source
    * book. Returns null when the source cannot resolve the chapter.
    *
    * The lookup runs while the player waits for audio, so it is bounded: a
@@ -278,61 +199,6 @@ public class OnlineSourceClient internal constructor(
       client = boundedClient,
     )
     return if (response.success && response.url.isNotBlank()) response.url else null
-  }
-
-  /** Asks the site to download episodes [startEpisode]..[endEpisode] of a main-catalog book. */
-  public suspend fun submitBatch(
-    baseUrl: String,
-    token: String,
-    bookId: String,
-    startEpisode: Int,
-    endEpisode: Int,
-  ): String? {
-    val body = json.encodeToString(
-      BatchRequest.serializer(),
-      BatchRequest(albumId = bookId, startEpisode = startEpisode, endEpisode = endEpisode),
-    )
-    val response = post(normalize(baseUrl) + "/api/download/batch", body, BatchSubmitResponse.serializer(), token)
-    if (!response.success) {
-      throw OnlineSourceException(
-        response.error?.takeIf { it.isNotBlank() }?.let { "submit failed: $it" } ?: "submit failed",
-      )
-    }
-    return response.taskId.ifBlank { null }
-  }
-
-  public suspend fun batchStatus(
-    baseUrl: String,
-    token: String,
-    taskId: String,
-  ): OnlineBatchStatus {
-    val response = get(normalize(baseUrl) + "/api/download/batch/" + enc(taskId), BatchStatusResponse.serializer(), token)
-    return OnlineBatchStatus(
-      taskId = taskId,
-      status = response.status,
-      total = response.total,
-      completed = response.completed,
-      error = response.error,
-    )
-  }
-
-  /** Lists albums already downloaded on the site (path is the streaming key). */
-  public suspend fun downloadedAlbums(
-    baseUrl: String,
-    token: String,
-  ): List<FilesAlbum> {
-    val response = get(normalize(baseUrl) + "/api/files", FilesAlbumResponse.serializer(), token)
-    return response.albums
-  }
-
-  /** Builds the streaming url (supports HTTP Range) for a downloaded file. */
-  public fun fileUrl(
-    baseUrl: String,
-    path: String,
-  ): String {
-    val encoded = path.split("/")
-      .joinToString("/") { segment -> enc(segment) }
-    return normalize(baseUrl) + "/api/files/file/" + encoded
   }
 
   private suspend fun <T> get(
@@ -388,7 +254,7 @@ public class OnlineSourceClient internal constructor(
   public companion object {
 
     /**
-     * Chapter listings of the main catalog regularly take 15+ seconds for
+     * Chapter listings regularly take 15+ seconds for
      * books with thousands of tracks - okhttp defaults (10s read) kill them.
      */
     internal fun defaultHttpClient(): OkHttpClient {
@@ -400,8 +266,6 @@ public class OnlineSourceClient internal constructor(
         .build()
     }
 
-    /** The main (account backed) catalog, addressed through /api/search. */
-    public const val SOURCE_MAIN: String = "main"
     private const val CLIENT: String = "timbre"
 
     /**

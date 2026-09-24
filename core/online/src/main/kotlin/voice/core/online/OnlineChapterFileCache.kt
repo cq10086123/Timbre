@@ -11,11 +11,10 @@ import java.security.MessageDigest
  * `.tmp` sibling first and are renamed only when complete - a file with the
  * final name is therefore always a whole chapter.
  *
- * This is deliberately separate from every automatic cache: the main catalog
- * downloads ahead on the server (not on the device), resolved stream urls
- * live in memory with a short ttl, and the webdav prefetch only knows http(s)
- * urls - none of them ever reads or writes here, so manual caching cannot
- * fight automatic playback.
+ * This is deliberately separate from every automatic cache: resolved stream
+ * urls live in memory with a short ttl, and the webdav prefetch only knows
+ * http(s) urls - none of them ever reads or writes here, so manual caching
+ * cannot fight automatic playback.
  *
  * Provided by [OnlineSourceGraph] with the app files dir; tests construct it
  * with a temp dir directly.

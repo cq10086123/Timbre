@@ -118,7 +118,7 @@
     </plurals>
     <!-- Shown on the card of a book that was discovered by the scan but whose chapter count isn't known yet. -->
     <string name="library.import.preparing">Importing… reading files</string>
-    <!-- Content description of the badge that marks a book streamed from the online source. The argument is the source name, e.g. Main or A. -->
+    <!-- Content description of the badge that marks a book streamed from the online source. The argument is the source name, e.g. A. -->
     <string name="library.online.source.badge">Online book from source: %1$s</string>
     <!-- Hint text for searching books in the library. -->
     <string name="library.search.hint">What are you looking for?</string>
@@ -268,13 +268,12 @@
     <string name="settings.online_source.not_set">Not set</string>
     <string name="settings.online_source.verifying">Verifying…</string>
     <string name="search.online.section.title">Online</string>
-    <string name="search.online.source.main">Main</string>
     <string name="search.online.error">Failed to reach the online source</string>
     <string name="search.online.offline">You are currently offline. Connect to the internet and try again.</string>
     <string name="search.online.no_results">No online results for this source</string>
     <string name="search.online.chapters.loading">Loading chapter list…</string>
     <string name="search.online.chapters.loading_count">Loading chapter list, total: %1$d</string>
-    <string name="search.online.chapters.loading_hint">Long books can take 10 to 20 seconds on the main source</string>
+    <string name="search.online.chapters.loading_hint">Long books can take a while to load, please wait</string>
     <string name="search.online.retry">Retry</string>
     <string name="search.online.chapters.empty">This source returned no chapters for this book</string>
     <string name="search.online.chapters.count">Total: %1$d</string>

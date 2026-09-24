@@ -11,7 +11,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -54,9 +53,7 @@ public data class OnlinePlaybackError(
  * Bridges the online source into the playback pipeline:
  * - synthesizes a [Book] (with `online://play?...` chapter uris) for books on
  *   the shelf, so the regular MediaItem machinery works without Room,
- * - resolves chapter uris to playable urls: direct links for pluggable
- *   sources, downloaded files with on-demand download (keeping a download
- *   ahead of the playing episode) for the main catalog.
+ * - resolves chapter uris to the direct streaming urls the sources hand out.
  */
 @Inject
 @SingleIn(AppScope::class)
@@ -93,8 +90,8 @@ public class OnlinePlaybackCatalog(
    * Books whose chapters were fetched in the search dialog and whose playback
    * was started without adding them to the shelf: the player can still
    * assemble the book from here, the shelf simply does not show them.
-   * Entries are also consulted by [resolveMain] (for the book title) because
-   * the shelf lookup misses for books that were never added.
+   * Entries are also consulted wherever the shelf lookup misses for books
+   * that were never added.
    */
   private val pendingBooks = ConcurrentHashMap<String, OnlineBook>()
 
@@ -152,9 +149,6 @@ public class OnlinePlaybackCatalog(
    * first play of a chapter.
    */
   private val measuredDurations = ConcurrentHashMap<String, Long>()
-
-  /** Downloaded albums with a timestamp, so resolver loops do not refetch per poll. */
-  private var albumsCache: Pair<Long, List<FilesAlbum>>? = null
 
   private val _playbackErrors = MutableSharedFlow<OnlinePlaybackError>(extraBufferCapacity = 1)
 
@@ -719,12 +713,8 @@ public class OnlinePlaybackCatalog(
 
   private suspend fun resolveStreamUrlInternal(ref: OnlineChapterRef): String? {
     return try {
-      if (ref.source == OnlineSourceClient.SOURCE_MAIN) {
-        resolveMain(ref)
-      } else {
-        service.resolveDirectUrl(ref.source, ref.bookId, ref.chapterId)
-          ?: fail(ref, OnlinePlaybackErrorKind.CONTENT, "The source returned no audio url")
-      }
+      service.resolveDirectUrl(ref.source, ref.bookId, ref.chapterId)
+        ?: fail(ref, OnlinePlaybackErrorKind.CONTENT, "The source returned no audio url")
     } catch (e: CancellationException) {
       throw e
     } catch (e: OnlineSourceException) {
@@ -738,135 +728,6 @@ public class OnlinePlaybackCatalog(
     } catch (e: Exception) {
       fail(ref, OnlinePlaybackErrorKind.CONTENT, e.message)
     }
-  }
-
-  /**
-   * Main catalog: stream a file downloaded on the site. Missing episodes are
-   * downloaded on demand (batch from the playing episode, so the next chapters
-   * are ready when they come up) and polled until the file appears.
-   */
-  private suspend fun resolveMain(ref: OnlineChapterRef): String? {
-    val bookRef = OnlineBookRef(ref.source, ref.bookId)
-    // books started from the search dialog live in the session maps, not on
-    // the shelf: without them the title below is blank and the file about to
-    // be downloaded can never be matched (always "connection failed").
-    val onlineBook = lookupOnlineBook(bookRef.source, bookRef.bookId)
-    val chapters = onlineBook?.chapters?.takeIf { it.isNotEmpty() }
-      ?: service.chapters(ref.source, ref.bookId)
-    if (chapters.isEmpty()) {
-      return fail(ref, OnlinePlaybackErrorKind.CONTENT, "The book has no chapters")
-    }
-    val index = chapters.indexOfFirst { it.id == ref.chapterId }
-    if (index < 0) {
-      return fail(ref, OnlinePlaybackErrorKind.CONTENT, "The chapter is not part of the book")
-    }
-    // The main catalog's download API addresses episodes by their position in
-    // the album, not by the first number found in the display title. Titles
-    // often contain volume/year/bonus numbers, and using those numbers makes
-    // the list look correct while playing a different file.
-    val episode = chapters[index].order.takeIf { it > 0 } ?: (index + 1)
-    val title = onlineBook?.title.orEmpty()
-    val endEpisode = (episode + DOWNLOAD_AHEAD).coerceAtMost(chapters.size)
-
-    val deadline = SystemClock.elapsedRealtime() + RESOLVE_TIMEOUT_MS
-    var taskId: String? = null
-    var submitAttempted = false
-    while (true) {
-      findDownloadedFile(ref.bookId, ref.chapterId, title, episode)?.let { return it }
-      if (SystemClock.elapsedRealtime() >= deadline) break
-      if (!submitAttempted) {
-        submitAttempted = true
-        // The site owns one download slot per card. A 409 here means another
-        // task holds it - often this book's manual cache window (which paces
-        // one episode per server task) or the local plugin. That is not a
-        // failure of this chapter: keep polling for the file; the deadline
-        // still bounds the wait. Any other error fails the resolve as before.
-        try {
-          taskId = service.submitDownload(ref.bookId, episode, endEpisode)
-        } catch (e: OnlineSourceException) {
-          if (e.httpCode != 409) throw e
-        }
-        if (taskId == null) {
-          return fail(
-            ref,
-            OnlinePlaybackErrorKind.CONTENT,
-            "The server rejected the download request (no task id)",
-          )
-        }
-      } else if (taskId != null) {
-        val status = runCatching { service.downloadStatus(taskId) }.getOrNull()
-        if (status != null && status.isFailed) {
-          return fail(
-            ref,
-            OnlinePlaybackErrorKind.CONTENT,
-            status.error ?: "Download task failed",
-          )
-        }
-      }
-      delay(POLL_INTERVAL_MS)
-    }
-    return fail(ref, OnlinePlaybackErrorKind.NETWORK, "The download did not finish in time")
-  }
-
-  /** The streaming url of the downloaded file for [chapterId], or null. */
-  private suspend fun findDownloadedFile(
-    bookId: String,
-    chapterId: String,
-    bookTitle: String,
-    episode: Int,
-  ): String? {
-    val albums = cachedDownloadedAlbums() ?: return null
-
-    // Exact identity first: the site records album_id/track_id per downloaded
-    // file, so the chapter can be found without any guessing. A track id is
-    // globally unique, so this can never pick another book's audio.
-    if (chapterId.isNotEmpty()) {
-      val byId = albums
-        .filter { it.albumId.isEmpty() || it.albumId == bookId }
-        .firstNotNullOfOrNull { album ->
-          album.files.firstOrNull { it.trackId == chapterId }?.let { file ->
-            album to file
-          }
-        }
-      if (byId != null) return service.downloadedFileUrl(byId.second.path)
-    }
-
-    // Legacy files without recorded ids fall back to title + episode matching.
-    val candidates = albums.mapNotNull { album ->
-      val file = album.files
-        .filter { fileMatchesEpisode(it.name, episode) }
-        .minByOrNull { it.name.length }
-        ?: return@mapNotNull null
-      album to file
-    }
-    if (candidates.isEmpty()) return null
-    // Only an album whose name matches the book may be streamed. Every album
-    // numbers its files 第N集, so a blind pick would play another book's file
-    // whenever the right album has no file for this episode yet (the download
-    // is still running, or the source only serves the book's free preview).
-    // The resolve loop keeps polling until the correct file appears instead.
-    val album = candidates
-      .filter { titleSimilar(it.first.name, bookTitle) }
-      .maxByOrNull { titleOverlap(it.first.name, bookTitle) }
-      ?.first
-      ?: return null
-    val file = album.files
-      .filter { fileMatchesEpisode(it.name, episode) }
-      .minByOrNull { it.name.length }
-      ?: return null
-    return service.downloadedFileUrl(file.path)
-  }
-
-  private suspend fun cachedDownloadedAlbums(): List<FilesAlbum>? {
-    val now = SystemClock.elapsedRealtime()
-    synchronized(stateLock) {
-      albumsCache?.takeIf { now - it.first < ALBUMS_CACHE_MS }?.let { return it.second }
-    }
-    val albums = runCatching { service.downloadedAlbums() }.getOrNull() ?: return null
-    synchronized(stateLock) {
-      albumsCache = now to albums
-    }
-    return albums
   }
 
   /** Remembers an assembled book so the resolve step can still see its title. */
@@ -917,20 +778,8 @@ public class OnlinePlaybackCatalog(
 
   public companion object {
 
-    /** When playing episode k, the server keeps downloading up to k + 3. */
-    internal const val DOWNLOAD_AHEAD: Int = 3
-
     /** When the position of a book was persisted last, so writes can be throttled. */
     private const val POSITION_PERSIST_INTERVAL_MS = 3_000L
-    private const val RESOLVE_TIMEOUT_MS = 90_000L
-    private const val POLL_INTERVAL_MS = 1_500L
-
-    /**
-     * Keep the album list cache short during resolve polling: the first play
-     * must notice as soon as the server finishes the download.
-     */
-    private const val ALBUMS_CACHE_MS = 1_000L
-
     private const val ERROR_DEDUPE_MS = 30_000L
     private const val PLACEHOLDER_CHAPTER_DURATION_MS = 30 * 60_000L
 
@@ -943,57 +792,5 @@ public class OnlinePlaybackCatalog(
     /** Session stash is user-tap driven; the cap only guards runaway growth. */
     private const val STASH_CAP = 64
 
-    /** The first digit run of the title, falling back to the playlist position. */
-    internal fun episodeNumber(
-      chapterTitle: String,
-      fallbackIndex: Int,
-    ): Int {
-      val match = Regex("\\d+").find(chapterTitle) ?: return fallbackIndex + 1
-      return match.value.toIntOrNull() ?: fallbackIndex + 1
-    }
-
-    /** True when the file name carries exactly the episode number. */
-    internal fun fileMatchesEpisode(
-      fileName: String,
-      episode: Int,
-    ): Boolean {
-      val expected = episode.toString()
-      return Regex("\\d+").findAll(fileName)
-        .any { it.value.trimStart('0').ifEmpty { "0" } == expected }
-    }
-
-    /** Loose containment match: the site folder name may decorate the title. */
-    internal fun titleSimilar(
-      albumName: String,
-      bookTitle: String,
-    ): Boolean {
-      val album = albumName.filter { it.isLetterOrDigit() }.lowercase()
-      val title = bookTitle.filter { it.isLetterOrDigit() }.lowercase()
-      if (album.isEmpty() || title.isEmpty()) return false
-      return album in title || title in album
-    }
-
-    /**
-     * How strongly two names overlap: the longest shared character run, after
-     * the same normalization [titleSimilar] uses. Among several albums whose
-     * names contain the title (e.g. two recordings of one series), this picks
-     * the closest folder instead of the first in server order.
-     */
-    internal fun titleOverlap(
-      albumName: String,
-      bookTitle: String,
-    ): Int {
-      val album = albumName.filter { it.isLetterOrDigit() }.lowercase()
-      val title = bookTitle.filter { it.isLetterOrDigit() }.lowercase()
-      if (album.isEmpty() || title.isEmpty()) return 0
-      val short = if (album.length <= title.length) album else title
-      val long = if (album.length <= title.length) title else album
-      for (length in short.length downTo 1) {
-        for (start in 0..short.length - length) {
-          if (long.contains(short.substring(start, start + length))) return length
-        }
-      }
-      return 0
-    }
   }
 }
