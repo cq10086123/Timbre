@@ -49,20 +49,6 @@ internal data class AudioRequest(
 )
 
 @Serializable
-internal data class StreamUrlRequest(
-  @SerialName("album_id") val albumId: String,
-  @SerialName("chapter_num") val chapterNum: Int,
-  @SerialName("quality") val quality: Int = 0,
-)
-
-@Serializable
-internal data class StreamUrlResponse(
-  val success: Boolean = false,
-  @SerialName("download_url") val downloadUrl: String? = null,
-  val error: String? = null,
-)
-
-@Serializable
 internal data class BatchRequest(
   @SerialName("album_id") val albumId: String,
   @SerialName("start_episode") val startEpisode: Int,
@@ -295,34 +281,6 @@ public class OnlineSourceClient internal constructor(
   }
 
   /** Asks the site to download episodes [startEpisode]..[endEpisode] of a main-catalog book. */
-
-  // Resolves the url the audio can be streamed from, without asking the server
-  // to download the file: nothing is written to the server disk and playback
-  // can start right away.
-  public suspend fun resolveStreamUrl(
-    baseUrl: String,
-    token: String,
-    bookId: String,
-    chapterNum: Int,
-  ): String? {
-    val body = json.encodeToString(
-      StreamUrlRequest.serializer(),
-      StreamUrlRequest(albumId = bookId, chapterNum = chapterNum),
-    )
-    val response = post(
-      normalize(baseUrl) + "/api/download/stream-url",
-      body,
-      StreamUrlResponse.serializer(),
-      token,
-    )
-    if (!response.success) {
-      throw OnlineSourceException(
-        response.error?.takeIf { it.isNotBlank() }?.let { "stream url failed: $it" } ?: "stream url failed",
-      )
-    }
-    return response.downloadUrl?.takeIf { it.isNotBlank() }
-  }
-
   public suspend fun submitBatch(
     baseUrl: String,
     token: String,
