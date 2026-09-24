@@ -131,6 +131,19 @@ public class OnlineSourceService internal constructor(
     return withRelogin { client.sourceAudio(base, it, source, bookId, chapterId) }
   }
 
+  /**
+   * Resolves the playable audio url for a main-catalog chapter without
+   * downloading it on the server (saves both the wait and the disk space).
+   * Returns null when the server cannot resolve it.
+   */
+  public suspend fun resolveStreamUrlDirect(
+    bookId: String,
+    chapterNum: Int,
+  ): String? {
+    val (base, _) = authed()
+    return withRelogin { client.resolveStreamUrl(base, it, bookId, chapterNum) }
+  }
+
   /** Submits a server side download and returns the task id. */
   public suspend fun submitDownload(
     bookId: String,

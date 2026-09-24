@@ -766,6 +766,17 @@ public class OnlinePlaybackCatalog(
     // the list look correct while playing a different file.
     val episode = chapters[index].order.takeIf { it > 0 } ?: (index + 1)
     val title = onlineBook?.title.orEmpty()
+
+    // Preferred: ask the server to only resolve the audio url. Nothing gets
+    // downloaded on the server, so playback starts immediately instead of
+    // waiting for a whole file (and the server disk stays clean). Older
+    // servers without the endpoint, or a refused url, fall through to the
+    // download + poll path below.
+    runCatching { service.resolveStreamUrlDirect(ref.bookId, episode) }
+      .getOrNull()
+      ?.takeIf { it.isNotBlank() }
+      ?.let { return it }
+
     val endEpisode = (episode + DOWNLOAD_AHEAD).coerceAtMost(chapters.size)
 
     val deadline = SystemClock.elapsedRealtime() + RESOLVE_TIMEOUT_MS
