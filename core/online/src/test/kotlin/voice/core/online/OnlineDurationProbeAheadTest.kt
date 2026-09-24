@@ -140,5 +140,4 @@ class OnlineDurationProbeAheadTest {
 
     verify(exactly = 0) { catalog.recordMeasuredDuration(any(), any(), any(), any()) }
   }
-
 }

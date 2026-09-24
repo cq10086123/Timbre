@@ -791,6 +791,5 @@ public class OnlinePlaybackCatalog(
 
     /** Session stash is user-tap driven; the cap only guards runaway growth. */
     private const val STASH_CAP = 64
-
   }
 }
