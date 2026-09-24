@@ -115,11 +115,13 @@ class VoicePlayer(
       if (!onlinePlaybackCatalog.isOnlineBookId(bookId)) return
       if (lastPrefetchedBookId == bookId) return
       lastPrefetchedBookId = bookId
+      // read the chapter here: this callback runs on the main thread, while the
+      // prefetch job below runs on IO and must never touch the player
+      val currentChapterId = player.currentMediaItem?.mediaId?.toMediaIdOrNull()
+        ?.takeIf { it is MediaId.Chapter }?.let { (it as MediaId.Chapter).chapterId }
+        ?: return
       aheadPrefetchJob?.cancel()
       aheadPrefetchJob = scope.launch(dispatcherProvider.io) {
-        val currentChapterId = player.currentMediaItem?.mediaId?.toMediaIdOrNull()
-          ?.takeIf { it is MediaId.Chapter }?.let { (it as MediaId.Chapter).chapterId }
-          ?: return@launch
         warmNextChapters(bookId, currentChapterId, count = 2)
       }
     }
