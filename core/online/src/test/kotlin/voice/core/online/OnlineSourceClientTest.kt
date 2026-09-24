@@ -55,6 +55,41 @@ class OnlineSourceClientTest {
   }
 
   @Test
+  fun interfacesExcludeOfficialAndDisabledSources() = runTest {
+    server.enqueue(
+      ok(
+        """{"success":true,"interfaces":[
+          {"name":"official","displayName":"官方源","enabled":true},
+          {"name":"A","displayName":"接口 A","enabled":true},
+          {"name":"B","enabled":false},
+          {"name":" Official ","enabled":true},
+          {"name":"C","displayName":"接口 C"}
+        ]}""",
+      ),
+    )
+
+    val sources = client.interfaces(baseUrl(), token = "t")
+
+    assertEquals(
+      expected = listOf(
+        OnlineSourceInfo(name = "A", displayName = "接口 A"),
+        OnlineSourceInfo(name = "C", displayName = "接口 C"),
+      ),
+      actual = sources,
+    )
+    val request = server.takeRequest()
+    assertEquals(expected = "/api/interfaces", actual = request.url.encodedPath)
+    assertEquals(expected = "Bearer t", actual = request.headers["Authorization"])
+  }
+
+  @Test
+  fun interfacesReturnEmptyWhenOnlyOfficialIsAdvertised() = runTest {
+    server.enqueue(ok("""{"success":true,"interfaces":[{"name":"official"}]}"""))
+
+    assertTrue(client.interfaces(baseUrl(), token = "t").isEmpty())
+  }
+
+  @Test
   fun interfaceSearchKeepsStringBookIds() = runTest {
     server.enqueue(
       ok("""{"success":true,"results":[{"albumId":"ujLrCd","title":"T2","trackCount":0,"cover":"c.gif"}]}"""),
