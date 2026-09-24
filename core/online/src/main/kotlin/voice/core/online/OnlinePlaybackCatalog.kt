@@ -945,8 +945,16 @@ public class OnlinePlaybackCatalog(
     private const val ERROR_DEDUPE_MS = 30_000L
     private const val PLACEHOLDER_CHAPTER_DURATION_MS = 30 * 60_000L
 
-    /** How long a resolved url is reused before the source is asked again. */
-    private const val STREAM_URL_TTL_MS = 5 * 60_000L
+    /**
+     * How long a resolved url is reused before the source is asked again.
+     * A chapter usually lasts longer than this, so the previous five minutes
+     * expired exactly the url the prefetcher had warmed for the *next* chapter
+     * - every chapter start then paid a fresh resolve, which is what the
+     * warming was for. An expired url is not a dead end anyway: the data source
+     * reports the rejection, the entry is invalidated and the resolve runs
+     * again.
+     */
+    private const val STREAM_URL_TTL_MS = 30 * 60_000L
 
     /** Resolved urls kept for seeks; the lru drops the oldest beyond this. */
     private const val MAX_CACHED_STREAM_URLS = 16
