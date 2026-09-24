@@ -122,7 +122,7 @@ class VoicePlayer(
         ?: return
       aheadPrefetchJob?.cancel()
       aheadPrefetchJob = scope.launch(dispatcherProvider.io) {
-        warmNextChapters(bookId, currentChapterId, count = 2)
+        warmNextChapters(bookId, currentChapterId, count = PREFETCH_AHEAD_CHAPTERS)
       }
     }
 
@@ -139,7 +139,7 @@ class VoicePlayer(
         ?: return
       aheadPrefetchJob?.cancel()
       aheadPrefetchJob = scope.launch(dispatcherProvider.io) {
-        warmNextChapters(bookId, currentChapterId, count = 1)
+        warmNextChapters(bookId, currentChapterId, count = PREFETCH_AHEAD_CHAPTERS)
       }
     }
   }
@@ -156,8 +156,15 @@ class VoicePlayer(
       .drop(currentIndex + 1)
       .take(count)
       .forEach { chapter ->
-        // stop warming if the user already left this book or stopped playback
-        if (!player.isPlaying || player.currentMediaItem?.mediaId?.toMediaIdOrNull()?.bookId != bookId) {
+        // stop warming if the user already left this book or stopped playback.
+        // the player is thread confined, and this coroutine runs on IO, so its
+        // state has to be read back on the main thread - reading it here used to
+        // trip ExoPlayer's thread assertion and kill the process
+        val stillOnBook = withContext(dispatcherProvider.mainImmediate) {
+          player.isPlaying &&
+            player.currentMediaItem?.mediaId?.toMediaIdOrNull()?.bookId == bookId
+        }
+        if (!stillOnBook) {
           return
         }
         val ref = OnlineUri.parse(chapter.id.value) ?: return@forEach
@@ -698,3 +705,10 @@ class VoicePlayer(
     val needsFullPlaylist: Boolean,
   )
 }
+
+/**
+ * How many following chapters get their stream url resolved ahead of time.
+ * Warming two keeps a chapter *and* the one after it ready, so both a skip and
+ * the natural auto continue land on an already resolved url.
+ */
+private const val PREFETCH_AHEAD_CHAPTERS = 2
