@@ -58,8 +58,6 @@
     <string name="common.error.generic.retry">Retry</string>
     <!-- Content description for a cover preview that can be selected. -->
     <string name="cover.content_description.selectable">Shows cover to choose</string>
-    <!-- Content description for an icon indicating the author in cover search results. -->
-    <string name="cover.search.author.content_description">Author</string>
     <!-- Shown when a cover search finished without a single result, e.g. because there is no usable connection. -->
     <string name="cover.search.empty.message">No cover found. Try another search term, or check your connection.</string>
     <!-- Search query template for cover lookup when title and author are known. -->

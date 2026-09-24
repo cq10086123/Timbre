@@ -72,20 +72,6 @@ internal fun BookSearchContent(
             Text(query)
           }
         }
-        items(viewState.suggestedAuthors) { author ->
-          ListItem(
-            modifier = Modifier.clickable { onQueryChange(author) },
-            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-            leadingContent = {
-              Icon(
-                imageVector = VoiceIcons.SentimentSatisfied,
-                contentDescription = stringResource(id = StringsR.string.cover_search_author_content_description),
-              )
-            },
-          ) {
-            Text(author)
-          }
-        }
       }
     }
     is BookSearchViewState.SearchResults -> {

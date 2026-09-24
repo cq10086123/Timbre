@@ -81,7 +81,6 @@ private fun BookOverviewTopBarPreview() {
         isLoading = true,
         searchActive = true,
         searchViewState = BookSearchViewState.EmptySearch(
-          suggestedAuthors = listOf(),
           recentQueries = listOf(),
           query = "",
         ),
