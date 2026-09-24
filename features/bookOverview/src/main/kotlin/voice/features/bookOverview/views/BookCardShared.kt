@@ -31,7 +31,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import voice.core.data.BookId
-import voice.core.online.OnlineSourceClient
 import voice.core.online.OnlineUri
 import voice.core.scanner.BookScanError
 import voice.core.scanner.BookScanProgress
@@ -76,7 +75,7 @@ internal fun BookCard(
 
 /**
  * The badge that marks a book of the online source with the source it
- * streams from - the main catalog or one of the interfaces (A, B, ...) - so
+ * streams from - one of the interfaces (A, B, ...) - so
  * an online book is told apart from a local or a WebDAV one at a glance,
  * like the WebDAV cloud does it.
  */
@@ -85,11 +84,7 @@ private fun OnlineSourceBadge(
   source: String,
   modifier: Modifier = Modifier,
 ) {
-  val label = if (source == OnlineSourceClient.SOURCE_MAIN) {
-    stringResource(StringsR.string.search_online_source_main)
-  } else {
-    source
-  }
+  val label = source
   val badgeDescription = stringResource(StringsR.string.library_online_source_badge, label)
   Surface(
     modifier = modifier

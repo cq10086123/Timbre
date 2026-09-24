@@ -9,7 +9,7 @@ import kotlinx.serialization.Serializable
  */
 @Serializable
 public data class OnlineBook(
-  /** Which source this book belongs to ("main" or an interface name). */
+  /** Which source this book belongs to (an interface name, e.g. A). */
   val source: String,
   /** Source specific book id. */
   val bookId: String,

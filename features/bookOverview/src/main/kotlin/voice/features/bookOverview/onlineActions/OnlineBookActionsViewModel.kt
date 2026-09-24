@@ -177,7 +177,7 @@ internal const val DEFAULT_CACHE_COUNT = 100
 
 internal val CACHE_COUNT_PRESETS = listOf(50, 100, 200, 500)
 
-/** 0 = no delay (submissions back to back, the original behavior). */
+/** 0 = no delay (chapters back to back, the original behavior). */
 internal const val DEFAULT_CACHE_DELAY_SECONDS = 0
 
 internal val CACHE_DELAY_PRESETS = listOf(0, 2, 5, 10)

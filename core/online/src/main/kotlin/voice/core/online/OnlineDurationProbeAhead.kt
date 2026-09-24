@@ -65,8 +65,6 @@ public class OnlineDurationProbeAhead internal constructor(
     chapterId: ChapterId,
   ) {
     val bookRef = OnlineUri.parseBookUri(bookId.value) ?: return
-    // the main catalog reports durations itself; probing it would only burn traffic
-    if (bookRef.source == OnlineSourceClient.SOURCE_MAIN) return
     if (isMetered()) return
     val book = catalog.lookupOnlineBook(bookRef.source, bookRef.bookId) ?: return
     val chapters = book.chapters.ifEmpty {

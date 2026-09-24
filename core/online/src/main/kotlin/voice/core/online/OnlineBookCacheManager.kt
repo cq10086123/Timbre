@@ -86,9 +86,8 @@ public data class OnlineCacheConfirmation(
  * episodes offline, the rest online.
  *
  * Manual caching never fights automatic playback:
- * - automatic ahead work (the main catalog's server side download window,
- *   the in-memory stream url cache, duration probing) never touches
- *   [OnlineChapterFileCache]; only this manager writes there,
+ * - automatic ahead work (the in-memory stream url cache, duration probing)
+ *   never touches [OnlineChapterFileCache]; only this manager writes there,
  * - resolving a chapter reuses [OnlinePlaybackCatalog.resolveStreamUrl], whose
  *   single flight coalesces a manual resolve with a playback resolve of the
  *   same chapter instead of downloading twice,
@@ -190,10 +189,9 @@ public class OnlineBookCacheManager(
    * (inclusive, so going offline mid-chapter keeps playing). Already cached
    * chapters are skipped. Replaces a running job of the same book.
    *
-   * For the main catalog every episode is submitted as its own server task and
-   * [delaySeconds] spaces the submissions: the account cools down between
-   * episodes instead of hammering the source with a whole window up front
-   * (which gets rate limited and fails).
+   * [delaySeconds] spaces the chapters: the source cools down between episodes
+   * instead of being hammered with a whole window up front (which gets rate
+   * limited and fails).
    */
   public fun cacheUpcoming(
     bookId: BookId,
@@ -391,7 +389,7 @@ public class OnlineBookCacheManager(
     var done = doneAtStart
     var failed = 0
     var consecutiveFailures = 0
-    var submittedAny = false
+    var pacedAny = false
     var declined = false
     setState(
       bookUri,
@@ -422,18 +420,11 @@ public class OnlineBookCacheManager(
           }
         }
         updateState(bookUri, generation) { it.copy(currentTitle = chapter.title) }
-        // main catalog: submit this episode as its own server task, one at a
-        // time. The configured per-episode delay lets the account cool down
-        // between downloads instead of submitting the whole window up front
-        // (which gets rate limited and fails). A 409 - the previous episode's
-        // task still holding the slot - is expected and harmless: the resolve
-        // below keeps polling until the file appears.
-        if (bookRef.source == OnlineSourceClient.SOURCE_MAIN) {
-          if (submittedAny && job.delaySeconds > 0) delay(job.delaySeconds * 1_000L)
-          val episode = chapter.order.takeIf { it > 0 } ?: (startOffset + offset + 1)
-          val _ = runCatching { service.submitDownload(bookRef.bookId, episode, episode) }
-          submittedAny = true
-        }
+        // Pace the chapters: the configured per-episode delay lets the source
+        // cool down between downloads instead of hammering it with the whole
+        // window up front (which gets rate limited and fails).
+        if (pacedAny && job.delaySeconds > 0) delay(job.delaySeconds * 1_000L)
+        pacedAny = true
         // the player owns the connection while it buffers; a stuck player
         // must not stall the cache forever, hence the bounded wait
         val _ = withTimeoutOrNull(PLAYBACK_GATE_WAIT_MS) {
@@ -661,7 +652,7 @@ public class OnlineBookCacheManager(
 
   private suspend fun downloadRequest(url: String): Request {
     val builder = Request.Builder().url(url)
-    // the site's file streaming endpoint requires the bearer token; third
+    // urls served by the configured server require the bearer token; third
     // party cdn links must not receive it
     val base = baseUrlStore.data.first().trim().trimEnd('/')
     val token = tokenStore.data.first().trim()

@@ -16,7 +16,7 @@ public data class OnlineCacheJob(
   val bookUri: String,
   /** How many chapters starting at the chapter in progress were requested. */
   val count: Int,
-  /** Seconds between two episodes of the main catalog (0 = no delay). */
+  /** Seconds to wait between two episodes while caching (0 = no delay). */
   val delaySeconds: Int = 0,
   /**
    * How many runs of this job already ended without downloading a single

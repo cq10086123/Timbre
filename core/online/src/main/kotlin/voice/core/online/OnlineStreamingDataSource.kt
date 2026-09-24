@@ -209,7 +209,7 @@ public class OnlineStreamingDataSource internal constructor(
     // those are served over http as well, so downgrade instead of failing
     val requestUrl = OnlineStreamUrlPolicy.applyCertFallback(url)
     val requestBuilder = Request.Builder().url(requestUrl)
-    // the site's file streaming endpoint requires the bearer token; third
+    // urls served by the configured server require the bearer token; third
     // party cdn links must not receive it
     val base = baseUrlProvider().trim().trimEnd('/')
     val token = tokenProvider().trim()
