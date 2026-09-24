@@ -12,6 +12,8 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import voice.core.common.DispatcherProvider
 import voice.core.data.repo.BookRepository
 import voice.core.featureflag.ExperimentalPlaybackPersistenceQualifier
 import voice.core.featureflag.FeatureFlag
@@ -32,6 +34,7 @@ class PositionUpdater(
   private val bookRepo: BookRepository,
   private val onlinePlaybackCatalog: OnlinePlaybackCatalog,
   private val durationProbeAhead: OnlineDurationProbeAhead,
+  private val dispatcherProvider: DispatcherProvider,
   private val scope: CoroutineScope,
   private val playStateManager: PlayStateManager,
   @ExperimentalPlaybackPersistenceQualifier
@@ -127,15 +130,15 @@ class PositionUpdater(
    * written at most every [PERSIST_INTERVAL_MS] because the position in memory
    * is already enough to resume and to update the ui.
    */
-  suspend fun flushPositionNow(force: Boolean = true) {
-    val player = player ?: return
-    val mediaItem = player.currentMediaItem ?: return
+  suspend fun flushPositionNow(force: Boolean = true): Unit = withContext(dispatcherProvider.mainImmediate) {
+    val player = player ?: return@withContext
+    val mediaItem = player.currentMediaItem ?: return@withContext
     val currentPosition = player.currentPosition
-      .takeIf { it >= 0 } ?: return
-    val mediaId = mediaItem.mediaId.toMediaIdOrNull() ?: return
-    val bookId = mediaId.bookId ?: return
-    val chapterId = mediaId.realChapterId ?: return
-    val positionInChapter = mediaId.positionInChapter(currentPosition) ?: return
+      .takeIf { it >= 0 } ?: return@withContext
+    val mediaId = mediaItem.mediaId.toMediaIdOrNull() ?: return@withContext
+    val bookId = mediaId.bookId ?: return@withContext
+    val chapterId = mediaId.realChapterId ?: return@withContext
+    val positionInChapter = mediaId.positionInChapter(currentPosition) ?: return@withContext
     val now = SystemClock.elapsedRealtime()
     val persist = force || now - lastPersistedAt >= PERSIST_INTERVAL_MS
     if (persist) {
