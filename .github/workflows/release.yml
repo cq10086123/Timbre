@@ -93,6 +93,49 @@ jobs:
           name: ${{ steps.ver.outputs.apk_prefix }}-v${{ inputs.versionName }}
           path: app/build/outputs/apk/free/release/app-free-release.apk
 
+      - name: 生成 Release 说明
+        id: notes
+        shell: bash
+        run: |
+          if [ "${{ steps.ver.outputs.branch }}" = "pure" ]; then
+            cat > release_notes.md <<'EOF'
+## Timbre Pure（纯净版）
+
+这是 **Timbre Pure** 版本线，专为只需要**本地书 + WebDAV / NAS** 的用户维护。
+
+### 与完整版的区别
+
+| 功能 | Timbre Pure（本版本） | Timbre（完整版） |
+|------|---------------------|-----------------|
+| 本地文件播放 | ✅ | ✅ |
+| WebDAV / NAS | ✅ | ✅ |
+| 在线书源搜索与播放 | ❌ 不含 | ✅ |
+| 安装包大小 | 更小 | 含在线模块 |
+| 更新通道 | `update-pure.json` | `update.json` |
+
+### 我应该下载哪个？
+
+- 如果你有 NAS 或只播放本地下载好的有声书 → **下载本 APK（Timbre Pure）**
+- 如果你想在应用内搜索并直接播放第三方在线书源 → 请前往 [完整版 Release 列表](https://github.com/cq10086123/Timbre/releases?q=timbre-v)
+
+> 两个版本线代码独立、更新通道独立。安装 Timbre Pure 后不会被提示升级到完整版。
+EOF
+          else
+            cat > release_notes.md <<'EOF'
+## Timbre（完整版）
+
+这是 **Timbre** 主版本线，包含全部功能：本地书 + WebDAV / NAS + 在线书源。
+
+### 我应该下载哪个？
+
+- 如果你想在应用内搜索并直接播放第三方在线书源 → **下载本 APK（Timbre）**
+- 如果你只听本地或 NAS 上的书，不需要任何在线源 → 可改用更轻量的 [Timbre Pure](https://github.com/cq10086123/Timbre/releases?q=timbre-pure)
+
+> 两个版本线代码独立、更新通道独立。安装 Timbre 后按主版本线提示更新。
+EOF
+          fi
+          echo "body_path=release_notes.md" >> "$GITHUB_OUTPUT"
+
       - name: 创建 GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -102,7 +145,7 @@ jobs:
           gh release create "v${{ inputs.versionName }}" \
             "$APK_NAME" \
             --title "${{ steps.ver.outputs.release_title_prefix }} v${{ inputs.versionName }}" \
-            --generate-notes \
+            --notes-file release_notes.md \
             --target "$GITHUB_SHA"
 
       - name: 更新 ${{ steps.ver.outputs.update_file }} 供应用内检查更新
