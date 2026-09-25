@@ -74,8 +74,17 @@ Timbre 把「本地文件、NAS、在线源」统合成一个书架，换源不�
 
 ## 📥 下载 | Download
 
-前往 [GitHub Releases](https://github.com/cq10086123/Timbre/releases/latest) 下载最新签名 APK，
-应用内也会自动提示更新。
+Timbre 提供**两个独立维护的版本线**，可按需选择：
+
+| 版本线 | 适合谁 | 功能 | 最新 APK | 更新文件 |
+|--------|--------|------|----------|----------|
+| **Timbre**（完整版） | 想使用全部功能的用户 | 本地 + WebDAV NAS + 在线书源 | [`timbre-vX.Y.Z.apk`](https://github.com/cq10086123/Timbre/releases/latest) | `update.json` |
+| **Timbre Pure**（纯净版） | 只听本地或 NAS、不需要在线源的用户 | 本地 + WebDAV NAS，**无在线书源** | [`timbre-pure-vX.Y.Z.apk`](https://github.com/cq10086123/Timbre/releases?q=timbre-pure) | `update-pure.json` |
+
+> 💡 **为什么分两个版本？** 在线书源需要连接第三方源站，部分用户只希望使用纯本地 / NAS 方案。两条线代码独立、更新通道独立，纯净版不会被提示升级到完整版。
+
+前往 [GitHub Releases](https://github.com/cq10086123/Timbre/releases) 查看全部版本，
+应用内也会根据你安装的版本自动提示更新。
 
 ## 🛠️ 自行编译 | Build from source
 
