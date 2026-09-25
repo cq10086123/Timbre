@@ -17,13 +17,15 @@ class UpdateChecker {
   }
 
   // jsDelivr first: it is a CDN that is reachable from mainland China, where
-  // github often is not, and it serves the update.json this repository keeps
-  // on main. The GitHub api is the fallback for the case where the CDN still
-  // serves a stale file. Every endpoint is tried in order and a failure or a
-  // timeout of one is silently ignored.
+  // github often is not, and it serves the update-pure.json this branch keeps.
+  // The GitHub api is the fallback for the case where the CDN still serves a
+  // stale file. Every endpoint is tried in order and a failure or a timeout of
+  // one is silently ignored. The pure branch uses its own update file so that
+  // users of the offline-only flavour are never prompted to upgrade to the
+  // online-enabled mainline releases.
   private val endpoints = listOf(
-    "https://cdn.jsdelivr.net/gh/cq10086123/Timbre@main/update.json",
-    "https://fastly.jsdelivr.net/gh/cq10086123/Timbre@main/update.json",
+    "https://cdn.jsdelivr.net/gh/cq10086123/Timbre@pure/update-pure.json",
+    "https://fastly.jsdelivr.net/gh/cq10086123/Timbre@pure/update-pure.json",
     "https://api.github.com/repos/cq10086123/Timbre/releases/latest",
   )
 

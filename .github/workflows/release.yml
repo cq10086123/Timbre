@@ -26,21 +26,38 @@ jobs:
 
       - uses: ./.github/actions/build_setup
 
-      - name: 解析 versionCode（留空则自动取上次发布 +1）
+      - name: 解析分支、更新文件与 versionCode
         id: ver
         env:
           INPUT_CODE: ${{ inputs.versionCode }}
         run: |
-          LAST=$(sed -n 's/.*"versionCode": *\([0-9][0-9]*\).*/\1/p' update.json 2>/dev/null | tail -n 1)
+          # main branch -> update.json / timbre-vX.Y.Z.apk
+          # pure branch -> update-pure.json / timbre-pure-vX.Y.Z.apk
+          BRANCH="${GITHUB_REF_NAME:-main}"
+          if [ "$BRANCH" = "pure" ]; then
+            UPDATE_FILE="update-pure.json"
+            APK_PREFIX="timbre-pure"
+            RELEASE_TITLE_PREFIX="Timbre Pure"
+          else
+            UPDATE_FILE="update.json"
+            APK_PREFIX="timbre"
+            RELEASE_TITLE_PREFIX="Timbre"
+          fi
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+          echo "update_file=$UPDATE_FILE" >> "$GITHUB_OUTPUT"
+          echo "apk_prefix=$APK_PREFIX" >> "$GITHUB_OUTPUT"
+          echo "release_title_prefix=$RELEASE_TITLE_PREFIX" >> "$GITHUB_OUTPUT"
+
+          LAST=$(sed -n 's/.*"versionCode": *\([0-9][0-9]*\).*/\1/p' "$UPDATE_FILE" 2>/dev/null | tail -n 1)
           LAST=${LAST:-0}
           if [ -n "$INPUT_CODE" ]; then
             CODE="$INPUT_CODE"
           else
             CODE=$((LAST + 1))
-            echo "未填 versionCode，依据 update.json（上次=$LAST）自动使用 $CODE"
+            echo "未填 versionCode，依据 $UPDATE_FILE（上次=$LAST）自动使用 $CODE"
           fi
           if [ "$CODE" -lt "$LAST" ]; then
-            echo "::error::versionCode=$CODE 低于已发布的 $LAST（见 update.json），会造成降级，请填写更大的值"
+            echo "::error::versionCode=$CODE 低于已发布的 $LAST（见 $UPDATE_FILE），会造成降级，请填写更大的值"
             exit 1
           fi
           if [ "$CODE" -eq "$LAST" ]; then
@@ -73,24 +90,25 @@ jobs:
       - name: 上传 APK 到构建产物
         uses: actions/upload-artifact@v4
         with:
-          name: timbre-v${{ inputs.versionName }}
+          name: ${{ steps.ver.outputs.apk_prefix }}-v${{ inputs.versionName }}
           path: app/build/outputs/apk/free/release/app-free-release.apk
 
       - name: 创建 GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          cp app/build/outputs/apk/free/release/app-free-release.apk \
-            "timbre-v${{ inputs.versionName }}.apk"
+          APK_NAME="${{ steps.ver.outputs.apk_prefix }}-v${{ inputs.versionName }}.apk"
+          cp app/build/outputs/apk/free/release/app-free-release.apk "$APK_NAME"
           gh release create "v${{ inputs.versionName }}" \
-            "timbre-v${{ inputs.versionName }}.apk" \
-            --title "Timbre v${{ inputs.versionName }}" \
+            "$APK_NAME" \
+            --title "${{ steps.ver.outputs.release_title_prefix }} v${{ inputs.versionName }}" \
             --generate-notes \
             --target "$GITHUB_SHA"
 
-      - name: 更新 update.json 供应用内检查更新
+      - name: 更新 ${{ steps.ver.outputs.update_file }} 供应用内检查更新
         run: |
-          cat > update.json <<EOF
+          UPDATE_FILE="${{ steps.ver.outputs.update_file }}"
+          cat > "$UPDATE_FILE" <<EOF
           {
             "versionName": "${{ inputs.versionName }}",
             "versionCode": ${{ steps.ver.outputs.versionCode }},
@@ -99,18 +117,18 @@ jobs:
           EOF
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add update.json
+          git add "$UPDATE_FILE"
           if git diff --cached --quiet; then
-            echo "update.json unchanged"
+            echo "$UPDATE_FILE unchanged"
           else
-            git commit -m "Publish update.json for v${{ inputs.versionName }}"
+            git commit -m "Publish $UPDATE_FILE for v${{ inputs.versionName }}"
             for attempt in 1 2 3; do
-            if git pull --rebase origin main && git push origin HEAD:main; then
+            if git pull --rebase origin "$GITHUB_REF_NAME" && git push origin HEAD:"$GITHUB_REF_NAME"; then
               exit 0
             fi
             echo "push attempt $attempt failed, retrying"
             sleep 5
           done
-          echo "::error::Could not push update.json to main after 3 attempts"
+          echo "::error::Could not push $UPDATE_FILE to $GITHUB_REF_NAME after 3 attempts"
           exit 1
           fi
