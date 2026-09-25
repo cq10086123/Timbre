@@ -18,15 +18,14 @@ class UpdateChecker {
 
   // jsDelivr first: it is a CDN that is reachable from mainland China, where
   // github often is not, and it serves the update-pure.json this branch keeps.
-  // The GitHub api is the fallback for the case where the CDN still serves a
-  // stale file. Every endpoint is tried in order and a failure or a timeout of
-  // one is silently ignored. The pure branch uses its own update file so that
-  // users of the offline-only flavour are never prompted to upgrade to the
-  // online-enabled mainline releases.
+  // Every endpoint is tried in order and a failure or a timeout of one is
+  // silently ignored. The pure branch deliberately does NOT fall back to the
+  // GitHub releases/latest API, because that endpoint is repository-wide and
+  // would return mainline (online-enabled) releases. Using only the branch-bound
+  // update-pure.json keeps users of the offline-only flavour on the pure line.
   private val endpoints = listOf(
     "https://cdn.jsdelivr.net/gh/cq10086123/Timbre@pure/update-pure.json",
     "https://fastly.jsdelivr.net/gh/cq10086123/Timbre@pure/update-pure.json",
-    "https://api.github.com/repos/cq10086123/Timbre/releases/latest",
   )
 
   /**
@@ -64,18 +63,12 @@ class UpdateChecker {
     body: String,
   ): String? {
     val element = json.parseToJsonElement(body)
-    return if (endpoint.endsWith(JSON_FILE_NAME)) {
-      element.jsonObject[VERSION_NAME_KEY]?.jsonPrimitive?.content
-    } else {
-      // the GitHub api answers with the release tag, e.g. "v1.0.9"
-      element.jsonObject[TAG_NAME_KEY]?.jsonPrimitive?.content?.removePrefix("v")
-    }
+    return element.jsonObject[VERSION_NAME_KEY]?.jsonPrimitive?.content
   }
 
   private companion object {
-    const val JSON_FILE_NAME = "update.json"
+    const val JSON_FILE_NAME = "update-pure.json"
     const val VERSION_NAME_KEY = "versionName"
-    const val TAG_NAME_KEY = "tag_name"
     const val HTTP_OK = 200
     const val CONNECT_TIMEOUT_MS = 5_000
     const val READ_TIMEOUT_MS = 8_000
