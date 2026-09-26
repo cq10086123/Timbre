@@ -111,7 +111,21 @@ Timbre 基于 [Voice](https://github.com/PaulWoitaschek/Voice)（GPLv3）二次�
 
 ## JDR 书源插件
 
-支持导入本地运行的 `.jdr` 书源包（多源、无需登录服务器）：
+支持导入本地运行的 `.jdr` 书源包（多源、无需登录服务器）。
+
+### ✍️ 想自己写书源？一键下载开发工具包（约 30 KB）
+
+**不需要下载本项目源码**，工具包里含教程、三个可改的示例和全部工具（只需 Node.js 18+）：
+
+<p align="center">
+  <a href="dist/jdr-kit.zip"><b>⬇️ 下载 JDR 书源开发工具包 (jdr-kit.zip)</b></a>
+</p>
+
+> 直链：https://github.com/cq10086123/Timbre/raw/jdr-plugin/dist/jdr-kit.zip
+>
+> 解压后看 `README.md`：`new` 创建 → 改 `bundle.js` → `test` 冒烟 → `pack` 打包 → App 导入。
+
+### 📚 文档与示例
 
 - 编写教程（从零到发布）：[docs/jdr-tutorial.md](docs/jdr-tutorial.md)
 - API 与包格式速查：[docs/jdr-plugin.md](docs/jdr-plugin.md)
