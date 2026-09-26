@@ -263,4 +263,14 @@
     <string name="webdav_cache_prefetch_5">5 章</string>
     <string name="webdav_cache_prefetch_off">关闭</string>
     <string name="webdav_cache_metered">允许移动网络预取</string>
+    <string name="source_manager_title">书源插件</string>
+    <string name="source_manager_empty">尚未导入书源包。点地球图标从 URL 导入，或点文件夹图标导入 .jdr 文件。</string>
+    <string name="source_manager_import_url">从 URL 导入</string>
+    <string name="source_manager_import_url_hint">https://example.com/sources.jdr</string>
+    <string name="source_manager_import_file">导入 .jdr 文件</string>
+    <string name="source_manager_version">版本 %1$s</string>
+    <string name="source_manager_delete_title">移除包</string>
+    <string name="source_manager_delete_message">移除 %1$s 及其全部书源？书架条目、进度和书签会保留。</string>
+    <string name="settings_online_source_jdr_title">书源插件</string>
+    <string name="settings_online_source_jdr_summary">导入并管理 .jdr 书源包</string>
 </resources>
