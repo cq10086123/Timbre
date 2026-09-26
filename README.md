@@ -107,3 +107,13 @@ Timbre 基于 [Voice](https://github.com/PaulWoitaschek/Voice)（GPLv3）二次�
 感谢原作者 [Paul Woitaschek](https://github.com/PaulWoitaschek) 与所有上游贡献者。
 
 [GNU GPLv3](LICENSE.md) © Voice 原作者及 Timbre 贡献者
+
+
+## JDR 书源插件
+
+支持导入本地运行的 `.jdr` 书源包（多源、无需登录服务器）：
+
+- 编写教程（从零到发布）：[docs/jdr-tutorial.md](docs/jdr-tutorial.md)
+- API 与包格式速查：[docs/jdr-plugin.md](docs/jdr-plugin.md)
+- 可直接修改的示例源码：[examples/](examples/)（demo-json / demo-html / demo-headers，附预打包 .jdr）
+- 打包与冒烟测试工具：[tools/source-kit/](tools/source-kit/)

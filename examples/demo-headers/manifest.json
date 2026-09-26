@@ -1,0 +1,10 @@
+{
+  "formatVersion": 1,
+  "packageId": "demo-headers",
+  "name": "Demo Referer Source",
+  "version": "1.0.0",
+  "entry": "bundle.js",
+  "sources": [
+    { "id": "demo-headers", "name": "Demo Headers" }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "formatVersion": 1,
+  "packageId": "demo-json",
+  "name": "Demo JSON API Source",
+  "version": "1.0.0",
+  "entry": "bundle.js",
+  "sources": [
+    { "id": "demo-json", "name": "Demo JSON" }
+  ]
+}

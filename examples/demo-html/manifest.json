@@ -1,0 +1,10 @@
+{
+  "formatVersion": 1,
+  "packageId": "demo-html",
+  "name": "Demo HTML Source",
+  "version": "1.0.0",
+  "entry": "bundle.js",
+  "sources": [
+    { "id": "demo-html", "name": "Demo HTML" }
+  ]
+}
