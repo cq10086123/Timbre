@@ -35,7 +35,7 @@ import kotlin.math.min
 @SingleIn(AppScope::class)
 @Inject
 public class OnlineDurationProbeAhead internal constructor(
-  private val service: OnlineSourceService,
+  private val router: OnlineSourceRouter,
   private val catalog: OnlinePlaybackCatalog,
   private val context: Application,
   @OnlineSourceStreamingClient private val httpClient: OkHttpClient,
@@ -68,7 +68,7 @@ public class OnlineDurationProbeAhead internal constructor(
     if (isMetered()) return
     val book = catalog.lookupOnlineBook(bookRef.source, bookRef.bookId) ?: return
     val chapters = book.chapters.ifEmpty {
-      runCatching { service.chapters(bookRef.source, bookRef.bookId) }.getOrDefault(emptyList())
+      runCatching { router.chapters(bookRef.source, bookRef.bookId) }.getOrDefault(emptyList())
     }
     val currentId = OnlineUri.parse(chapterId.value)?.chapterId ?: chapterId.value
     val index = chapters.indexOfFirst { it.id == currentId }
@@ -90,9 +90,12 @@ public class OnlineDurationProbeAhead internal constructor(
     bookId: String,
     chapter: OnlineChapter,
   ) {
-    val url = runCatching { service.resolveDirectUrl(source, bookId, chapter.id) }.getOrNull()
+    val audio = runCatching {
+      router.resolveAudio(source, bookId, chapter.id, chapter.extra)
+    }.getOrNull()
       ?: return
-    val durationMs = runCatching { probeUrl(url) }.getOrNull() ?: return
+    if (audio.url.isBlank()) return
+    val durationMs = runCatching { probeUrl(audio.url, audio.headers) }.getOrNull() ?: return
     if (durationMs > 0L) {
       catalog.recordMeasuredDuration(source, bookId, chapter.id, durationMs)
     }
@@ -103,9 +106,13 @@ public class OnlineDurationProbeAhead internal constructor(
    * Returns null when the server ignores ranges, hides the total size, or the
    * head holds no usable frame.
    */
-  internal fun probeUrl(url: String): Long? {
-    val request = Request.Builder()
+  internal fun probeUrl(url: String, headers: Map<String, String> = emptyMap()): Long? {
+    val builder = Request.Builder()
       .url(url)
+    for ((name, value) in headers) {
+      if (name.isNotBlank() && value.isNotBlank()) builder.header(name, value)
+    }
+    val request = builder
       .header("Range", "bytes=0-${PROBE_BYTES - 1}")
       .build()
     httpClient.newCall(request).execute().use { response ->

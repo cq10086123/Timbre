@@ -76,7 +76,7 @@ class OnlineBookCacheManagerTest {
     manager = createManager()
     stubBook()
     enqueueAudio()
-    coEvery { catalog.resolveStreamUrl(any()) } returns server.url("/audio.mp3").toString()
+    coEvery { catalog.resolveStreamUrl(any()) } returns OnlineAudio(url = server.url("/audio.mp3").toString())
 
     manager.cacheUpcoming(bookId, 2)
     await("both chapters to be cached") { fileCache.cachedFileCount("A", "b1") == 2 }
@@ -93,7 +93,7 @@ class OnlineBookCacheManagerTest {
     manager = createManager()
     stubBook()
     enqueueAudio()
-    coEvery { catalog.resolveStreamUrl(any()) } returns server.url("/audio.mp3").toString()
+    coEvery { catalog.resolveStreamUrl(any()) } returns OnlineAudio(url = server.url("/audio.mp3").toString())
 
     manager.cacheUpcoming(bookId, 2)
 
@@ -124,7 +124,7 @@ class OnlineBookCacheManagerTest {
     manager = createManager()
     stubBook()
     enqueueAudio()
-    coEvery { catalog.resolveStreamUrl(any()) } returns server.url("/audio.mp3").toString()
+    coEvery { catalog.resolveStreamUrl(any()) } returns OnlineAudio(url = server.url("/audio.mp3").toString())
 
     manager.cacheUpcoming(bookId, 2)
 
@@ -148,7 +148,7 @@ class OnlineBookCacheManagerTest {
     metered = true
     manager = createManager()
     stubBook()
-    coEvery { catalog.resolveStreamUrl(any()) } returns server.url("/audio.mp3").toString()
+    coEvery { catalog.resolveStreamUrl(any()) } returns OnlineAudio(url = server.url("/audio.mp3").toString())
 
     manager.cacheUpcoming(bookId, 2)
     val _ = awaitConfirmation()
@@ -167,7 +167,7 @@ class OnlineBookCacheManagerTest {
     manager = createManager(jobs = listOf(OnlineCacheJob(bookUri = bookId.value, count = 2)))
     stubBook()
     enqueueAudio()
-    coEvery { catalog.resolveStreamUrl(any()) } returns server.url("/audio.mp3").toString()
+    coEvery { catalog.resolveStreamUrl(any()) } returns OnlineAudio(url = server.url("/audio.mp3").toString())
 
     manager.resumePending()
     await("the resumed chapters to be cached") { fileCache.cachedFileCount("A", "b1") == 2 }
@@ -185,7 +185,7 @@ class OnlineBookCacheManagerTest {
     )
     stubBook()
     enqueueAudio()
-    coEvery { catalog.resolveStreamUrl(any()) } returns server.url("/audio.mp3").toString()
+    coEvery { catalog.resolveStreamUrl(any()) } returns OnlineAudio(url = server.url("/audio.mp3").toString())
 
     manager.resumePending()
 
@@ -226,7 +226,7 @@ class OnlineBookCacheManagerTest {
     stubBook(chapters = 7, currentChapterId = "c1")
     server.enqueue(MockResponse.Builder().code(200).body("fake-audio-bytes".repeat(64)).build())
     repeat(5) { server.enqueue(MockResponse.Builder().code(404).body("").build()) }
-    coEvery { catalog.resolveStreamUrl(any()) } returns server.url("/audio.mp3").toString()
+    coEvery { catalog.resolveStreamUrl(any()) } returns OnlineAudio(url = server.url("/audio.mp3").toString())
 
     manager.resumePending()
     await("the job to abort after the failures") { state()?.downloading == false }
@@ -246,7 +246,7 @@ class OnlineBookCacheManagerTest {
     metered = true
     manager = createManager()
     stubBook()
-    coEvery { catalog.resolveStreamUrl(any()) } returns server.url("/audio.mp3").toString()
+    coEvery { catalog.resolveStreamUrl(any()) } returns OnlineAudio(url = server.url("/audio.mp3").toString())
 
     manager.cacheUpcoming(bookId, 2)
     val _ = awaitConfirmation()

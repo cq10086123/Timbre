@@ -24,7 +24,7 @@ public class OnlineSourceService internal constructor(
   @OnlineSourceTokenStore private val tokenStore: DataStore<String>,
   @OnlineSourceBooksStore private val booksStore: DataStore<List<OnlineBook>>,
   private val client: OnlineSourceClient,
-) {
+) : OnlineSourceBackend {
 
   private val loginMutex = Mutex()
   private var cachedToken: String? = null
@@ -44,7 +44,7 @@ public class OnlineSourceService internal constructor(
       credentialStore.data.first().isNotBlank()
   }
 
-  public suspend fun sources(): List<OnlineSourceInfo> {
+  override public suspend fun sources(): List<OnlineSourceInfo> {
     val (base, _) = authed()
     return withRelogin { client.interfaces(base, it) }
   }
@@ -52,7 +52,7 @@ public class OnlineSourceService internal constructor(
   /**
    * Searches one source. [source] is an interface name from [sources].
    */
-  public suspend fun search(
+  override public suspend fun search(
     source: String,
     keyword: String,
   ): List<OnlineSearchResult> {
@@ -62,7 +62,7 @@ public class OnlineSourceService internal constructor(
     }
   }
 
-  public suspend fun chapters(
+  override public suspend fun chapters(
     source: String,
     bookId: String,
   ): List<OnlineChapter> {
@@ -115,6 +115,17 @@ public class OnlineSourceService internal constructor(
   ): String? {
     val (base, _) = authed()
     return withRelogin { client.sourceAudio(base, it, source, bookId, chapterId) }
+  }
+
+  override suspend fun resolveAudio(
+    source: String,
+    bookId: String,
+    chapterId: String,
+    chapterExtra: String,
+  ): OnlineAudio {
+    val url = resolveDirectUrl(source, bookId, chapterId)
+      ?: throw OnlineSourceException("The server returned no audio url for $source/$bookId/$chapterId")
+    return OnlineAudio(url = url)
   }
 
   /** The books added from the online source, most recently added first. */

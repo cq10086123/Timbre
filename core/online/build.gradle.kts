@@ -9,6 +9,7 @@ kotlin {
 }
 
 dependencies {
+  api(projects.core.source)
   implementation(projects.core.common)
   implementation(projects.core.data.api)
   implementation(projects.core.initializer)

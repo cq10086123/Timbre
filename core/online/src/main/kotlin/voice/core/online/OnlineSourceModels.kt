@@ -32,4 +32,9 @@ public data class OnlineChapter(
   val title: String = "",
   val durationSeconds: Int = 0,
   val order: Int = 0,
+  /**
+   * Opaque payload the source wants back when resolving the audio. Never
+   * interpreted by the player, only round-tripped.
+   */
+  val extra: String = "",
 )

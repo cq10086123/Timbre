@@ -9,6 +9,8 @@ interface AppGraph :
 
   override val onlineSourceService: voice.core.online.OnlineSourceService
   override val onlinePlaybackCatalog: voice.core.online.OnlinePlaybackCatalog
+  override val onlineSourceRouter: voice.core.online.OnlineSourceRouter
+  override val jdrPackageManager: voice.core.source.JdrPackageManager
 
   fun inject(target: App)
   override fun inject(target: BaseWidgetProvider)

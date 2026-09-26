@@ -26,6 +26,12 @@ sealed interface Destination {
 
   data class Website(val url: String) : Destination
 
+  /** Manager for the imported jdr book source plugin packages. */
+  @Serializable
+  data object SourceManager : Compose {
+    override val trackingName: String get() = "SourceManager"
+  }
+
   @Serializable
   data class EditCover(
     val bookId: BookId,

@@ -7,6 +7,7 @@ import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
+import voice.core.online.OnlineAudio
 import io.mockk.verify
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -97,9 +98,9 @@ class OnlineDurationProbeAheadTest {
       mainImmediate = UnconfinedTestDispatcher(testScheduler),
     )
     return OnlineDurationProbeAhead(
-      service = mockk {
-        coEvery { resolveDirectUrl("A", "b", any()) } answers {
-          "http://cdn/x/${thirdArg<String>()}.mp3"
+      router = mockk {
+        coEvery { resolveAudio("A", "b", any(), any()) } answers {
+          OnlineAudio(url = "http://cdn/x/${thirdArg<String>()}.mp3")
         }
       },
       catalog = catalog,

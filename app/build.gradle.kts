@@ -177,6 +177,8 @@ dependencies {
   implementation(projects.core.documentfile)
   implementation(projects.core.webdav)
   implementation(projects.core.online)
+  implementation(projects.core.source)
+  implementation(projects.features.sourceManager)
   implementation(projects.features.webdav)
   implementation(projects.features.onboarding)
   implementation(projects.features.bookmark)

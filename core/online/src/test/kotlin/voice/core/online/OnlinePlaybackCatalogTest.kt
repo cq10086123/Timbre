@@ -26,7 +26,9 @@ import kotlin.time.TimeSource
 class OnlinePlaybackCatalogTest {
 
   private val service = mockk<OnlineSourceService>()
-  private val catalog = OnlinePlaybackCatalog(service, FakeBooksStore())
+  private val jdrBackend = mockk<JdrOnlineSourceBackend>()
+  private val router = OnlineSourceRouter(service, jdrBackend)
+  private val catalog = OnlinePlaybackCatalog(service, router, FakeBooksStore())
 
   private fun shelfBook() = OnlineBook(
     source = SOURCE,
@@ -140,17 +142,19 @@ class OnlinePlaybackCatalogTest {
     // the player re-opens the stream on every seek: asking the source again
     // would stall the chapter the user is already listening to
     val ref = OnlineChapterRef(THIRD_PARTY_SOURCE, BOOK_ID, "c1")
-    coEvery { service.resolveDirectUrl(THIRD_PARTY_SOURCE, BOOK_ID, "c1") } returns STREAM_URL
+    coEvery { service.resolveAudio(THIRD_PARTY_SOURCE, BOOK_ID, "c1", any()) } returns OnlineAudio(url = STREAM_URL)
 
-    assertEquals(STREAM_URL, catalog.resolveStreamUrl(ref))
-    assertEquals(STREAM_URL, catalog.resolveStreamUrl(ref))
-    coVerify(exactly = 1) { val _ = service.resolveDirectUrl(THIRD_PARTY_SOURCE, BOOK_ID, "c1") }
+    assertEquals(STREAM_URL, catalog.resolveStreamUrl(ref)?.url)
+    assertEquals(STREAM_URL, catalog.resolveStreamUrl(ref)?.url)
+    coVerify(exactly = 1) {
+      val _ = service.resolveAudio(THIRD_PARTY_SOURCE, BOOK_ID, "c1", "")
+    }
 
     // a signed link the server rejects is dropped, so the next resolve is fresh
     assertTrue(catalog.invalidateStreamUrl(ref))
-    assertEquals(STREAM_URL, catalog.resolveStreamUrl(ref))
+    assertEquals(STREAM_URL, catalog.resolveStreamUrl(ref)?.url)
     coVerify(exactly = 2) {
-      val _ = service.resolveDirectUrl(THIRD_PARTY_SOURCE, BOOK_ID, "c1")
+      val _ = service.resolveAudio(THIRD_PARTY_SOURCE, BOOK_ID, "c1", "")
     }
     // always true: the data source retries once even when nothing was cached
     assertTrue(catalog.invalidateStreamUrl(OnlineChapterRef(THIRD_PARTY_SOURCE, BOOK_ID, "unknown")))
@@ -171,11 +175,11 @@ class OnlinePlaybackCatalogTest {
     val started = kotlinx.coroutines.CompletableDeferred<Unit>()
     val release = kotlinx.coroutines.CompletableDeferred<Unit>()
     var calls = 0
-    coEvery { service.resolveDirectUrl(THIRD_PARTY_SOURCE, BOOK_ID, "c1") } coAnswers {
+    coEvery { service.resolveAudio(THIRD_PARTY_SOURCE, BOOK_ID, "c1", any()) } coAnswers {
       calls++
       started.complete(Unit)
       release.await()
-      STREAM_URL
+      OnlineAudio(url = STREAM_URL)
     }
 
     // stay on the test scheduler: Dispatchers.Default + runTest can leave the
@@ -187,8 +191,8 @@ class OnlinePlaybackCatalogTest {
     yield()
     release.complete(Unit)
 
-    assertEquals(STREAM_URL, first.await())
-    assertEquals(STREAM_URL, second.await())
+    assertEquals(STREAM_URL, first.await()?.url)
+    assertEquals(STREAM_URL, second.await()?.url)
     assertEquals(1, calls)
   }
 
@@ -197,10 +201,10 @@ class OnlinePlaybackCatalogTest {
     val ref = OnlineChapterRef(THIRD_PARTY_SOURCE, BOOK_ID, "c1")
     val started = kotlinx.coroutines.CompletableDeferred<Unit>()
     val release = kotlinx.coroutines.CompletableDeferred<Unit>()
-    coEvery { service.resolveDirectUrl(THIRD_PARTY_SOURCE, BOOK_ID, "c1") } coAnswers {
+    coEvery { service.resolveAudio(THIRD_PARTY_SOURCE, BOOK_ID, "c1", any()) } coAnswers {
       started.complete(Unit)
       release.await()
-      "https://cdn.example.com/rejected.mp3"
+      OnlineAudio(url = "https://cdn.example.com/rejected.mp3")
     }
 
     val slow = async { catalog.resolveStreamUrl(ref) }
@@ -208,13 +212,13 @@ class OnlinePlaybackCatalogTest {
     // data source rejected the url while resolve is still finishing
     assertTrue(catalog.invalidateStreamUrl(ref))
     release.complete(Unit)
-    assertEquals("https://cdn.example.com/rejected.mp3", slow.await())
+    assertEquals("https://cdn.example.com/rejected.mp3", slow.await()?.url)
 
     // next resolve must hit the source again instead of serving the rejected url
-    coEvery { service.resolveDirectUrl(THIRD_PARTY_SOURCE, BOOK_ID, "c1") } returns STREAM_URL
-    assertEquals(STREAM_URL, catalog.resolveStreamUrl(ref))
+    coEvery { service.resolveAudio(THIRD_PARTY_SOURCE, BOOK_ID, "c1", any()) } returns OnlineAudio(url = STREAM_URL)
+    assertEquals(STREAM_URL, catalog.resolveStreamUrl(ref)?.url)
     coVerify(atLeast = 2) {
-      val _ = service.resolveDirectUrl(THIRD_PARTY_SOURCE, BOOK_ID, "c1")
+      val _ = service.resolveAudio(THIRD_PARTY_SOURCE, BOOK_ID, "c1", "")
     }
   }
 
@@ -222,13 +226,13 @@ class OnlinePlaybackCatalogTest {
   fun `the resolving state is reported per book`() = runTest {
     val ref = OnlineChapterRef(THIRD_PARTY_SOURCE, BOOK_ID, "c1")
     var resolvingWhileRunning: Set<String>? = null
-    coEvery { service.resolveDirectUrl(THIRD_PARTY_SOURCE, BOOK_ID, "c1") } coAnswers {
+    coEvery { service.resolveAudio(THIRD_PARTY_SOURCE, BOOK_ID, "c1", any()) } coAnswers {
       resolvingWhileRunning = catalog.resolvingBooks.value
-      STREAM_URL
+      OnlineAudio(url = STREAM_URL)
     }
 
     assertTrue(catalog.resolvingBooks.value.isEmpty())
-    assertEquals(STREAM_URL, catalog.resolveStreamUrl(ref))
+    assertEquals(STREAM_URL, catalog.resolveStreamUrl(ref)?.url)
 
     assertEquals(
       expected = setOf(OnlineUri.buildBookUri(THIRD_PARTY_SOURCE, BOOK_ID)),
@@ -239,7 +243,7 @@ class OnlinePlaybackCatalogTest {
 
   @Test
   fun `a failed resolve clears the resolving state again`() = runTest {
-    coEvery { service.resolveDirectUrl(THIRD_PARTY_SOURCE, BOOK_ID, "c1") } returns null
+    coEvery { service.resolveAudio(THIRD_PARTY_SOURCE, BOOK_ID, "c1", any()) } throws IllegalStateException("no audio")
 
     assertNull(catalog.resolveStreamUrl(OnlineChapterRef(THIRD_PARTY_SOURCE, BOOK_ID, "c1")))
     assertTrue(catalog.resolvingBooks.value.isEmpty())
@@ -249,7 +253,7 @@ class OnlinePlaybackCatalogTest {
   fun `a persisted shelf position resumes the book`() = runTest {
     coEvery { service.shelfBook("A::$BOOK_ID") } returns
       shelfBook().copy(currentChapterId = "c2", positionMs = 42_000L)
-    val catalog = OnlinePlaybackCatalog(service, FakeBooksStore())
+    val catalog = OnlinePlaybackCatalog(service, router, FakeBooksStore())
 
     val book = assertNotNull(catalog.book(bookId()))
     assertEquals(OnlineUri.build(SOURCE, BOOK_ID, "c2"), book.content.currentChapter.value)
@@ -260,7 +264,7 @@ class OnlinePlaybackCatalogTest {
   fun `a session position wins over the persisted one`() = runTest {
     coEvery { service.shelfBook("A::$BOOK_ID") } returns
       shelfBook().copy(currentChapterId = "c2", positionMs = 42_000L)
-    val catalog = OnlinePlaybackCatalog(service, FakeBooksStore())
+    val catalog = OnlinePlaybackCatalog(service, router, FakeBooksStore())
 
     catalog.updatePosition(
       bookId = bookId(),
@@ -276,7 +280,7 @@ class OnlinePlaybackCatalogTest {
   @Test
   fun `updatePosition persists to the shelf entry`() = runTest {
     val store = FakeBooksStore(listOf(shelfBook()))
-    val catalog = OnlinePlaybackCatalog(service, store)
+    val catalog = OnlinePlaybackCatalog(service, router, store)
 
     catalog.updatePosition(
       bookId = bookId(),
@@ -293,7 +297,7 @@ class OnlinePlaybackCatalogTest {
   @Test
   fun `a chapter change persists immediately without waiting for the interval`() = runTest {
     val store = FakeBooksStore(listOf(shelfBook()))
-    val catalog = OnlinePlaybackCatalog(service, store)
+    val catalog = OnlinePlaybackCatalog(service, router, store)
 
     catalog.updatePosition(
       bookId = bookId(),
@@ -331,9 +335,9 @@ class OnlinePlaybackCatalogTest {
         ),
       ),
     )
-    val catalog = OnlinePlaybackCatalog(service, store)
+    val catalog = OnlinePlaybackCatalog(service, router, store)
     coEvery { service.shelfBook("A::$BOOK_ID") } returns store.data.first().single()
-    coEvery { service.refreshChapters(SOURCE, BOOK_ID) } returns shelfBook().chapters +
+    coEvery { service.chapters(SOURCE, BOOK_ID) } returns shelfBook().chapters +
       OnlineChapter(id = "c4", title = "第4集", durationSeconds = 1700)
 
     val result = catalog.refreshChapters(bookId())
@@ -350,11 +354,11 @@ class OnlinePlaybackCatalogTest {
   @Test
   fun `refresh prefers measured durations over empty fresh ones`() = runTest {
     val store = FakeBooksStore(listOf(shelfBook()))
-    val catalog = OnlinePlaybackCatalog(service, store)
+    val catalog = OnlinePlaybackCatalog(service, router, store)
     coEvery { service.shelfBook("A::$BOOK_ID") } returns store.data.first().single()
     // the stream measured c3 while the source still reports nothing
     catalog.recordMeasuredDuration(SOURCE, BOOK_ID, "c3", 120_000L)
-    coEvery { service.refreshChapters(SOURCE, BOOK_ID) } returns shelfBook().chapters
+    coEvery { service.chapters(SOURCE, BOOK_ID) } returns shelfBook().chapters
 
     val result = catalog.refreshChapters(bookId())
 
@@ -366,9 +370,9 @@ class OnlinePlaybackCatalogTest {
   @Test
   fun `a failed refresh keeps the stored chapters`() = runTest {
     val store = FakeBooksStore(listOf(shelfBook()))
-    val catalog = OnlinePlaybackCatalog(service, store)
+    val catalog = OnlinePlaybackCatalog(service, router, store)
     coEvery { service.shelfBook("A::$BOOK_ID") } returns shelfBook()
-    coEvery { service.refreshChapters(SOURCE, BOOK_ID) } throws OnlineSourceException("boom")
+    coEvery { service.chapters(SOURCE, BOOK_ID) } throws OnlineSourceException("boom")
 
     val result = catalog.refreshChapters(bookId())
 
@@ -379,7 +383,7 @@ class OnlinePlaybackCatalogTest {
   @Test
   fun `skip settings persist and surface in the synthesized book`() = runTest {
     val store = FakeBooksStore(listOf(shelfBook()))
-    val catalog = OnlinePlaybackCatalog(service, store)
+    val catalog = OnlinePlaybackCatalog(service, router, store)
 
     catalog.setSkipIntro(bookId(), 5_000L)
     catalog.setSkipOutro(bookId(), 7_000L)

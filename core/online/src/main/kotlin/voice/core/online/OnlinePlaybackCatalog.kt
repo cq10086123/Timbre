@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import voice.core.data.Book
 import voice.core.data.BookContent
@@ -59,6 +60,7 @@ public data class OnlinePlaybackError(
 @SingleIn(AppScope::class)
 public class OnlinePlaybackCatalog(
   private val service: OnlineSourceService,
+  private val router: OnlineSourceRouter,
   @OnlineSourceBooksStore private val booksStore: DataStore<List<OnlineBook>>,
 ) {
 
@@ -131,7 +133,7 @@ public class OnlinePlaybackCatalog(
    * probe can open the same chapter concurrently; coalescing them avoids two
    * full download/API round trips on a cold start.
    */
-  private val inFlightResolves = ConcurrentHashMap<String, Deferred<String?>>()
+  private val inFlightResolves = ConcurrentHashMap<String, Deferred<OnlineAudio?>>()
 
   /**
    * Bumped by [invalidateStreamUrl] so a resolve that outlives an invalidate
@@ -216,7 +218,7 @@ public class OnlinePlaybackCatalog(
     val shelf = runCatching { service.shelfBook(bookRef.key) }.getOrNull()
       ?: return OnlineChapterRefreshResult.Failed(null)
     val fresh = try {
-      service.refreshChapters(bookRef.source, bookRef.bookId)
+      router.chapters(bookRef.source, bookRef.bookId)
     } catch (e: CancellationException) {
       throw e
     } catch (e: Exception) {
@@ -439,7 +441,7 @@ public class OnlinePlaybackCatalog(
       ?: return null
     rememberAssembled(bookRef.key, onlineBook)
     val chapters = onlineBook.chapters.ifEmpty {
-      runCatching { service.chapters(bookRef.source, bookRef.bookId) }.getOrDefault(emptyList())
+      runCatching { router.chapters(bookRef.source, bookRef.bookId) }.getOrDefault(emptyList())
     }
     if (chapters.isEmpty()) return null
 
@@ -611,7 +613,7 @@ public class OnlinePlaybackCatalog(
    * for the same chapter share one in-flight resolve so a cold open does not
    * pay the download/API cost twice.
    */
-  public suspend fun resolveStreamUrl(ref: OnlineChapterRef): String? {
+  public suspend fun resolveStreamUrl(ref: OnlineChapterRef): OnlineAudio? {
     val chapterUri = OnlineUri.build(ref.source, ref.bookId, ref.chapterId)
     cachedStreamUrl(chapterUri)?.let { return it }
 
@@ -620,7 +622,7 @@ public class OnlinePlaybackCatalog(
       if (existing != null) {
         return existing.await()
       }
-      val deferred = CompletableDeferred<String?>()
+      val deferred = CompletableDeferred<OnlineAudio?>()
       val winner = inFlightResolves.putIfAbsent(chapterUri, deferred)
       if (winner != null) {
         return winner.await()
@@ -681,10 +683,10 @@ public class OnlinePlaybackCatalog(
     return true
   }
 
-  private fun cachedStreamUrl(chapterUri: String): String? {
+  private fun cachedStreamUrl(chapterUri: String): OnlineAudio? {
     val cached = synchronized(stateLock) { streamUrls[chapterUri] } ?: return null
     if (SystemClock.elapsedRealtime() - cached.resolvedAt <= STREAM_URL_TTL_MS) {
-      return cached.url
+      return cached.audio
     }
     synchronized(stateLock) { streamUrls.remove(chapterUri) }
     return null
@@ -711,10 +713,14 @@ public class OnlinePlaybackCatalog(
     _resolvingBooks.value = resolving
   }
 
-  private suspend fun resolveStreamUrlInternal(ref: OnlineChapterRef): String? {
+  private suspend fun resolveStreamUrlInternal(ref: OnlineChapterRef): OnlineAudio? {
     return try {
-      service.resolveDirectUrl(ref.source, ref.bookId, ref.chapterId)
-        ?: fail(ref, OnlinePlaybackErrorKind.CONTENT, "The source returned no audio url")
+      val audio = router.resolveAudio(ref.source, ref.bookId, ref.chapterId, chapterExtra(ref))
+      if (audio.url.isBlank()) {
+        fail(ref, OnlinePlaybackErrorKind.CONTENT, "The source returned no audio url")
+      } else {
+        audio
+      }
     } catch (e: CancellationException) {
       throw e
     } catch (e: OnlineSourceException) {
@@ -728,6 +734,21 @@ public class OnlinePlaybackCatalog(
     } catch (e: Exception) {
       fail(ref, OnlinePlaybackErrorKind.CONTENT, e.message)
     }
+  }
+
+  /**
+   * The opaque `extra` payload the source attached to [ref]'s chapter, so the
+   * audio call can round-trip it. Sources that do not use extras resolve
+   * against an empty string.
+   */
+  private suspend fun chapterExtra(ref: OnlineChapterRef): String {
+    assembledBooks[OnlineBookRef(ref.source, ref.bookId).key]?.chapters
+      ?.firstOrNull { it.id == ref.chapterId }
+      ?.let { return it.extra }
+    val shelf = runCatching { booksStore.data.first() }.getOrDefault(emptyList())
+    return shelf.firstOrNull { it.key == OnlineBookRef(ref.source, ref.bookId).key }
+      ?.chapters?.firstOrNull { it.id == ref.chapterId }?.extra
+      ?: ""
   }
 
   /** Remembers an assembled book so the resolve step can still see its title. */
@@ -745,7 +766,7 @@ public class OnlinePlaybackCatalog(
     ref: OnlineChapterRef,
     kind: OnlinePlaybackErrorKind,
     detail: String?,
-  ): String? {
+  ): OnlineAudio? {
     Logger.w("Online playback resolution failed for $ref: $detail")
     val now = SystemClock.elapsedRealtime()
     val dedupeKey = "${ref.source}::${ref.bookId}::${ref.chapterId}::$kind"
@@ -772,7 +793,7 @@ public class OnlinePlaybackCatalog(
   )
 
   private data class CachedStreamUrl(
-    val url: String,
+    val audio: OnlineAudio,
     val resolvedAt: Long,
   )
 

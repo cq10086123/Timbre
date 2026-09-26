@@ -432,15 +432,15 @@ public class OnlineBookCacheManager(
         }
         // resolveStreamUrl reports failures as null and only throws on
         // cancellation, so no runCatching: it would swallow the cancellation
-        val url = catalog.resolveStreamUrl(ref)
-        if (url.isNullOrBlank()) {
+        val audio = catalog.resolveStreamUrl(ref)
+        if (audio == null || audio.url.isBlank()) {
           failed++
           consecutiveFailures++
           updateState(bookUri, generation) { it.copy(done = done, failed = failed) }
           if (consecutiveFailures >= ABORT_AFTER_CONSECUTIVE_FAILURES) break
           continue
         }
-        val downloaded = downloadSlots.withPermit { downloadToCache(ref, url) }
+        val downloaded = downloadSlots.withPermit { downloadToCache(ref, audio) }
         if (downloaded) {
           done++
           consecutiveFailures = 0
@@ -574,14 +574,14 @@ public class OnlineBookCacheManager(
     }
   }
 
-  /** Downloads [url] into the file cache; false when it could not be stored. */
+  /** Downloads [audio] into the file cache; false when it could not be stored. */
   private suspend fun downloadToCache(
     ref: OnlineChapterRef,
-    url: String,
+    audio: OnlineAudio,
   ): Boolean = withContext(Dispatchers.IO) {
     try {
-      val requestUrl = OnlineStreamUrlPolicy.applyCertFallback(url)
-      download(requestUrl).use { response ->
+      val requestUrl = OnlineStreamUrlPolicy.applyCertFallback(audio.url)
+      download(requestUrl, audio.headers).use { response ->
         if (!response.isSuccessful) return@withContext false
         val tmp = fileCache.tmpFileFor(ref)
         tmp.parentFile?.mkdirs()
@@ -615,16 +615,16 @@ public class OnlineBookCacheManager(
    * unusable the same way streaming does: after a failed https handshake the
    * address is retried over plain http.
    */
-  private suspend fun download(url: String): Response {
+  private suspend fun download(url: String, headers: Map<String, String>): Response {
     return try {
-      executeCancellable(downloadRequest(url))
+      executeCancellable(downloadRequest(url, headers))
     } catch (e: IOException) {
       coroutineContext.ensureActive()
       val httpUrl = OnlineStreamUrlPolicy.downgradeToHttp(url)
       if (httpUrl == null || !isCertificateProblem(e)) throw e
       Logger.w("TLS handshake failed for source host, retrying over http: ${e.message}")
       OnlineStreamUrlPolicy.rememberCertBroken(url)
-      executeCancellable(downloadRequest(httpUrl))
+      executeCancellable(downloadRequest(httpUrl, headers))
     }
   }
 
@@ -650,13 +650,22 @@ public class OnlineBookCacheManager(
     }
   }
 
-  private suspend fun downloadRequest(url: String): Request {
+  private suspend fun downloadRequest(url: String, headers: Map<String, String>): Request {
     val builder = Request.Builder().url(url)
+    // plugin sources can require their own request headers (referer, user
+    // agent, cookies); they take precedence over the generic auth logic
+    for ((name, value) in headers) {
+      if (name.isNotBlank() && value.isNotBlank()) {
+        builder.header(name, value)
+      }
+    }
     // urls served by the configured server require the bearer token; third
     // party cdn links must not receive it
     val base = baseUrlStore.data.first().trim().trimEnd('/')
     val token = tokenStore.data.first().trim()
-    if (token.isNotEmpty() && base.isNotEmpty() && url.startsWith(base)) {
+    if (token.isNotEmpty() && base.isNotEmpty() && url.startsWith(base) &&
+      headers.none { it.key.equals("Authorization", ignoreCase = true) }
+    ) {
       builder.header("Authorization", "Bearer $token")
     }
     return builder.build()

@@ -6,6 +6,7 @@ import java.time.LocalTime
 
 interface SettingsListener {
   fun close()
+  fun onSourceManagerClick()
   fun onThemeModeRowClick()
   fun onThemeColorSchemeRowClick()
   fun setThemeMode(themeMode: ThemeMode)
@@ -40,6 +41,7 @@ interface SettingsListener {
   companion object {
     fun noop() = object : SettingsListener {
       override fun close() {}
+      override fun onSourceManagerClick() {}
       override fun onThemeModeRowClick() {}
       override fun onThemeColorSchemeRowClick() {}
       override fun setThemeMode(themeMode: ThemeMode) {}

@@ -8,4 +8,6 @@ package voice.core.online
 public interface OnlineSourceServiceProvider {
   public val onlineSourceService: OnlineSourceService
   public val onlinePlaybackCatalog: OnlinePlaybackCatalog
+  public val onlineSourceRouter: OnlineSourceRouter
+  public val jdrPackageManager: voice.core.source.JdrPackageManager
 }

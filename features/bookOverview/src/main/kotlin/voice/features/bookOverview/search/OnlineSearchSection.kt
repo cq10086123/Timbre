@@ -51,6 +51,7 @@ import voice.core.online.OnlineChapter
 import voice.core.online.OnlinePlaybackCatalog
 import voice.core.online.OnlineSearchResult
 import voice.core.online.OnlineSourceService
+import voice.core.online.OnlineSourceRouter
 import voice.core.online.OnlineSourceServiceProvider
 import voice.core.online.OnlineUri
 import voice.core.strings.R as StringsR
@@ -71,16 +72,17 @@ internal fun OnlineSearchSection(
 ) {
   val graph = remember { rootGraphAs<OnlineSourceServiceProvider>() }
   val service = graph.onlineSourceService
+  val router = graph.onlineSourceRouter
   val catalog = graph.onlinePlaybackCatalog
-  val configured by produceState(initialValue = false) {
-    value = runCatching { service.isConfigured() }.getOrDefault(false)
+  val available by produceState(initialValue = false) {
+    value = runCatching { router.isAvailable() }.getOrDefault(false)
   }
-  if (!configured || query.isBlank()) return
+  if (!available || query.isBlank()) return
 
   var sourcesLoaded by remember { mutableStateOf(false) }
   var sourcesFailed by remember { mutableStateOf(false) }
   val sources by produceState(initialValue = emptyList()) {
-    val loaded = runCatching { service.sources() }
+    val loaded = runCatching { router.sources() }
     value = loaded.getOrDefault(emptyList())
     sourcesFailed = loaded.isFailure
     sourcesLoaded = true
@@ -110,7 +112,7 @@ internal fun OnlineSearchSection(
     offline = false
     delay(SEARCH_DEBOUNCE_MILLIS)
     results = try {
-      service.search(selectedSource, query)
+      router.search(selectedSource, query)
     } catch (e: CancellationException) {
       // another query or source replaced this one: a cancelled search is not a
       // failed search, and its error must not flash up under the new one
@@ -204,6 +206,7 @@ internal fun OnlineSearchSection(
   chaptersFor?.let { book ->
     OnlineChaptersDialog(
       service = service,
+      router = router,
       catalog = catalog,
       book = book,
       onDismiss = { chaptersFor = null },
@@ -259,6 +262,7 @@ private data class ChaptersUiState(
 @Composable
 private fun OnlineChaptersDialog(
   service: OnlineSourceService,
+  router: OnlineSourceRouter,
   catalog: OnlinePlaybackCatalog,
   book: OnlineSearchResult,
   onDismiss: () -> Unit,
@@ -332,7 +336,7 @@ private fun OnlineChaptersDialog(
   val state by produceState(initialValue = ChaptersUiState(), book, reloadKey) {
     value = ChaptersUiState(loading = true)
     offline = false
-    val result = runCatching { service.chapters(book.source, book.bookId) }
+    val result = runCatching { router.chapters(book.source, book.bookId) }
     value = result.fold(
       onSuccess = { ChaptersUiState(loading = false, chapters = it) },
       onFailure = {

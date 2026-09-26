@@ -23,7 +23,7 @@ public class OnlineStreamingDataSource internal constructor(
   private val okHttpClient: OkHttpClient,
   private val baseUrlProvider: () -> String,
   private val tokenProvider: () -> String,
-  private val urlResolver: (OnlineChapterRef) -> String?,
+  private val urlResolver: (OnlineChapterRef) -> OnlineAudio?,
   private val onUrlRejected: (OnlineChapterRef) -> Boolean = { false },
   private val onDurationResolved: (OnlineChapterRef, Long) -> Unit = { _, _ -> },
   private val hasMeasuredDuration: (OnlineChapterRef) -> Boolean = { false },
@@ -156,24 +156,25 @@ public class OnlineStreamingDataSource internal constructor(
     dataSpec: DataSpec,
     ref: OnlineChapterRef,
   ): Response {
-    val resolvedUrl = urlResolver(ref)
+    val resolvedAudio = urlResolver(ref)
       ?: throw invalidResponse(404, dataSpec.uri.toString(), emptyMap(), dataSpec)
-    val response = execute(dataSpec, resolvedUrl)
+    val resolvedUrl = resolvedAudio.url
+    val response = execute(dataSpec, resolvedAudio)
     if (response.isSuccessful) return response
     val code = response.code
     val headers = response.headers.toMultimap()
     response.close()
     if (!onUrlRejected(ref)) throw invalidResponse(code, resolvedUrl, headers, dataSpec)
-    val refreshedUrl = urlResolver(ref)
-    if (refreshedUrl == null || refreshedUrl == resolvedUrl) {
+    val refreshedAudio = urlResolver(ref)
+    if (refreshedAudio == null || refreshedAudio.url == resolvedUrl) {
       throw invalidResponse(code, resolvedUrl, headers, dataSpec)
     }
-    val retryResponse = execute(dataSpec, refreshedUrl)
+    val retryResponse = execute(dataSpec, refreshedAudio)
     if (retryResponse.isSuccessful) return retryResponse
     val retryCode = retryResponse.code
     val retryHeaders = retryResponse.headers.toMultimap()
     retryResponse.close()
-    throw invalidResponse(retryCode, refreshedUrl, retryHeaders, dataSpec)
+    throw invalidResponse(retryCode, refreshedAudio.url, retryHeaders, dataSpec)
   }
 
   /**
@@ -184,16 +185,16 @@ public class OnlineStreamingDataSource internal constructor(
    */
   private fun execute(
     dataSpec: DataSpec,
-    url: String,
+    audio: OnlineAudio,
   ): Response {
     return try {
-      okHttpClient.newCall(request(dataSpec, url)).execute()
+      okHttpClient.newCall(request(dataSpec, audio)).execute()
     } catch (e: IOException) {
-      val httpUrl = OnlineStreamUrlPolicy.downgradeToHttp(url)
+      val httpUrl = OnlineStreamUrlPolicy.downgradeToHttp(audio.url)
       if (httpUrl == null || !isCertificateProblem(e)) throw e
       Logger.w("TLS handshake failed for source host, retrying over http: ${e.message}")
-      OnlineStreamUrlPolicy.rememberCertBroken(url)
-      okHttpClient.newCall(request(dataSpec, httpUrl)).execute()
+      OnlineStreamUrlPolicy.rememberCertBroken(audio.url)
+      okHttpClient.newCall(request(dataSpec, audio.copy(url = httpUrl))).execute()
     }
   }
 
@@ -203,17 +204,24 @@ public class OnlineStreamingDataSource internal constructor(
 
   private fun request(
     dataSpec: DataSpec,
-    url: String,
+    audio: OnlineAudio,
   ): Request {
     // sources occasionally hand out links on hosts with broken certificates;
     // those are served over http as well, so downgrade instead of failing
-    val requestUrl = OnlineStreamUrlPolicy.applyCertFallback(url)
+    val requestUrl = OnlineStreamUrlPolicy.applyCertFallback(audio.url)
     val requestBuilder = Request.Builder().url(requestUrl)
+    // plugin sources can require their own request headers (referer, user
+    // agent, cookies); they take precedence over the generic auth logic
+    for ((name, value) in audio.headers) {
+      if (name.isNotBlank() && value.isNotBlank()) {
+        requestBuilder.header(name, value)
+      }
+    }
     // urls served by the configured server require the bearer token; third
     // party cdn links must not receive it
     val base = baseUrlProvider().trim().trimEnd('/')
     val token = tokenProvider().trim()
-    if (token.isNotEmpty() && requestUrl.startsWith(base)) {
+    if (token.isNotEmpty() && requestUrl.startsWith(base) && audio.headers.none { it.key.equals("Authorization", ignoreCase = true) }) {
       requestBuilder.header("Authorization", "Bearer $token")
     }
     val rangeStart = dataSpec.position
@@ -318,7 +326,7 @@ public class OnlineDataSourceFactory internal constructor(
   private val okHttpClient: OkHttpClient,
   private val baseUrlProvider: () -> String,
   private val tokenProvider: () -> String,
-  private val urlResolver: (OnlineChapterRef) -> String?,
+  private val urlResolver: (OnlineChapterRef) -> OnlineAudio?,
   private val onUrlRejected: (OnlineChapterRef) -> Boolean = { false },
   private val onDurationResolved: (OnlineChapterRef, Long) -> Unit = { _, _ -> },
   private val hasMeasuredDuration: (OnlineChapterRef) -> Boolean = { false },

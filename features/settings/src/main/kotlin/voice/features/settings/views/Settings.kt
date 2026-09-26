@@ -205,6 +205,22 @@ private fun Settings(
             Text(stringResource(StringsR.string.settings_online_source_credential_title))
           }
         }
+        item {
+          ListItem(
+            modifier = Modifier.clickable { listener.onSourceManagerClick() },
+            leadingContent = {
+              Icon(
+                imageVector = VoiceIcons.Book,
+                contentDescription = stringResource(StringsR.string.settings_online_source_jdr_title),
+              )
+            },
+            supportingContent = {
+              Text(stringResource(StringsR.string.settings_online_source_jdr_summary))
+            },
+          ) {
+            Text(stringResource(StringsR.string.settings_online_source_jdr_title))
+          }
+        }
       }
       item {
         ListItem(

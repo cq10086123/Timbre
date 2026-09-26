@@ -409,4 +409,14 @@
     <string name="webdav_cache_prefetch_5">5 chapters</string>
     <string name="webdav_cache_prefetch_off">Off</string>
     <string name="webdav_cache_metered">Prefetch on metered networks</string>
+    <string name="source_manager_title">Book source plugins</string>
+    <string name="source_manager_empty">No book source packages imported yet. Use the globe icon to import from a URL or the folder icon to import a .jdr file.</string>
+    <string name="source_manager_import_url">Import from URL</string>
+    <string name="source_manager_import_url_hint">https://example.com/sources.jdr</string>
+    <string name="source_manager_import_file">Import .jdr file</string>
+    <string name="source_manager_version">Version %1$s</string>
+    <string name="source_manager_delete_title">Remove package</string>
+    <string name="source_manager_delete_message">Remove %1$s and all of its sources? Shelf entries, positions and bookmarks of its books stay.</string>
+    <string name="settings_online_source_jdr_title">Book source plugins</string>
+    <string name="settings_online_source_jdr_summary">Import and manage .jdr source packages</string>
 </resources>

@@ -155,6 +155,10 @@ class SettingsViewModel(
     )
   }
 
+  override fun onSourceManagerClick() {
+    navigator.goTo(Destination.SourceManager)
+  }
+
   override fun close() {
     navigator.goBack()
   }
