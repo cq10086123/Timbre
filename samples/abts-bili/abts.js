@@ -1,5 +1,5 @@
-// 阿B听书(B站有声) 接口源 —— 搜索 / 章节 / 音频直链
-// 与阿B听书APP(dev.pages.abts, github.com/fengqiao57/abts)同源,底层全部是B站Web API:
+// 哔哩听书(B站有声) 接口源 —— 搜索 / 章节 / 音频直链
+// 与哔哩听书APP(dev.pages.abts, github.com/fengqiao57/abts)同源,底层全部是B站Web API:
 //   搜索  /x/web-interface/wbi/search/type (Wbi签名)
 //   章节  /x/player/pagelist               (免签名)
 //   音频  /x/player/wbi/playurl            (Wbi签名, DASH)
@@ -24,7 +24,7 @@
     20, 34, 44, 52,
   ];
 
-  // ---------- 听书内容过滤(与阿B听书APP一致) ----------
+  // ---------- 听书内容过滤(与哔哩听书APP一致) ----------
   var AUDIO_HINTS = ['有声小说', '有声书', '有声剧', '有声读物', '有声', '听书', '评书', '相声',
     '广播剧', '演播', '朗读', '诵读', '长书', '连播', '说书', '单口', '播讲', '多人剧', '小说剧'];
   var NOISE_HINTS = ['一口气看完', '漫推', '漫画', '解说', '讲解', '解读', '动画', '鬼畜', '混剪',
