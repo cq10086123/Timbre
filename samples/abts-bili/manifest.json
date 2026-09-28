@@ -1,15 +1,15 @@
 {
   "id": "dev.pages.abts.bili",
-  "name": "阿B听书(B站有声)",
+  "name": "哔哩听书(B站有声)",
   "version": "1.0.2",
   "author": "abts-bili",
-  "description": "B站有声小说/听书源,与阿B听书APP(dev.pages.abts)同源接口:搜索/章节/音频直链,免登录可用",
+  "description": "B站有声小说/听书源,与哔哩听书APP(dev.pages.abts)同源接口:搜索/章节/音频直链,免登录可用",
   "homepage": "https://github.com/fengqiao57/abts",
   "allowInsecure": false,
   "sources": [
     {
       "id": "abts-bili",
-      "name": "阿B听书",
+      "name": "哔哩听书",
       "script": "abts.js",
       "capabilities": [
         "search",
