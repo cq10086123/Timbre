@@ -36,12 +36,11 @@ public class JsSourceEngine private constructor(
   /**
    * Calls one stage (`search` / `chapters` / `audio`) of the registered
    * source with [paramsJson] and returns the JSON-stringified result.
-   */
-  /**
-   * Runs one stage of the source. The optional [timeoutMillis] caps the whole
-   * invocation; production callers leave it unset so sources control timing
-   * themselves via per-request `timeoutMs` options (OkHttp bounds each
-   * request, tests pass an explicit cap to bound pathological scripts).
+   *
+   * The optional [timeoutMillis] caps the whole invocation; production
+   * callers leave it unset so sources control timing themselves via
+   * per-request `timeoutMs` options (OkHttp bounds each request, tests pass
+   * an explicit cap to bound pathological scripts).
    */
   public suspend fun invoke(
     stage: String,
