@@ -52,6 +52,9 @@ AI 会直接产出 `manifest.json` + 源脚本两个文件，按 [三步上手](
   返回 { status, headers, body }。params 自动 URL 编码拼 query；json 自动序列化并设
   Content-Type；body 传字符串或 Uint8Array；响应自动解 gzip；响应 headers 键全小写
   （多个 set-cookie 被用 ", " 拼成一个值）；不要手动设 Accept-Encoding。
+  超时由脚本自定：App 不限阶段总时长，每个请求默认连接 15s/读取 30s，
+  可用 timeoutMs（毫秒，整个请求的总时长）按需放宽或收紧；慢源重试多个地址时注意
+  给单个请求设小的 timeoutMs，失败总时长自己算好。
 - 摘要：md5Hex(s)、sha256Hex(s)、hmacSha256Hex(key, s)
 - 编码：base64Encode / base64Decode / base64ToUtf8、hexToBytes、bytesToHex、
   utf8ToBytes、bytesToUtf8、urlEncode、urlDecode

@@ -76,7 +76,10 @@ public class ExtensionSourceBackend(
       base = linkedMapOf("keyword" to keyword, "page" to 1, "limit" to 30),
     )
     val json = engineProvider.useEngine(sourceId) {
-      it.invoke("search", params, SEARCH_TIMEOUT_MS)
+      // no stage-level cap: sources control timing themselves via per-request
+      // timeoutMs options; OkHttp still bounds each request (connect 15s /
+      // read 30s unless the script overrides)
+      it.invoke("search", params)
     }
     val items = SourceContract.parseSearchResults(json)
     items.forEach { item ->
@@ -105,7 +108,7 @@ public class ExtensionSourceBackend(
       extras = searchExtras.get("$sourceId/$bookId"),
     )
     val json = engineProvider.useEngine(sourceId) {
-      it.invoke("chapters", params, CHAPTERS_TIMEOUT_MS)
+      it.invoke("chapters", params)
     }
     val items = SourceContract.parseChapters(json)
     items.forEach { item ->
@@ -132,7 +135,7 @@ public class ExtensionSourceBackend(
       extras = chapterExtras.get("$sourceId/$bookId/$chapterId"),
     )
     val json = engineProvider.useEngine(sourceId) {
-      it.invoke("audio", params, AUDIO_TIMEOUT_MS)
+      it.invoke("audio", params)
     }
     val parsed = SourceContract.parseAudio(json)
     return ResolvedStream(parsed.url, parsed.headers)
@@ -153,11 +156,5 @@ public class ExtensionSourceBackend(
       }
     }
     return JsonObject(merged).toString()
-  }
-
-  public companion object {
-    public const val SEARCH_TIMEOUT_MS: Long = 15_000L
-    public const val CHAPTERS_TIMEOUT_MS: Long = 20_000L
-    public const val AUDIO_TIMEOUT_MS: Long = 30_000L
   }
 }

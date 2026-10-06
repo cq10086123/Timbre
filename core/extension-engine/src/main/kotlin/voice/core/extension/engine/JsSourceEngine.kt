@@ -24,7 +24,7 @@ import java.util.concurrent.Executors
  * are strings (JSON/base64/hex) so nothing depends on QuickJS type mapping.
  *
  * The instance is confined to a single dedicated thread; stage calls are
- * serialized and bounded by [invoke]'s timeout.
+ * serialized, and bounded only when the caller passes [invoke]'s timeout.
  */
 @OptIn(ExperimentalQuickJsApi::class)
 public class JsSourceEngine private constructor(
@@ -37,12 +37,22 @@ public class JsSourceEngine private constructor(
    * Calls one stage (`search` / `chapters` / `audio`) of the registered
    * source with [paramsJson] and returns the JSON-stringified result.
    */
+  /**
+   * Runs one stage of the source. The optional [timeoutMillis] caps the whole
+   * invocation; production callers leave it unset so sources control timing
+   * themselves via per-request `timeoutMs` options (OkHttp bounds each
+   * request, tests pass an explicit cap to bound pathological scripts).
+   */
   public suspend fun invoke(
     stage: String,
     paramsJson: String,
-    timeoutMillis: Long,
+    timeoutMillis: Long? = null,
   ): String = withContext(dispatcher) {
-    withTimeout(timeoutMillis) {
+    if (timeoutMillis != null) {
+      withTimeout(timeoutMillis) {
+        quickJs.evaluate<String>("await __invoke(${jsString(stage)}, ${jsString(paramsJson)})")
+      }
+    } else {
       quickJs.evaluate<String>("await __invoke(${jsString(stage)}, ${jsString(paramsJson)})")
     }
   }
