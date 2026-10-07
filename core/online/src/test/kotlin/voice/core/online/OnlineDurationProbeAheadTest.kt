@@ -99,11 +99,6 @@ class OnlineDurationProbeAheadTest {
       mainImmediate = UnconfinedTestDispatcher(testScheduler),
     )
     return OnlineDurationProbeAhead(
-      service = mockk {
-        coEvery { resolveDirectUrl("A", "b", any()) } answers {
-          ResolvedStream("http://cdn/x/${thirdArg<String>()}.mp3")
-        }
-      },
       catalog = catalog,
       chapterStore = OnlineChapterStore(createTempDirectory("online-chapters").toFile()),
       context = context,
@@ -122,6 +117,9 @@ class OnlineDurationProbeAheadTest {
       coEvery { lookupOnlineBook("A", "b") } returns book()
       every { measuredDurationMs(any(), any(), any()) } returns null
       every { recordMeasuredDuration(any(), any(), any(), any()) } just Runs
+      coEvery { resolveStreamUrl(any<OnlineChapterRef>(), any<Boolean>()) } answers {
+        ResolvedStream("http://cdn/x/${firstArg<OnlineChapterRef>().chapterId}.mp3")
+      }
     }
 
     probeAhead(catalog, metered = false).probeUpcomingInternal(bookId(), chapterId("c1"))

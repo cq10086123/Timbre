@@ -673,8 +673,15 @@ public class OnlinePlaybackCatalog(
    * A url that was resolved shortly before is reused, and concurrent callers
    * for the same chapter share one in-flight resolve so a cold open does not
    * pay the download/API cost twice.
+   *
+   * [reportErrors] = false keeps resolution failures off [playbackErrors]:
+   * background callers (the duration probe-ahead) surface no error for a
+   * chapter that is not being listened to right now.
    */
-  public suspend fun resolveStreamUrl(ref: OnlineChapterRef): ResolvedStream? {
+  public suspend fun resolveStreamUrl(
+    ref: OnlineChapterRef,
+    reportErrors: Boolean = true,
+  ): ResolvedStream? {
     val chapterUri = OnlineUri.build(ref.source, ref.bookId, ref.chapterId)
     cachedStreamUrl(chapterUri)?.let { return it }
 
@@ -695,7 +702,7 @@ public class OnlinePlaybackCatalog(
       val bookUri = OnlineUri.buildBookUri(ref.source, ref.bookId)
       beginResolving(bookUri)
       try {
-        val resolved = resolveStreamUrlInternal(ref)
+        val resolved = resolveStreamUrlInternal(ref, reportErrors)
         if (resolved != null && (streamUrlEpoch[chapterUri] ?: 0) == epochAtStart) {
           // skip caching when invalidateStreamUrl raced this resolve: the url
           // may already have been rejected by the data source
@@ -774,10 +781,13 @@ public class OnlinePlaybackCatalog(
     _resolvingBooks.value = resolving
   }
 
-  private suspend fun resolveStreamUrlInternal(ref: OnlineChapterRef): ResolvedStream? {
+  private suspend fun resolveStreamUrlInternal(
+    ref: OnlineChapterRef,
+    reportErrors: Boolean,
+  ): ResolvedStream? {
     return try {
       service.resolveDirectUrl(ref.source, ref.bookId, ref.chapterId)
-        ?: fail(ref, OnlinePlaybackErrorKind.CONTENT, "The source returned no audio url")
+        ?: fail(ref, OnlinePlaybackErrorKind.CONTENT, "The source returned no audio url", reportErrors)
     } catch (e: CancellationException) {
       throw e
     } catch (e: OnlineSourceException) {
@@ -785,11 +795,12 @@ public class OnlinePlaybackCatalog(
         ref,
         if (e.requiresRelogin) OnlinePlaybackErrorKind.AUTH else OnlinePlaybackErrorKind.NETWORK,
         e.message,
+        reportErrors,
       )
     } catch (e: IOException) {
-      fail(ref, OnlinePlaybackErrorKind.NETWORK, e.message)
+      fail(ref, OnlinePlaybackErrorKind.NETWORK, e.message, reportErrors)
     } catch (e: Exception) {
-      fail(ref, OnlinePlaybackErrorKind.CONTENT, e.message)
+      fail(ref, OnlinePlaybackErrorKind.CONTENT, e.message, reportErrors)
     }
   }
 
@@ -808,8 +819,10 @@ public class OnlinePlaybackCatalog(
     ref: OnlineChapterRef,
     kind: OnlinePlaybackErrorKind,
     detail: String?,
+    reportErrors: Boolean = true,
   ): ResolvedStream? {
     Logger.w("Online playback resolution failed for $ref: $detail")
+    if (!reportErrors) return null
     val now = SystemClock.elapsedRealtime()
     val dedupeKey = "${ref.source}::${ref.bookId}::${ref.chapterId}::$kind"
     synchronized(stateLock) {

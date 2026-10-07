@@ -8,6 +8,7 @@ import dev.zacsweers.metro.SingleIn
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
@@ -30,12 +31,15 @@ import kotlin.math.min
  * per source, exactly like the in-playback probe.
  *
  * Bounded on purpose: a handful of head fetches per chapter turn, never on
- * metered networks, failures only skip the chapter.
+ * metered networks, failures only skip the chapter. Resolutions go through
+ * the catalog (its url cache is shared with playback, silent failures) and
+ * are paced, so sources that rate limit their api keep working: the caller
+ * gates the probe on real playback, and every measured chapter waits
+ * [PROBE_SPACING_MS] since the previous one.
  */
 @SingleIn(AppScope::class)
 @Inject
 public class OnlineDurationProbeAhead internal constructor(
-  private val service: OnlineSourceService,
   private val catalog: OnlinePlaybackCatalog,
   private val chapterStore: OnlineChapterStore,
   private val context: Application,
@@ -49,10 +53,11 @@ public class OnlineDurationProbeAhead internal constructor(
   public fun probeUpcoming(
     bookId: BookId,
     chapterId: ChapterId,
+    isPlaying: () -> Boolean = { true },
   ) {
     scope.launch {
       try {
-        probeUpcomingInternal(bookId, chapterId)
+        probeUpcomingInternal(bookId, chapterId, isPlaying)
       } catch (e: CancellationException) {
         throw e
       } catch (e: Exception) {
@@ -64,28 +69,33 @@ public class OnlineDurationProbeAhead internal constructor(
   internal suspend fun probeUpcomingInternal(
     bookId: BookId,
     chapterId: ChapterId,
+    isPlaying: () -> Boolean = { true },
   ) {
     val bookRef = OnlineUri.parseBookUri(bookId.value) ?: return
     if (isMetered()) return
     val book = catalog.lookupOnlineBook(bookRef.source, bookRef.bookId) ?: return
     val chapters = book.chapters.ifEmpty {
       runCatching { chapterStore.chapters(bookRef.key) }.getOrDefault(emptyList())
-    }.ifEmpty {
-      runCatching { service.chapters(bookRef.source, bookRef.bookId) }.getOrDefault(emptyList())
     }
     val currentId = OnlineUri.parse(chapterId.value)?.chapterId ?: chapterId.value
     val index = chapters.indexOfFirst { it.id == currentId }
     if (index < 0) return
-    chapters.drop(index + 1)
+    val targets = chapters.drop(index + 1)
       .filter {
         it.durationSeconds <= 0 &&
           catalog.measuredDurationMs(bookRef.source, bookRef.bookId, it.id) == null
       }
       .take(PROBE_AHEAD_COUNT)
-      .forEach { chapter ->
-        coroutineContext.ensureActive()
-        probeChapter(bookRef.source, bookRef.bookId, chapter)
-      }
+    var first = true
+    for (chapter in targets) {
+      coroutineContext.ensureActive()
+      // sources that rate limit get no probe traffic once the user stopped
+      // listening - the measurements continue on the next chapter turn
+      if (!isPlaying()) return
+      if (!first) delay(PROBE_SPACING_MS)
+      first = false
+      probeChapter(bookRef.source, bookRef.bookId, chapter)
+    }
   }
 
   private suspend fun probeChapter(
@@ -93,8 +103,9 @@ public class OnlineDurationProbeAhead internal constructor(
     bookId: String,
     chapter: OnlineChapter,
   ) {
-    val stream = runCatching { service.resolveDirectUrl(source, bookId, chapter.id) }.getOrNull()
-      ?: return
+    val stream = runCatching {
+      catalog.resolveStreamUrl(OnlineChapterRef(source, bookId, chapter.id), reportErrors = false)
+    }.getOrNull() ?: return
     val durationMs = runCatching { probeUrl(stream.url, stream.headers) }.getOrNull() ?: return
     if (durationMs > 0L) {
       catalog.recordMeasuredDuration(source, bookId, chapter.id, durationMs)
@@ -156,5 +167,8 @@ public class OnlineDurationProbeAhead internal constructor(
 
     /** Unknown chapters measured per chapter turn; the rest follow next turn. */
     internal const val PROBE_AHEAD_COUNT = 5
+
+    /** Pause between measured chapters, so a rate limited source keeps up. */
+    internal const val PROBE_SPACING_MS = 5_000L
   }
 }
