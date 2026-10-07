@@ -2,5 +2,5 @@
   "versionName": "3.6.1",
   "versionCode": 629,
   "releaseUrl": "https://github.com/cq10086123/Timbre/releases/latest",
-  "releaseNotes": "<!-- Release notes generated using configuration in .github/release.yml at a717a3d39fae78d47ebb681e9b71d8c9a800c719 -->\n\n\n\n**Full Changelog**: https://github.com/cq10086123/Timbre/compare/v3.5.652...v3.6.1"
+  "releaseNotes": "修复几个小bug\n获取章节列表超时20秒会报错，如果源低于20秒可无视更新"
 }
