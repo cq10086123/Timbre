@@ -1,6 +1,6 @@
 {
   "versionName": "3.6.1",
-  "versionCode": 629,
+  "versionCode": 630,
   "releaseUrl": "https://github.com/cq10086123/Timbre/releases/latest",
-  "releaseNotes": "修复几个小bug\n获取章节列表超时20秒会报错，如果源低于20秒可无视更新"
+  "releaseNotes": "<!-- Release notes generated using configuration in .github/release.yml at 85e732b584e44977f6db986de8ef1b0c7b6e262e -->\n\n## What's Changed\n### 🧱 Other Changes\n* fix: 章节时长探测改为真播放后限速执行，避免吃掉限流源接口配额 by @cq10086123 in https://github.com/cq10086123/Timbre/pull/101\n\n\n**Full Changelog**: https://github.com/cq10086123/Timbre/compare/v3.5.652...v3.6.1"
 }
