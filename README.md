@@ -4,7 +4,7 @@
 
 # Timbre · 听书
 
-**免费开源的 Android 有声书播放器 —— 本地书、WebDAV、在线书源与自定义接口源，一个书架全搞定。**
+**Timbre听书|免费开源的 Android 有声书播放器 —— 本地书、WebDAV、在线书源与自定义接口源，一个书架全搞定。**
 
 [![Release](https://img.shields.io/github/v/release/cq10086123/Timbre?label=%E7%89%88%E6%9C%AC)](https://github.com/cq10086123/Timbre/releases/latest)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE.md)
