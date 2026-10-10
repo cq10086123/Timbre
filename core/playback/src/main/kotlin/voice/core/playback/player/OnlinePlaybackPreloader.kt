@@ -11,6 +11,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import voice.core.common.DispatcherProvider
 import voice.core.logging.api.Logger
@@ -63,10 +64,6 @@ internal class OnlinePlaybackPreloader(
   private var tickJob: Job? = null
   private var chainJob: Job? = null
 
-  init {
-    player.addListener(this)
-  }
-
   override fun onMediaItemTransition(
     mediaItem: MediaItem?,
     reason: Int,
@@ -88,7 +85,9 @@ internal class OnlinePlaybackPreloader(
   /**
    * One tick per second while a chapter plays. Every restart (chapter switch,
    * pause, book change) tears the old tick and chain down first, so nothing
-   * ever survives across chapters.
+   * ever survives across chapters. Everything here stays on the player's main
+   * thread: media3 throws on player accesses from any other thread, and only
+   * the blocking head probe hops to io.
    */
   private fun restart() {
     chainJob?.cancel()
@@ -98,7 +97,7 @@ internal class OnlinePlaybackPreloader(
     if (currentRef() == null || !player.playWhenReady || player.playbackState != Player.STATE_READY) {
       return
     }
-    tickJob = scope.launch(dispatcherProvider.io) {
+    tickJob = scope.launch {
       try {
         tickLoop()
       } catch (e: CancellationException) {
@@ -130,7 +129,7 @@ internal class OnlinePlaybackPreloader(
         ),
       )
       if (!should) continue
-      chainJob = scope.launch(dispatcherProvider.io) {
+      chainJob = scope.launch {
         try {
           preloadChain(ref)
         } catch (e: CancellationException) {
@@ -171,10 +170,13 @@ internal class OnlinePlaybackPreloader(
       }.getOrNull()
       if (stream != null && catalog.measuredDurationMs(nextRef.source, nextRef.bookId, nextRef.chapterId) == null) {
         // the head fetch hits the audio host, not the source api: it does not
-        // touch the rate limit and turns the placeholder duration exact
-        val durationMs = runCatching {
-          OnlineStreamHeadProbe.probeDurationMs(stream.url, stream.headers, httpClient)
-        }.getOrNull()
+        // touch the rate limit and turns the placeholder duration exact. It is
+        // a blocking call, so it hops to io away from the player thread.
+        val durationMs = withContext(dispatcherProvider.io) {
+          runCatching {
+            OnlineStreamHeadProbe.probeDurationMs(stream.url, stream.headers, httpClient)
+          }.getOrNull()
+        }
         if (durationMs != null && durationMs > 0L) {
           catalog.recordMeasuredDuration(nextRef.source, nextRef.bookId, nextRef.chapterId, durationMs)
         }
