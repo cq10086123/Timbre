@@ -23,8 +23,8 @@ import kotlinx.serialization.Serializable
 public data class OnlinePreloadSettings(
   val enabled: Boolean = true,
   val triggerSeconds: Int = 30,
-  val chapterCount: Int = 3,
-  val intervalSeconds: Int = 5,
+  val chapterCount: Int = 2,
+  val intervalSeconds: Int = 50,
 ) {
   public companion object {
     public val Default: OnlinePreloadSettings = OnlinePreloadSettings()
