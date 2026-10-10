@@ -318,6 +318,8 @@
     <string name="settings.playback.import_parallelism.summary">Chapters analyzed at the same time. Higher imports faster, but chapter switches respond slower while importing.</string>
     <string name="settings.playback.import_parallelism.value">Concurrency: %1$d</string>
     <string name="settings.playback.import_parallelism.option">Analyze chapters in parallel: %1$d</string>
+    <string name="settings.player.title">Player settings</string>
+    <string name="settings.player.summary">Online preload, and more player options</string>
     <string name="settings.playback.online_preload.title">Online playback preload</string>
     <string name="settings.playback.online_preload.summary">Preloads the next chapters only while playing, paced and capped by the settings below. Entering the player requests nothing. Local and WebDav books are not affected.</string>
     <string name="settings.playback.online_preload.enabled.title">Preload while playing</string>

@@ -45,7 +45,6 @@ import dev.zacsweers.metro.ContributesTo
 import dev.zacsweers.metro.IntoSet
 import dev.zacsweers.metro.Provides
 import voice.core.common.rootGraphAs
-import voice.core.online.OnlinePreloadSettings
 import voice.core.ui.UpdateDialog
 import voice.core.ui.VoiceTheme
 import voice.core.ui.icons.VoiceIcons
@@ -314,44 +313,19 @@ private fun Settings(
       }
 
       item {
-        OnlinePreloadEnabledRow(checked = viewState.onlinePreloadEnabled) {
-          listener.setOnlinePreloadEnabled(it)
-        }
-      }
-
-      item {
-        OnlinePreloadValueRow(
-          titleRes = StringsR.string.settings_playback_online_preload_trigger_title,
-          valueText = stringResource(
-            StringsR.string.settings_playback_online_preload_trigger_value,
-            viewState.onlinePreloadTriggerSeconds,
-          ),
+        ListItem(
+          modifier = Modifier.clickable { listener.openPlayerSettings() },
+          leadingContent = {
+            Icon(
+              imageVector = VoiceIcons.Timelapse,
+              contentDescription = stringResource(StringsR.string.settings_player_title),
+            )
+          },
+          supportingContent = {
+            Text(stringResource(StringsR.string.settings_player_summary))
+          },
         ) {
-          listener.onOnlinePreloadTriggerRowClick()
-        }
-      }
-
-      item {
-        OnlinePreloadValueRow(
-          titleRes = StringsR.string.settings_playback_online_preload_count_title,
-          valueText = stringResource(
-            StringsR.string.settings_playback_online_preload_count_value,
-            viewState.onlinePreloadChapterCount,
-          ),
-        ) {
-          listener.onOnlinePreloadCountRowClick()
-        }
-      }
-
-      item {
-        OnlinePreloadValueRow(
-          titleRes = StringsR.string.settings_playback_online_preload_interval_title,
-          valueText = stringResource(
-            StringsR.string.settings_playback_online_preload_interval_value,
-            viewState.onlinePreloadIntervalSeconds,
-          ),
-        ) {
-          listener.onOnlinePreloadIntervalRowClick()
+          Text(stringResource(StringsR.string.settings_player_title))
         }
       }
 
@@ -576,42 +550,6 @@ private fun Dialog(
       ImportParallelismDialog(
         currentLevel = viewState.importParallelism,
         onLevelSelect = listener::importParallelismChanged,
-        onDismiss = listener::dismissDialog,
-      )
-    }
-    SettingsViewState.Dialog.OnlinePreloadTrigger -> {
-      OnlinePreloadSliderDialog(
-        titleRes = StringsR.string.settings_playback_online_preload_trigger_title,
-        explanationRes = StringsR.string.settings_playback_online_preload_dialog_trigger,
-        valueFormatRes = StringsR.string.settings_playback_online_preload_trigger_value,
-        currentValue = viewState.onlinePreloadTriggerSeconds,
-        min = OnlinePreloadSettings.MIN_TRIGGER_SECONDS,
-        max = OnlinePreloadSettings.MAX_TRIGGER_SECONDS,
-        onConfirm = listener::onlinePreloadTriggerChanged,
-        onDismiss = listener::dismissDialog,
-      )
-    }
-    SettingsViewState.Dialog.OnlinePreloadCount -> {
-      OnlinePreloadSliderDialog(
-        titleRes = StringsR.string.settings_playback_online_preload_count_title,
-        explanationRes = StringsR.string.settings_playback_online_preload_dialog_count,
-        valueFormatRes = StringsR.string.settings_playback_online_preload_count_value,
-        currentValue = viewState.onlinePreloadChapterCount,
-        min = OnlinePreloadSettings.MIN_CHAPTER_COUNT,
-        max = OnlinePreloadSettings.MAX_CHAPTER_COUNT,
-        onConfirm = listener::onlinePreloadCountChanged,
-        onDismiss = listener::dismissDialog,
-      )
-    }
-    SettingsViewState.Dialog.OnlinePreloadInterval -> {
-      OnlinePreloadSliderDialog(
-        titleRes = StringsR.string.settings_playback_online_preload_interval_title,
-        explanationRes = StringsR.string.settings_playback_online_preload_dialog_interval,
-        valueFormatRes = StringsR.string.settings_playback_online_preload_interval_value,
-        currentValue = viewState.onlinePreloadIntervalSeconds,
-        min = OnlinePreloadSettings.MIN_INTERVAL_SECONDS,
-        max = OnlinePreloadSettings.MAX_INTERVAL_SECONDS,
-        onConfirm = listener::onlinePreloadIntervalChanged,
         onDismiss = listener::dismissDialog,
       )
     }

@@ -35,13 +35,7 @@ interface SettingsListener {
   fun onOnlineSourceCredentialRowClick()
   fun onlineSourceBaseUrlChanged(value: String)
   fun onlineSourceCredentialChanged(value: String)
-  fun setOnlinePreloadEnabled(checked: Boolean)
-  fun onOnlinePreloadTriggerRowClick()
-  fun onlinePreloadTriggerChanged(seconds: Int)
-  fun onOnlinePreloadCountRowClick()
-  fun onlinePreloadCountChanged(count: Int)
-  fun onOnlinePreloadIntervalRowClick()
-  fun onlinePreloadIntervalChanged(seconds: Int)
+  fun openPlayerSettings()
   fun onAppVersionClick()
   fun onUpdateDialogConfirm()
   fun onUpdateDialogDismiss()
@@ -68,13 +62,7 @@ interface SettingsListener {
       override fun onOnlineSourceCredentialRowClick() {}
       override fun onlineSourceBaseUrlChanged(value: String) {}
       override fun onlineSourceCredentialChanged(value: String) {}
-      override fun setOnlinePreloadEnabled(checked: Boolean) {}
-      override fun onOnlinePreloadTriggerRowClick() {}
-      override fun onlinePreloadTriggerChanged(seconds: Int) {}
-      override fun onOnlinePreloadCountRowClick() {}
-      override fun onlinePreloadCountChanged(count: Int) {}
-      override fun onOnlinePreloadIntervalRowClick() {}
-      override fun onlinePreloadIntervalChanged(seconds: Int) {}
+      override fun openPlayerSettings() {}
       override fun dismissDialog() {}
       override fun openProjectRepository() {}
       override fun openSupportVoice() {}
