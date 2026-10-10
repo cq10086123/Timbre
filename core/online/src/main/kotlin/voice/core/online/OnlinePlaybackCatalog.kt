@@ -160,6 +160,15 @@ public class OnlinePlaybackCatalog(
   private var lastErrorKey: String? = null
   private var lastErrorAt = 0L
 
+  /**
+   * How long a resolved url stays valid, widened by the preload settings when
+   * their chain takes longer than the default: a preload of 10 chapters one
+   * minute apart would otherwise have the first urls expire before playback
+   * reaches them.
+   */
+  @Volatile
+  public var cacheTtlMs: Long = STREAM_URL_TTL_MS
+
   /** True when [bookId] addresses a book of the online source. */
   public fun isOnlineBookId(bookId: BookId): Boolean {
     return OnlineUri.parseBookUri(bookId.value) != null
@@ -424,7 +433,7 @@ public class OnlinePlaybackCatalog(
    * maps (search stash, assembled copy). Used by resolve and prefetch paths
    * that run after assembly and cannot rely on the one-shot stash.
    */
-  internal suspend fun lookupOnlineBook(
+  public suspend fun lookupOnlineBook(
     source: String,
     bookId: String,
   ): OnlineBook? {
@@ -753,11 +762,39 @@ public class OnlinePlaybackCatalog(
 
   private fun cachedStreamUrl(chapterUri: String): ResolvedStream? {
     val cached = synchronized(stateLock) { streamUrls[chapterUri] } ?: return null
-    if (SystemClock.elapsedRealtime() - cached.resolvedAt <= STREAM_URL_TTL_MS) {
+    if (SystemClock.elapsedRealtime() - cached.resolvedAt <= cacheTtlMs) {
       return cached.stream
     }
     synchronized(stateLock) { streamUrls.remove(chapterUri) }
     return null
+  }
+
+  /**
+   * How many chapters directly after [ref] hold a live (unexpired) stream url.
+   * Counts only the consecutive run after the current chapter - that is the
+   * window the preload state machine fills - and stops at [max].
+   */
+  public suspend fun cachedChaptersAhead(
+    ref: OnlineChapterRef,
+    max: Int,
+  ): Int {
+    if (max <= 0) return 0
+    val book = lookupOnlineBook(ref.source, ref.bookId) ?: return 0
+    val chapters = book.chapters.ifEmpty {
+      runCatching { chapterStore.chapters(OnlineBookRef(ref.source, ref.bookId).key) }
+        .getOrDefault(emptyList())
+    }
+    val index = chapters.indexOfFirst { it.id == ref.chapterId }
+    if (index < 0) return 0
+    var count = 0
+    for (chapter in chapters.drop(index + 1)) {
+      if (count >= max) break
+      val uri = OnlineUri.build(ref.source, ref.bookId, chapter.id)
+      val cached = synchronized(stateLock) { streamUrls[uri] } ?: break
+      if (SystemClock.elapsedRealtime() - cached.resolvedAt > cacheTtlMs) break
+      count++
+    }
+    return count
   }
 
   private fun beginResolving(bookUri: String) {
@@ -860,7 +897,7 @@ public class OnlinePlaybackCatalog(
     private const val PLACEHOLDER_CHAPTER_DURATION_MS = 30 * 60_000L
 
     /** How long a resolved url is reused before the source is asked again. */
-    private const val STREAM_URL_TTL_MS = 5 * 60_000L
+    public const val STREAM_URL_TTL_MS: Long = 5 * 60_000L
 
     /** Resolved urls kept for seeks; the lru drops the oldest beyond this. */
     private const val MAX_CACHED_STREAM_URLS = 16
