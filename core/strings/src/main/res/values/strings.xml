@@ -318,6 +318,18 @@
     <string name="settings.playback.import_parallelism.summary">Chapters analyzed at the same time. Higher imports faster, but chapter switches respond slower while importing.</string>
     <string name="settings.playback.import_parallelism.value">Concurrency: %1$d</string>
     <string name="settings.playback.import_parallelism.option">Analyze chapters in parallel: %1$d</string>
+    <string name="settings.playback.online_preload.title">Online playback preload</string>
+    <string name="settings.playback.online_preload.summary">Preloads the next chapters only while playing, paced and capped by the settings below. Entering the player requests nothing. Local and WebDav books are not affected.</string>
+    <string name="settings.playback.online_preload.enabled.title">Preload while playing</string>
+    <string name="settings.playback.online_preload.trigger.title">Preload trigger time</string>
+    <string name="settings.playback.online_preload.trigger.value">After %1$d s of playback</string>
+    <string name="settings.playback.online_preload.count.title">Chapters to preload</string>
+    <string name="settings.playback.online_preload.count.value">Up to %1$d</string>
+    <string name="settings.playback.online_preload.interval.title">Chapter preload interval</string>
+    <string name="settings.playback.online_preload.interval.value">%1$d s between chapters</string>
+    <string name="settings.playback.online_preload.dialog.trigger">Starts preloading after this many seconds of playback. A chapter shorter than this never preloads, and switching chapters resets everything.</string>
+    <string name="settings.playback.online_preload.dialog.count">How many chapters after the current one may hold resolved stream urls.</string>
+    <string name="settings.playback.online_preload.dialog.interval">Pause between two preloaded chapters of the same chain.</string>
     <string name="settings.playback.bt_skip_chapter.summary">When on, the previous/next buttons on bluetooth and the lock screen jump to the previous/next chapter. When off, they seek back/forward.</string>
     <!-- Settings row description for opening the donation/support screen. -->
     <string name="settings.support.support_voice.summary">Donations help keep Timbre maintained</string>

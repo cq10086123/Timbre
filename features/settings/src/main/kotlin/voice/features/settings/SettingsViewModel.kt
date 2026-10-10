@@ -31,6 +31,8 @@ import voice.core.data.store.ThemeModeStore
 import voice.core.data.store.WebDavAutoRefreshWifiStore
 import voice.core.featureflag.FeatureFlag
 import voice.core.featureflag.KioskModeFeatureFlagQualifier
+import voice.core.online.OnlinePreloadSettings
+import voice.core.online.OnlinePreloadSettingsStore
 import voice.core.online.OnlineSourceBaseUrlStore
 import voice.core.online.OnlineSourceCredentialStore
 import voice.core.online.OnlineSourceEnabledStore
@@ -81,6 +83,8 @@ class SettingsViewModel(
   @OnlineSourceCredentialStore
   private val onlineSourceCredentialStore: DataStore<String>,
   private val onlineSourceService: OnlineSourceService,
+  @OnlinePreloadSettingsStore
+  private val onlinePreloadSettingsStore: DataStore<OnlinePreloadSettings>,
   private val dynamicColorAvailability: DynamicColorAvailability,
   private val updateNotifier: UpdateNotifier,
   dispatcherProvider: DispatcherProvider,
@@ -118,6 +122,9 @@ class SettingsViewModel(
     val onlineSourceCredential by remember { onlineSourceCredentialStore.data }.collectAsState(initial = "")
     val onlineSourceVerifying = onlineSourceVerifyState.value
     val onlineSourceVerifyError = onlineSourceVerifyError.value
+    val onlinePreloadSettings by remember { onlinePreloadSettingsStore.data }.collectAsState(
+      initial = OnlinePreloadSettings.Default,
+    )
     val update by updateNotifier.update.collectAsState()
     val showThemeColorSchemePref = remember {
       dynamicColorAvailability.isSupported()
@@ -152,6 +159,10 @@ class SettingsViewModel(
       onlineSourceCredential = onlineSourceCredential,
       onlineSourceVerifying = onlineSourceVerifying,
       onlineSourceVerifyError = onlineSourceVerifyError,
+      onlinePreloadEnabled = onlinePreloadSettings.enabled,
+      onlinePreloadTriggerSeconds = onlinePreloadSettings.triggerSeconds,
+      onlinePreloadChapterCount = onlinePreloadSettings.chapterCount,
+      onlinePreloadIntervalSeconds = onlinePreloadSettings.intervalSeconds,
       showSupportDevelopment = appInfoProvider.supportDevelopmentIncluded,
       kioskMode = kioskMode,
       // kept out of the list for now; flip this to true to bring the row back
@@ -346,6 +357,45 @@ class SettingsViewModel(
     dialog.value = null
     mainScope.launch {
       analysisParallelismStore.updateData { level }
+    }
+  }
+
+  override fun setOnlinePreloadEnabled(checked: Boolean) {
+    mainScope.launch {
+      onlinePreloadSettingsStore.updateData { OnlinePreloadSettings.coerce(it.copy(enabled = checked)) }
+    }
+  }
+
+  override fun onOnlinePreloadTriggerRowClick() {
+    dialog.value = SettingsViewState.Dialog.OnlinePreloadTrigger
+  }
+
+  override fun onlinePreloadTriggerChanged(seconds: Int) {
+    dialog.value = null
+    mainScope.launch {
+      onlinePreloadSettingsStore.updateData { OnlinePreloadSettings.coerce(it.copy(triggerSeconds = seconds)) }
+    }
+  }
+
+  override fun onOnlinePreloadCountRowClick() {
+    dialog.value = SettingsViewState.Dialog.OnlinePreloadCount
+  }
+
+  override fun onlinePreloadCountChanged(count: Int) {
+    dialog.value = null
+    mainScope.launch {
+      onlinePreloadSettingsStore.updateData { OnlinePreloadSettings.coerce(it.copy(chapterCount = count)) }
+    }
+  }
+
+  override fun onOnlinePreloadIntervalRowClick() {
+    dialog.value = SettingsViewState.Dialog.OnlinePreloadInterval
+  }
+
+  override fun onlinePreloadIntervalChanged(seconds: Int) {
+    dialog.value = null
+    mainScope.launch {
+      onlinePreloadSettingsStore.updateData { OnlinePreloadSettings.coerce(it.copy(intervalSeconds = seconds)) }
     }
   }
 

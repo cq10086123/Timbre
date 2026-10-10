@@ -18,7 +18,6 @@ import voice.core.data.repo.BookRepository
 import voice.core.featureflag.ExperimentalPlaybackPersistenceQualifier
 import voice.core.featureflag.FeatureFlag
 import voice.core.logging.api.Logger
-import voice.core.online.OnlineDurationProbeAhead
 import voice.core.online.OnlinePlaybackCatalog
 import voice.core.playback.di.PlaybackScope
 import voice.core.playback.session.bookId
@@ -33,7 +32,6 @@ import kotlin.time.Duration.Companion.minutes
 class PositionUpdater(
   private val bookRepo: BookRepository,
   private val onlinePlaybackCatalog: OnlinePlaybackCatalog,
-  private val durationProbeAhead: OnlineDurationProbeAhead,
   private val dispatcherProvider: DispatcherProvider,
   private val scope: CoroutineScope,
   private val playStateManager: PlayStateManager,
@@ -43,7 +41,6 @@ class PositionUpdater(
 
   private var player: Player? = null
   private var updateJob: Job? = null
-  private var probeAheadJob: Job? = null
   private var lastPersistedAt: Long = 0L
 
   fun attachTo(player: Player) {
@@ -108,26 +105,9 @@ class PositionUpdater(
     // a chapter change also reports a position discontinuity, which decides
     // whether the update has to be persisted
     flushPosition(force = false)
-    val mediaId = mediaItem?.mediaId?.toMediaIdOrNull()
-    val bookId = mediaId?.bookId
-    val chapterId = mediaId?.realChapterId
-    if (bookId == null || chapterId == null) return
-    // measure the next unknown chapters ahead of playback, so sources that
-    // report no durations stop showing the placeholder one chapter at a time.
-    // Gated on real listening: a transition also fires on prepare (opening
-    // the player screen paused), and probe resolutions cost source api calls
-    // that a rate limited source then misses for the chapter the user picks
-    probeAheadJob?.cancel()
-    probeAheadJob = scope.launch {
-      delay(PROBE_AHEAD_DELAY_MS)
-      if (playStateManager.playStateFlow.value != PlayStateManager.PlayState.Playing) return@launch
-      // the user may have jumped to another chapter during the delay
-      val current = player?.currentMediaItem?.mediaId?.toMediaIdOrNull() ?: return@launch
-      if (current.realChapterId != chapterId) return@launch
-      durationProbeAhead.probeUpcoming(bookId, chapterId) {
-        playStateManager.playStateFlow.value == PlayStateManager.PlayState.Playing
-      }
-    }
+    // ahead-of-playback requests for online books (stream url preload and
+    // chapter duration measurement) live in OnlinePlaybackPreloader now:
+    // gated on real playback and paced by the user's preload settings.
   }
 
   private fun flushPosition(force: Boolean = true) {
@@ -181,11 +161,7 @@ class PositionUpdater(
   fun release() {
     player?.removeListener(this)
     updateJob?.cancel()
-    probeAheadJob?.cancel()
   }
 }
 
 private const val PERSIST_INTERVAL_MS = 3_000L
-
-/** Listening time before the probe-ahead may spend source api calls. */
-private const val PROBE_AHEAD_DELAY_MS = 10_000L

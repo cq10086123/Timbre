@@ -16,12 +16,12 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
 import voice.core.analytics.api.Analytics
 import voice.core.common.DispatcherProvider
 import voice.core.data.Book
 import voice.core.data.BookContent
 import voice.core.data.BookId
-import voice.core.data.ChapterId
 import voice.core.data.repo.BookRepository
 import voice.core.data.store.AutoRewindAmountStore
 import voice.core.data.store.BtSkipToChapterStore
@@ -29,7 +29,9 @@ import voice.core.data.store.CurrentBookStore
 import voice.core.data.store.SeekTimeStore
 import voice.core.logging.api.Logger
 import voice.core.online.OnlinePlaybackCatalog
-import voice.core.online.OnlineUri
+import voice.core.online.OnlinePreloadSettings
+import voice.core.online.OnlinePreloadSettingsStore
+import voice.core.online.OnlineSourceStreamingClient
 import voice.core.playback.misc.Decibel
 import voice.core.playback.misc.VolumeGain
 import voice.core.playback.session.ImageFileProvider
@@ -63,6 +65,10 @@ class VoicePlayer(
   private val autoRewindAmountStore: DataStore<Int>,
   private val mediaItemProvider: MediaItemProvider,
   private val onlinePlaybackCatalog: OnlinePlaybackCatalog,
+  @OnlinePreloadSettingsStore
+  private val onlinePreloadSettingsStore: DataStore<OnlinePreloadSettings>,
+  @OnlineSourceStreamingClient
+  private val onlineStreamingClient: OkHttpClient,
   private val imageFileProvider: ImageFileProvider,
   private val scope: CoroutineScope,
   private val volumeGain: VolumeGain,
@@ -108,72 +114,24 @@ class VoicePlayer(
   }
 
   /**
-   * Wakes up once the current chapter is actually playing and then lazily
-   * resolves stream urls for the next chapters. Resolving them earlier would
-   * contend with the first-play network path; doing it here keeps the critical
-   * path short while making chapter skips feel instant.
+   * The preload state machine of online books: resolves the next chapters'
+   * stream urls (and measures their durations) only while the current chapter
+   * really plays, paced by the user's preload settings. Online sources are
+   * frequently rate limited, so nothing here loads before playback and every
+   * request is spaced and capped.
    */
-  private val aheadPrefetchListener = object : Player.Listener {
-    override fun onPlaybackStateChanged(playbackState: Int) {
-      if (playbackState != STATE_READY || !player.playWhenReady) return
-      val bookId = player.currentMediaItem?.mediaId?.toMediaIdOrNull()?.bookId ?: return
-      if (!onlinePlaybackCatalog.isOnlineBookId(bookId)) return
-      if (lastPrefetchedBookId == bookId) return
-      lastPrefetchedBookId = bookId
-      // read the chapter here: this callback runs on the main thread, while the
-      // prefetch job below runs on IO and must never touch the player
-      val currentChapterId = player.currentMediaItem?.mediaId?.toMediaIdOrNull()
-        ?.takeIf { it is MediaId.Chapter }?.let { (it as MediaId.Chapter).chapterId }
-        ?: return
-      aheadPrefetchJob?.cancel()
-      aheadPrefetchJob = scope.launch(dispatcherProvider.io) {
-        warmNextChapters(bookId, currentChapterId, count = 2)
-      }
-    }
-
-    override fun onMediaItemTransition(
-      mediaItem: MediaItem?,
-      reason: Int,
-    ) {
-      // a chapter switch inside the same online book gives the next chapter
-      // a fresh chance to prefetch its own following chapters
-      val bookId = mediaItem?.mediaId?.toMediaIdOrNull()?.bookId ?: return
-      if (!onlinePlaybackCatalog.isOnlineBookId(bookId)) return
-      val currentChapterId = mediaItem.mediaId.toMediaIdOrNull()
-        ?.takeIf { it is MediaId.Chapter }?.let { (it as MediaId.Chapter).chapterId }
-        ?: return
-      aheadPrefetchJob?.cancel()
-      aheadPrefetchJob = scope.launch(dispatcherProvider.io) {
-        warmNextChapters(bookId, currentChapterId, count = 1)
-      }
-    }
-  }
-
-  private suspend fun warmNextChapters(
-    bookId: BookId,
-    currentChapterId: ChapterId,
-    count: Int,
-  ) {
-    val book = onlinePlaybackCatalog.book(bookId) ?: return
-    val currentIndex = book.chapters.indexOfFirst { it.id == currentChapterId }
-    if (currentIndex < 0) return
-    book.chapters
-      .drop(currentIndex + 1)
-      .take(count)
-      .forEach { chapter ->
-        // stop warming if the user already left this book or stopped playback
-        if (!player.isPlaying || player.currentMediaItem?.mediaId?.toMediaIdOrNull()?.bookId != bookId) {
-          return
-        }
-        val ref = OnlineUri.parse(chapter.id.value) ?: return@forEach
-        runCatching { onlinePlaybackCatalog.resolveStreamUrl(ref) }
-          .onFailure { Logger.w(it, "Ahead stream resolve failed for $ref") }
-      }
-  }
+  private val onlinePlaybackPreloader = OnlinePlaybackPreloader(
+    player = player,
+    catalog = onlinePlaybackCatalog,
+    settingsStore = onlinePreloadSettingsStore,
+    httpClient = onlineStreamingClient,
+    scope = scope,
+    dispatcherProvider = dispatcherProvider,
+  )
 
   init {
     player.addListener(endOfChapterSleepTimerListener)
-    player.addListener(aheadPrefetchListener)
+    player.addListener(onlinePlaybackPreloader)
   }
 
   fun forceSeekToNext() {
@@ -330,6 +288,8 @@ class VoicePlayer(
 
   override fun play() {
     playWhenReady = true
+    // a prepare withheld for an online book runs once playback is requested
+    runPrepareIfAllowed()
   }
 
   override fun setPlayWhenReady(playWhenReady: Boolean) {
@@ -338,6 +298,7 @@ class VoicePlayer(
 
     if (playWhenReady) {
       updateLastPlayedAt()
+      runPrepareIfAllowed()
     } else {
       val currentPosition = player.currentPosition.takeUnless { it == C.TIME_UNSET }?.milliseconds ?: ZERO
       if (currentPosition > ZERO) {
@@ -383,43 +344,52 @@ class VoicePlayer(
 
   private var setBookJob: Job? = null
   private var playlistExpandJob: Job? = null
-  private var streamPrefetchJob: Job? = null
-  private var aheadPrefetchJob: Job? = null
+
+  // True while the media item currently being assembled belongs to an online
+  // book - the only book kind whose source api calls must wait for playback.
+  @Volatile
+  private var currentBookIsOnline: Boolean = false
 
   // prepare()/play() arriving while setBook is still assembling ran on an
   // empty playlist and did nothing. The flag re-applies them once the items
   // land; play() needs no flag because playWhenReady persists on the player.
   private var pendingPrepare = false
-  private var lastPrefetchedBookId: BookId? = null
 
   override fun prepare() {
     pendingPrepare = true
+    runPrepareIfAllowed()
+  }
+
+  /**
+   * Runs a requested prepare - unless the current book is an online one and
+   * nobody is playing: entering the player of a rate limited source must not
+   * spend its api budget on a chapter nobody listens to (the first request of
+   * the actually picked chapter would then fail). The withheld prepare runs
+   * on play()/setPlayWhenReady(true). Local and WebDav books prepare right
+   * away like before - their data is local or the user's own server, so
+   * buffering while paused is free.
+   */
+  private fun runPrepareIfAllowed() {
+    if (!pendingPrepare) return
+    if (currentBookIsOnline && !player.playWhenReady) return
+    pendingPrepare = false
     super.prepare()
   }
 
   override fun stop() {
     setBookJob?.cancel()
     playlistExpandJob?.cancel()
-    streamPrefetchJob?.cancel()
-    cancelAheadPrefetch()
     pendingPrepare = false
-    lastPrefetchedBookId = null
+    currentBookIsOnline = false
     super.stop()
   }
 
   override fun clearMediaItems() {
     setBookJob?.cancel()
     playlistExpandJob?.cancel()
-    streamPrefetchJob?.cancel()
-    cancelAheadPrefetch()
     pendingPrepare = false
-    lastPrefetchedBookId = null
+    currentBookIsOnline = false
     super.clearMediaItems()
-  }
-
-  private fun cancelAheadPrefetch() {
-    aheadPrefetchJob?.cancel()
-    aheadPrefetchJob = null
   }
 
   override fun setMediaItem(
@@ -469,10 +439,8 @@ class VoicePlayer(
     // cancelled so rapid book switches cannot apply out of order.
     setBookJob?.cancel()
     playlistExpandJob?.cancel()
-    streamPrefetchJob?.cancel()
-    cancelAheadPrefetch()
-    lastPrefetchedBookId = null
     pendingPrepare = false
+    currentBookIsOnline = onlinePlaybackCatalog.isOnlineBookId(mediaId.id)
     setBookJob = scope.launch {
       // a failed assembly (book deleted, position no longer resolvable) must
       // not re-prepare the previous book's stale playlist, so the trailing
@@ -481,9 +449,6 @@ class VoicePlayer(
       var expand: PreparedBook? = null
       val assemblyDuration = measureTime {
         // one IO hop: load the book, build a leading prefix and resolve cover.
-        // Stream URL prefetch is started as soon as the chapter is known and
-        // is NOT awaited here — awaiting would serialize open behind a full
-        // network round trip; single-flight still coalesces with ExoPlayer.
         val prepared = withContext(dispatcherProvider.io) {
           prepareBook(mediaId.id)
         } ?: return@measureTime
@@ -507,10 +472,11 @@ class VoicePlayer(
       }
       // prepare()/play() that arrived while the book was still assembling ran
       // on an empty playlist and did nothing: apply them now that the items
-      // landed, otherwise tap-play on a cold book stays silent.
+      // landed, otherwise tap-play on a cold book stays silent. For an online
+      // book the prepare stays withheld while paused (runPrepareIfAllowed).
       if (assembled && (pendingPrepare || player.playWhenReady)) {
-        pendingPrepare = false
-        player.prepare()
+        pendingPrepare = true
+        runPrepareIfAllowed()
       }
       // assembling the playlist of a book with thousands of chapters is the
       // one step of a playback start that grows with the chapter count. The
@@ -527,9 +493,9 @@ class VoicePlayer(
 
   /**
    * Loads [bookId] and builds a leading playlist prefix through the resume
-   * chapter. Online stream resolve is fired (not awaited) as soon as the
-   * chapter is known so it overlaps prefix/cover work; single-flight coalesces
-   * with the later ExoPlayer open.
+   * chapter. Deliberately resolves no stream url here: for an online book
+   * that request waits until playback (see [runPrepareIfAllowed]), the
+   * preload state machine then keeps the next chapters warm.
    */
   private suspend fun prepareBook(bookId: BookId): PreparedBook? = coroutineScope {
     // books of the online source live in their own store: the room
@@ -540,19 +506,7 @@ class VoicePlayer(
       positionInChapterMs = book.content.positionInChapter,
     ) ?: return@coroutineScope null
 
-    val isOnline = onlinePlaybackCatalog.isOnlineBookId(book.id)
-    if (isOnline) {
-      OnlineUri.parse(currentPlaybackItem.chapter.id.value)?.let { ref ->
-        // Player scope outlives this withContext so the resolve keeps running
-        // after prepareBook returns; cancelled on stop/clear/setBook.
-        streamPrefetchJob = scope.launch(dispatcherProvider.io) {
-          // warm the resolver cache; a failure here is harmless because
-          // playback resolves the url again when it opens the stream
-          val _ = runCatching { onlinePlaybackCatalog.resolveStreamUrl(ref) }
-        }
-      }
-    }
-    val coverDeferred = if (isOnline) {
+    val coverDeferred = if (onlinePlaybackCatalog.isOnlineBookId(book.id)) {
       async {
         onlinePlaybackCatalog.onlineCover(book.id)
           ?.takeIf { it.isNotBlank() }

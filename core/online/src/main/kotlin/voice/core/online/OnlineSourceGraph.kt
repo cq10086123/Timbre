@@ -125,6 +125,17 @@ public interface OnlineSourceGraph {
     )
   }
 
+  @Provides
+  @SingleIn(AppScope::class)
+  @OnlinePreloadSettingsStore
+  public fun onlinePreloadSettings(factory: OnlineSourceStoreFactory): DataStore<OnlinePreloadSettings> {
+    return factory.create(
+      serializer = OnlinePreloadSettings.serializer(),
+      defaultValue = OnlinePreloadSettings.Default,
+      fileName = "onlinePreloadSettings",
+    )
+  }
+
   /**
    * Metered means "the next download would cost the user money".
    *

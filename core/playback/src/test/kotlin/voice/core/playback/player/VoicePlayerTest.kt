@@ -22,6 +22,7 @@ import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
+import okhttp3.OkHttpClient
 import org.junit.runner.RunWith
 import org.robolectric.Shadows.shadowOf
 import voice.core.common.DispatcherProvider
@@ -35,6 +36,7 @@ import voice.core.data.repo.BookRepository
 import voice.core.logging.api.LogWriter
 import voice.core.logging.api.Logger
 import voice.core.online.OnlinePlaybackCatalog
+import voice.core.online.OnlinePreloadSettings
 import voice.core.playback.MemoryDataStore
 import voice.core.playback.misc.Decibel
 import voice.core.playback.session.MediaItemProvider
@@ -127,6 +129,8 @@ class VoicePlayerTest {
     scope = scope,
     mediaItemProvider = mediaItemProvider,
     onlinePlaybackCatalog = onlinePlaybackCatalog,
+    onlinePreloadSettingsStore = MemoryDataStore(OnlinePreloadSettings.Default),
+    onlineStreamingClient = OkHttpClient(),
     imageFileProvider = mockk(),
     volumeGain = mockk(relaxed = true),
     sleepTimer = sleepTimer,

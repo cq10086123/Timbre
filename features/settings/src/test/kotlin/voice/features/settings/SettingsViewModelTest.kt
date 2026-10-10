@@ -22,6 +22,7 @@ import voice.core.data.ThemeColorScheme
 import voice.core.data.ThemeMode
 import voice.core.data.sleeptimer.SleepTimerPreference
 import voice.core.featureflag.MemoryFeatureFlag
+import voice.core.online.OnlinePreloadSettings
 import voice.core.ui.DynamicColorAvailability
 import voice.core.ui.GridCount
 import voice.core.update.UpdateNotifier
@@ -91,6 +92,7 @@ class SettingsViewModelTest {
       every { data } returns flowOf("")
     },
     onlineSourceService = mockk(relaxed = true),
+    onlinePreloadSettingsStore = MemoryDataStore(OnlinePreloadSettings.Default),
     dynamicColorAvailability = dynamicColorAvailability,
     updateNotifier = mockk {
       every { update } returns MutableStateFlow(null)
