@@ -155,6 +155,8 @@
     <string name="settings.playback.import_parallelism.summary">同时解析的章节数。调大导入更快，但边听边导时切章响应会变慢。</string>
     <string name="settings.playback.import_parallelism.value">同时 %1$d 章</string>
     <string name="settings.playback.import_parallelism.option">同时解析 %1$d 章</string>
+    <string name="settings.player.title">播放器设置</string>
+    <string name="settings.player.summary">在线预加载等播放器选项</string>
     <string name="settings.playback.online_preload.title">在线播放预加载</string>
     <string name="settings.playback.online_preload.summary">只在播放中按下方的设置预加载后续章节，进播放器不提前请求。本地与 WebDAV 书籍不受影响。</string>
     <string name="settings.playback.online_preload.enabled.title">播放后预加载</string>
