@@ -136,6 +136,17 @@ class JdrArchiveTest {
   }
 
   @Test
+  fun rejectsPackageThatInflatesPastTheCap() {
+    // 17mb of text compresses to a few kb: the zip size says nothing about
+    // what the package expands to, which is why the total is capped as well
+    val blobs = (1..17).map { index -> "blob$index.js" to "a".repeat(1024 * 1024) }
+    val e = assertFailsWith<JdrFormatException> {
+      JdrArchive.parse(zip("manifest.json" to validManifest(), *blobs.toTypedArray()))
+    }
+    assertTrue(e.message!!.contains("解压后"), e.message)
+  }
+
+  @Test
   fun rejectsEmptyFile() {
     assertFailsWith<JdrFormatException> { JdrArchive.parse(ByteArray(0)) }
   }

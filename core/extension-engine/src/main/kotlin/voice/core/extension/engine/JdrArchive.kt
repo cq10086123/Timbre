@@ -63,6 +63,16 @@ public class JdrArchive private constructor(
     public const val MAX_SCRIPT_BYTES: Int = 5 * 1024 * 1024
     public const val MAX_ENTRIES: Int = 64
 
+    /**
+     * Cap for everything a package inflates to, not just for the zip itself.
+     * Scripts are text and deflate roughly 4-8x, so a few hundred KB of zip
+     * used to expand to the per-entry maximum times [MAX_ENTRIES]: 64 * 5MB =
+     * 320MB held as bytes and again as strings. That is an out-of-memory on a
+     * low end device from a package that looks perfectly small on disk. Real
+     * sources are far below this: the limit only exists to kill such bombs.
+     */
+    public const val MAX_UNCOMPRESSED_BYTES: Int = 16 * 1024 * 1024
+
     private val MANIFEST_ID_REGEX = Regex("^[a-z0-9][a-z0-9._-]{1,63}$")
     private val SOURCE_ID_REGEX = Regex("^[a-z0-9][a-z0-9_-]{0,63}$")
     private val KNOWN_CAPABILITIES =
@@ -76,6 +86,7 @@ public class JdrArchive private constructor(
 
       var manifestJson: String? = null
       val files = HashMap<String, String>()
+      var uncompressedBytes = 0
       ZipInputStream(ByteArrayInputStream(bytes)).use { zip ->
         var entry = zip.nextEntry
         var count = 0
@@ -92,6 +103,10 @@ public class JdrArchive private constructor(
           }
           // bounded read: never allocate more than the cap for one entry
           val content = readBounded(zip, MAX_SCRIPT_BYTES, name)
+          uncompressedBytes += content.size
+          if (uncompressedBytes > MAX_UNCOMPRESSED_BYTES) {
+            throw JdrFormatException("包解压后超过 ${MAX_UNCOMPRESSED_BYTES / 1024 / 1024}MB 上限")
+          }
           if (name == MANIFEST_ENTRY) {
             manifestJson = content.toString(Charsets.UTF_8)
           } else {

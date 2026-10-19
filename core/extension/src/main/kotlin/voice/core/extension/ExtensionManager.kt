@@ -62,7 +62,11 @@ public class ExtensionManager(
    * already claimed by another package is rejected.
    */
   public suspend fun install(bytes: ByteArray): ExtensionManifest {
-    return mutationMutex.withLock { installLocked(bytes) }
+    // inflating and validating a package is cpu and io heavy. It used to run on
+    // the caller's dispatcher, which is the main thread of both import screens,
+    // so a large package froze the ui or ran out of memory before anything was
+    // even written to disk.
+    return mutationMutex.withLock { withContext(Dispatchers.IO) { installLocked(bytes) } }
   }
 
   private suspend fun installLocked(bytes: ByteArray): ExtensionManifest {
