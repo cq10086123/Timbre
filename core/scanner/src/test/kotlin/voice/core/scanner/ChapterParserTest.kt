@@ -6,22 +6,27 @@ import io.mockk.coEvery
 import io.mockk.just
 import io.mockk.mockk
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeout
 import org.junit.Before
 import org.junit.Rule
 import org.junit.rules.TemporaryFolder
 import org.junit.runner.RunWith
 import voice.core.common.PlaybackIoGate
+import voice.core.data.isAudioFile
 import voice.core.data.repo.ChapterRepoImpl
 import voice.core.documentfile.CachedDocumentFile
 import voice.core.documentfile.FileBasedDocumentFile
 import voice.core.documentfile.nameWithoutExtension
+import voice.core.documentfile.walk
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -127,6 +132,11 @@ class ChapterParserTest {
 
   @Test
   fun firstChapterOfABatchIsReportedBeforeTheBatchFinished() = runBlocking {
+    // a hang here used to eat the whole ci budget instead of failing the test
+    withTimeout(30_000) { firstChapterOfABatch() }
+  }
+
+  private suspend fun CoroutineScope.firstChapterOfABatch() {
     val audiobook = testFolder.newFolder("audiobook")
     testFolder.newFile("audiobook/Chapter 1.mp3")
     testFolder.newFile("audiobook/Chapter 2.mp3")
@@ -168,10 +178,15 @@ class ChapterParserTest {
     )
 
     val result = CompletableDeferred<ChapterParseResult>()
+    // two io slots, so chapter 1 can finish while chapter 2 is stuck: with a
+    // single slot the blocked analysis holds the only permit and chapter 1 is
+    // never analyzed, which is exactly the deadlock this used to hang on
+    val bookFile = FileBasedDocumentFile(audiobook)
+    val audioFiles = bookFile.walk().filter { it.isAudioFile() }.toList()
     // real dispatchers: the parser uses Dispatchers.IO internally, and mixing
     // it with runTest's virtual time leaves the handshake below never resumed
     val parseJob = launch(Dispatchers.Default) {
-      parser.parse(FileBasedDocumentFile(audiobook)) { report ->
+      parser.parse(bookFile, audioFiles, Semaphore(2)) { report ->
         if (report.chapters.isNotEmpty()) {
           firstChapterReported.complete(report)
         }
