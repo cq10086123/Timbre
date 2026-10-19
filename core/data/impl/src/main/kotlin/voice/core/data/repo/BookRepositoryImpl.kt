@@ -13,6 +13,7 @@ import voice.core.data.BookContent
 import voice.core.data.BookId
 import voice.core.data.Chapter
 import voice.core.data.ChapterId
+import voice.core.data.PlaybackPosition
 import voice.core.logging.api.Logger
 import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
@@ -77,6 +78,10 @@ public class BookRepositoryImpl(
       .map { it?.book() }
   }
 
+  override fun positionFlow(id: BookId): Flow<PlaybackPosition?> {
+    return contentRepo.positionFlow(id)
+  }
+
   override suspend fun get(id: BookId): Book? {
     return contentRepo.get(id)?.book()
   }
@@ -102,17 +107,24 @@ public class BookRepositoryImpl(
   ) {
     mutex.withLock {
       val content = contentRepo.get(id) ?: return
-      if (currentChapter !in content.chapters) {
+      // the position of the chapter is only validated when the chapter
+      // actually changed: a stable playback calls this several times per
+      // second and a chapter list contains thousands of ids
+      if (currentChapter != content.currentChapter && currentChapter !in content.chapters) {
         Logger.w("Ignoring the position of $currentChapter because it is not part of $id")
         return
       }
+      // this path runs at playback frequency: publishing the position on its
+      // own flow keeps the content - and with it every book flow - untouched
+      contentRepo.publishPosition(id, currentChapter, positionInChapter)
+      if (!persist) return
       val updated = content.copy(
         currentChapter = currentChapter,
         positionInChapter = positionInChapter,
         lastPlayedAt = Instant.now(),
       )
       if (updated != content) {
-        contentRepo.put(updated, persist = persist)
+        contentRepo.put(updated, persist = true)
       }
     }
   }

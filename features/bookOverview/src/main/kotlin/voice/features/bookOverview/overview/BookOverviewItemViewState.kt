@@ -23,10 +23,11 @@ data class BookOverviewItemViewState(
 internal fun Book.toItemViewState(
   importProgress: BookScanProgress? = null,
   importError: BookScanError? = null,
+  coverOverride: String? = null,
 ) = BookOverviewItemViewState(
   name = content.name,
   author = content.author,
-  cover = content.coverUrl,
+  cover = coverOverride?.takeIf { it.isNotBlank() } ?: content.coverUrl,
   id = id,
   progress = progress(),
   remainingTime = formatTime(duration - position),

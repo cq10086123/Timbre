@@ -26,6 +26,7 @@ import voice.core.data.Book
 import voice.core.data.BookId
 import voice.core.data.GridMode
 import voice.core.data.KioskModeDemoData
+import voice.core.data.PlaybackPosition
 import voice.core.data.repo.BookRepository
 import voice.core.data.repo.internals.dao.RecentBookSearchDao
 import voice.core.data.store.CurrentBookStore
@@ -114,8 +115,12 @@ class BookOverviewViewModel(
     // cards appear immediately and their durations catch up right after
     val onlineChapterLists = remember { onlineChapterStore.loadedChapters }
       .collectAsState().value
-    val books = localBooks + storedOnlineBooks.map {
-      onlinePlaybackCatalog.localBook(it, onlineChapterLists[it.key].orEmpty())
+    // assembling the shelf list from the online records is not free and keeps
+    // the list instance stable, so the grouping below can be memoized on it
+    val books = remember(localBooks, storedOnlineBooks, onlineChapterLists) {
+      localBooks + storedOnlineBooks.map {
+        onlinePlaybackCatalog.localBook(it, onlineChapterLists[it.key].orEmpty())
+      }
     }
     val currentBookId = remember { currentBookStoreDataStore.data }
       .collectAsState(initial = null).value
@@ -163,33 +168,45 @@ class BookOverviewViewModel(
       remember { mutableStateOf(null) }
     }
 
-    val onlineCovers = storedOnlineBooks.associate {
-      BookId(OnlineUri.buildBookUri(it.source, it.bookId)) to it.cover
+    val onlineCovers = remember(storedOnlineBooks) {
+      storedOnlineBooks.associate {
+        BookId(OnlineUri.buildBookUri(it.source, it.bookId)) to it.cover
+      }
     }
-    val groupedBooks = books
-      .groupBy {
-        it.category
+    // The position of the running book arrives several times per second while
+    // the book flow only emits when a position is persisted. Reading it
+    // separately keeps a position tick from regrouping and re-sorting the
+    // whole shelf.
+    val livePosition: State<PlaybackPosition?> = if (currentBookId != null) {
+      remember(currentBookId) {
+        repo.positionFlow(currentBookId)
+      }.collectAsState(null)
+    } else {
+      remember { mutableStateOf(null) }
+    }
+    // grouping and sorting only run when the library itself changes; the
+    // position, import progress and the cover of each card are read lazily
+    // through the card state
+    val sortedBooks = remember(books) {
+      books
+        .groupBy { it.category }
+        .mapValues { (category, categoryBooks) ->
+          categoryBooks.sortedWith(category.comparator)
+        }
+        .toSortedMap()
+    }
+    val groupedBooks = sortedBooks.mapValues { (_, categoryBooks) ->
+      categoryBooks.associate { book ->
+        book.id to book.itemViewState(
+          currentBookId = currentBookId,
+          livePlaybackState = { livePlaybackState.value },
+          livePosition = { livePosition.value },
+          importProgress = importingBooks[book.id],
+          importError = scanErrors[book.id],
+          coverOverride = onlineCovers[book.id],
+        )
       }
-      .mapValues { (category, books) ->
-        books
-          .sortedWith(category.comparator)
-          .associate { book ->
-            val itemVs = book.itemViewState(
-              currentBookId = currentBookId,
-              livePlaybackState = { livePlaybackState.value },
-              importProgress = importingBooks[book.id],
-              importError = scanErrors[book.id],
-            )
-            val cover: String? = onlineCovers[book.id]
-            val finalItemVs = if (cover.isNullOrBlank()) {
-              itemVs
-            } else {
-              remember(cover) { derivedStateOf { itemVs.value.copy(cover = cover) } }
-            }
-            book.id to finalItemVs
-          }
-      }
-      .toSortedMap()
+    }
 
     val booksWithPendingImports = groupedBooks.withPendingImports(
       importingBooks = importingBooks,
@@ -362,25 +379,49 @@ class BookOverviewViewModel(
 private fun Book.itemViewState(
   currentBookId: BookId?,
   livePlaybackState: () -> LivePlaybackState?,
+  livePosition: () -> PlaybackPosition?,
   importProgress: BookScanProgress?,
   importError: BookScanError?,
+  coverOverride: String?,
 ): State<BookOverviewItemViewState> {
   if (id != currentBookId) {
-    return rememberUpdatedState(toItemViewState(importProgress, importError))
+    return rememberUpdatedState(toItemViewState(importProgress, importError, coverOverride))
   }
   val currentPlaybackState by rememberUpdatedState(livePlaybackState)
+  val currentLivePosition by rememberUpdatedState(livePosition)
   val currentImportProgress by rememberUpdatedState(importProgress)
   val currentImportError by rememberUpdatedState(importError)
   return remember(this, currentBookId) {
     derivedStateOf {
       val livePlayback = currentPlaybackState()
-      if (livePlayback != null) {
+      val book = if (livePlayback != null) {
         overlay(livePlayback)
       } else {
-        this
-      }.toItemViewState(currentImportProgress, currentImportError)
+        withLivePosition(currentLivePosition())
+      }
+      book.toItemViewState(currentImportProgress, currentImportError, coverOverride)
     }
   }
+}
+
+/**
+ * Applies a live playback position without rebuilding the book when nothing
+ * changed. The position arrives several times per second for the running book
+ * only; every other card keeps its book as is.
+ */
+private fun Book.withLivePosition(position: PlaybackPosition?): Book {
+  if (position == null) return this
+  val chapterChanged = content.currentChapter != position.chapterId
+  // a chapter the book does not contain is dropped; a position inside the
+  // current chapter needs no chapter list scan
+  if (chapterChanged && position.chapterId !in content.chapters) return this
+  if (!chapterChanged && content.positionInChapter == position.positionInChapter) return this
+  return copy(
+    content = content.copy(
+      currentChapter = position.chapterId,
+      positionInChapter = position.positionInChapter,
+    ),
+  )
 }
 
 /**

@@ -11,6 +11,7 @@ import voice.core.data.BookId
 import voice.core.data.Chapter
 import voice.core.data.ChapterId
 import voice.core.data.MarkData
+import voice.core.data.PlaybackPosition
 import voice.core.data.repo.internals.AppDb
 import java.io.Closeable
 import java.time.Instant
@@ -44,16 +45,32 @@ class BookRepositoryImplTest {
       persist = false,
     )
 
-    // the shelf shows the current position, so the playing book is re-assembled
-    // on every position update. Resolving the chapters only reads the cache of
-    // the chapter repo, which keeps this cheap.
+    // the position reaches the live observers through its own flow: the book
+    // list and every book in it stay untouched, so a tick no longer
+    // re-assembles the library at playback frequency
+    assertEquals(
+      expected = PlaybackPosition(chapterId = chapterId, positionInChapter = 60_000),
+      actual = repo.positionFlow(bookId).first(),
+    )
     val bookAfterPositionUpdate = repo.flow().first().single()
-    assertEquals(expected = 60_000, actual = bookAfterPositionUpdate.content.positionInChapter)
+    assertEquals(expected = 1000, actual = bookAfterPositionUpdate.content.positionInChapter)
 
     // the same book instance is reused as long as nothing changed at all, so
     // re-subscribing the flow does not re-assemble the library
     val reCollectedBook = repo.flow().first().single()
     assertSame(bookAfterPositionUpdate, reCollectedBook)
+
+    // persisting catches the stored content up
+    repo.updatePlaybackPosition(
+      id = bookId,
+      currentChapter = chapterId,
+      positionInChapter = 60_000,
+      persist = true,
+    )
+    assertEquals(
+      expected = 60_000,
+      actual = repo.flow().first().single().content.positionInChapter,
+    )
   }
 
   @Test

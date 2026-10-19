@@ -27,6 +27,7 @@ import voice.core.data.Chapter
 import voice.core.data.ChapterId
 import voice.core.data.KioskModeDemoData
 import voice.core.data.MarkData
+import voice.core.data.PlaybackPosition
 import voice.core.data.sleeptimer.SleepTimerPreference
 import voice.core.featureflag.MemoryFeatureFlag
 import voice.core.online.OnlineUri
@@ -90,6 +91,7 @@ class BookPlayViewModelTest {
     bookRepository = mockk {
       coEvery { get(book.id) } returns book
       every { flow(book.id) } returns MutableStateFlow(book)
+      every { positionFlow(book.id) } returns MutableStateFlow<PlaybackPosition?>(null)
     },
     currentBookResolver = currentBookResolver,
     player = player.apply {
@@ -131,6 +133,7 @@ class BookPlayViewModelTest {
     bookRepository = mockk {
       coEvery { get(book.id) } returns book
       every { flow(book.id) } returns MutableStateFlow(book)
+      every { positionFlow(book.id) } returns MutableStateFlow<PlaybackPosition?>(null)
     },
     currentBookResolver = mockk {
       coEvery { book(book.id) } returns book
@@ -514,6 +517,7 @@ class BookPlayViewModelTest {
       bookRepository = mockk {
         coEvery { get(book.id) } returns book
         every { flow(book.id) } returns MutableStateFlow(book)
+        every { positionFlow(book.id) } returns MutableStateFlow<PlaybackPosition?>(null)
       },
       currentBookResolver = currentBookResolver,
       player = mockk {

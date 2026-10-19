@@ -14,7 +14,10 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import voice.core.data.BookContent
 import voice.core.data.BookId
+import voice.core.data.ChapterId
+import voice.core.data.PlaybackPosition
 import voice.core.data.repo.internals.dao.BookContentDao
+import java.util.concurrent.ConcurrentHashMap
 
 @SingleIn(AppScope::class)
 @ContributesBinding(AppScope::class)
@@ -23,6 +26,13 @@ public class BookContentRepoImpl(private val dao: BookContentDao) : BookContentR
   private val cacheMutex = Mutex()
   private var cacheFilled = false
   private val cache = MutableStateFlow<List<BookContent>?>(null)
+
+  /**
+   * Positions published by [publishPosition], one flow per book. A single
+   * StateFlow of a map would copy the whole library on every update several
+   * times per second; per-book flows keep a position update O(1).
+   */
+  private val positions = ConcurrentHashMap<BookId, MutableStateFlow<PlaybackPosition?>>()
 
   private suspend fun fillCache() {
     if (cacheFilled) return
@@ -85,6 +95,27 @@ public class BookContentRepoImpl(private val dao: BookContentDao) : BookContentR
       newContents.add(content)
       newContents
     }
+  }
+
+  override fun positionFlow(id: BookId): Flow<PlaybackPosition?> {
+    return positionState(id)
+  }
+
+  override suspend fun publishPosition(
+    id: BookId,
+    chapterId: ChapterId,
+    positionInChapter: Long,
+  ) {
+    // MutableStateFlow drops equal values, so an unchanged position does not
+    // wake up the UI either
+    positionState(id).value = PlaybackPosition(
+      chapterId = chapterId,
+      positionInChapter = positionInChapter,
+    )
+  }
+
+  private fun positionState(id: BookId): MutableStateFlow<PlaybackPosition?> {
+    return positions.computeIfAbsent(id) { MutableStateFlow(null) }
   }
 
   override suspend fun refreshFromDatabase() {

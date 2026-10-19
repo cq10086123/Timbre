@@ -23,6 +23,7 @@ import voice.core.common.MainScope
 import voice.core.data.Book
 import voice.core.data.BookId
 import voice.core.data.KioskModeDemoData
+import voice.core.data.PlaybackPosition
 import voice.core.data.durationMs
 import voice.core.data.markForPosition
 import voice.core.data.repo.BookRepository
@@ -115,6 +116,15 @@ class BookPlayViewModel(
       bookRepository.flow(bookId).filterNotNull()
     }.collectAsState(initial = null).value ?: return null
 
+    // The position arrives several times per second while playing. It is kept
+    // apart from the book flow (which only emits when a position is persisted,
+    // a chapter list changes or a setting is edited), so an update never
+    // re-assembles the book - for a long book that was an O(chapters) rebuild
+    // plus a fresh chapter-name list per tick.
+    val livePosition = remember(bookId) {
+      bookRepository.positionFlow(bookId)
+    }.collectAsState(initial = null).value
+
     val experimentalPlaybackPersistence = experimentalPlaybackPersistenceFeatureFlag.get()
     val livePlaybackState = if (experimentalPlaybackPersistence) {
       remember(bookId) { player.livePlaybackStateFlow(bookId) }
@@ -133,7 +143,7 @@ class BookPlayViewModel(
     }
     val isPlaying = livePlaybackState?.isPlaying ?: (managerPlayState == PlayStateManager.PlayState.Playing)
 
-    return bookPlayViewState(book = book, isPlaying = isPlaying)
+    return bookPlayViewState(book = book, isPlaying = isPlaying, livePosition = livePosition)
   }
 
   /**
@@ -222,13 +232,21 @@ class BookPlayViewModel(
     isPlaying: Boolean,
     loading: Boolean = false,
     coverOverride: String? = null,
+    livePosition: PlaybackPosition? = null,
   ): BookPlayViewState {
-    val currentMark = book.currentChapter.markForPosition(book.content.positionInChapter)
+    // the live position wins while it still belongs to the chapter the book
+    // holds: the book only catches up when a position is persisted, the
+    // position flow already carries every tick
+    val positionInChapter = livePosition
+      ?.takeIf { it.chapterId == book.content.currentChapter }
+      ?.positionInChapter
+      ?: book.content.positionInChapter
+    val currentMark = book.currentChapter.markForPosition(positionInChapter)
     val positionInCurrentMark = if (isPlaying && currentMark.durationMs > 0) {
-      val relativePosition = book.content.positionInChapter - currentMark.startMs
+      val relativePosition = positionInChapter - currentMark.startMs
       relativePosition.coerceIn(0L, currentMark.durationMs)
     } else {
-      book.content.positionInChapter - currentMark.startMs
+      positionInChapter - currentMark.startMs
     }
 
     val sleepTime = remember { sleepTimer.state }.collectAsState().value

@@ -27,6 +27,7 @@ import voice.core.data.Book
 import voice.core.data.BookId
 import voice.core.data.GridMode
 import voice.core.data.KioskModeDemoData
+import voice.core.data.PlaybackPosition
 import voice.core.data.repo.BookRepository
 import voice.core.data.repo.internals.dao.RecentBookSearchDao
 import voice.core.featureflag.MemoryFeatureFlag
@@ -78,6 +79,7 @@ class BookOverviewViewModelTest {
     val viewModel = BookOverviewViewModel(
       repo = mockk<BookRepository> {
         every { flow() } returns MutableStateFlow(emptyList())
+        every { positionFlow(any()) } returns MutableStateFlow<PlaybackPosition?>(null)
       },
       mediaScanner = mockk<MediaScanTrigger> {
         every { scannerActive } returns MutableStateFlow(false)
@@ -161,6 +163,7 @@ class BookOverviewViewModelTest {
     val viewModel = BookOverviewViewModel(
       repo = mockk<BookRepository> {
         every { flow() } returns MutableStateFlow(listOf(currentBook, otherBook))
+        every { positionFlow(any()) } returns MutableStateFlow<PlaybackPosition?>(null)
       },
       mediaScanner = mockk<MediaScanTrigger> {
         every { scannerActive } returns MutableStateFlow(false)
@@ -341,6 +344,7 @@ class BookOverviewViewModelTest {
     val viewModel = BookOverviewViewModel(
       repo = mockk<BookRepository> {
         every { flow() } returns MutableStateFlow(emptyList())
+        every { positionFlow(any()) } returns MutableStateFlow<PlaybackPosition?>(null)
       },
       mediaScanner = mockk<MediaScanTrigger> {
         every { scannerActive } returns MutableStateFlow(false)
@@ -495,6 +499,7 @@ class BookOverviewViewModelTest {
     return BookOverviewViewModel(
       repo = mockk<BookRepository> {
         every { flow() } returns MutableStateFlow(books)
+        every { positionFlow(any()) } returns MutableStateFlow<PlaybackPosition?>(null)
       },
       mediaScanner = mediaScanner ?: mockk<MediaScanTrigger> {
         every { scannerActive } returns MutableStateFlow(false)

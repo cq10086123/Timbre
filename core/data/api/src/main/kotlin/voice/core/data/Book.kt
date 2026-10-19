@@ -11,17 +11,29 @@ public data class Book(
     check(chapters.size == content.chapters.size) {
       "Different chapter count in $this"
     }
-    check(chapters.map { it.id } == content.chapters) {
+    // an index based comparison instead of `chapters.map { it.id } == ...`:
+    // a playing book is rebuilt on every persisted position (and the shelf
+    // overlays the live one per tick), so the check must not allocate a list
+    check(chapters.indices.all { chapters[it].id == content.chapters[it] }) {
       "Different chapter order in $this"
     }
   }
 
-  val currentChapter: Chapter = chapters[content.currentChapterIndex]
-  val currentMark: ChapterMark = currentChapter.markForPosition(content.positionInChapter)
+  // the derived values are only computed when they are read: a rebuild for a
+  // playback position does not need the total duration, and summing the
+  // chapters eagerly made every such rebuild O(chapters)
+  val currentChapter: Chapter by lazy { chapters[content.currentChapterIndex] }
+  val currentMark: ChapterMark by lazy { currentChapter.markForPosition(content.positionInChapter) }
 
-  val position: Long = chapters.takeWhile { it.id != content.currentChapter }
-    .sumOf { it.duration } + content.positionInChapter
-  val duration: Long = chapters.sumOf { it.duration }
+  val position: Long by lazy {
+    var positionBeforeChapter = 0L
+    for (chapter in chapters) {
+      if (chapter.id == content.currentChapter) break
+      positionBeforeChapter += chapter.duration
+    }
+    positionBeforeChapter + content.positionInChapter
+  }
+  val duration: Long by lazy { chapters.sumOf { it.duration } }
 
   public inline fun update(update: (BookContent) -> BookContent): Book {
     return copy(content = update(content))

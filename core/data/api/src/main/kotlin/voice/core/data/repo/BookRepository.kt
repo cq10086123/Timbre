@@ -5,6 +5,7 @@ import voice.core.data.Book
 import voice.core.data.BookContent
 import voice.core.data.BookId
 import voice.core.data.ChapterId
+import voice.core.data.PlaybackPosition
 
 public interface BookRepository {
 
@@ -22,11 +23,22 @@ public interface BookRepository {
   )
 
   /**
+   * The live playback position of [id], or null while none was published.
+   *
+   * Updated several times per second while playing without re-emitting [flow]
+   * or [flow] of a single book: observers that only need the position (the
+   * player screen, the shelf card of the running book) read this instead of
+   * rebuilding a [Book] per update.
+   */
+  public fun positionFlow(id: BookId): Flow<PlaybackPosition?>
+
+  /**
    * Stores the playback position of [id].
    *
-   * With [persist] set to false the position is only published in memory. The
-   * position is updated several times per second while playing, and writing it
-   * to the database every time rewrites the whole chapter list of the book.
+   * Without [persist] the position is only published through [positionFlow]:
+   * the stored content stays untouched, so no [Book] is rebuilt and no book
+   * flow re-emits for an update that arrives several times per second. With
+   * it the content (and the database) catch up as well.
    */
   public suspend fun updatePlaybackPosition(
     id: BookId,
