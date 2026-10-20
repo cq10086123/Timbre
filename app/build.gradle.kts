@@ -128,6 +128,16 @@ android {
   }
 }
 
+androidComponents {
+  onVariants(selector().withBuildType("release")) { variant ->
+    // the extension engine (quickjs) ships one .so per abi and they are stored
+    // uncompressed: x86/x86_64 are emulator only and cost 1.7mb in every
+    // release download. Debug keeps them so the emulator can still run
+    // .jdr sources.
+    variant.packaging.jniLibs.excludes.addAll(listOf("lib/x86/**", "lib/x86_64/**"))
+  }
+}
+
 val validatePlayGoogleServices = tasks.register("validatePlayGoogleServices") {
   val playGoogleServicesJsonPath = playGoogleServicesJson.asFile.absolutePath
 
