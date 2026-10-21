@@ -116,6 +116,27 @@ class OnlinePlaybackCatalogTest {
   }
 
   @Test
+  fun `shelf book hands its local cover file to the content`() = runTest {
+    val cover = createTempDirectory("online-cover").resolve("cover.img").toFile()
+    cover.writeBytes(byteArrayOf(1, 2, 3))
+    coEvery { service.shelfBook(any()) } returns shelfBook().copy(cover = cover.toURI().toString())
+
+    // every MediaItem carries the artwork of the content, so a book assembled
+    // without it produced chapters the media session advertised as coverless
+    assertEquals(cover, assertNotNull(catalog.book(bookId())).content.cover)
+  }
+
+  @Test
+  fun `a remote cover stays out of the content`() = runTest {
+    coEvery { service.shelfBook(any()) } returns shelfBook()
+      .copy(cover = "https://example.com/cover.jpg")
+
+    // the session can only hand the system a uri it can read: a remote url
+    // would be fetched by the notification loader without the source headers
+    assertNull(assertNotNull(catalog.book(bookId())).content.cover)
+  }
+
+  @Test
   fun `shelf book wins over a stale search stash`() = runTest {
     coEvery { service.shelfBook(any()) } returns shelfBook().copy(title = "书架上的新版")
     catalog.stashForPlayback(shelfBook().copy(title = "搜索时的旧版"))

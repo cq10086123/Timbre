@@ -131,7 +131,6 @@ class VoicePlayerTest {
     onlinePlaybackCatalog = onlinePlaybackCatalog,
     onlinePreloadSettingsStore = MemoryDataStore(OnlinePreloadSettings.Default),
     onlineStreamingClient = OkHttpClient(),
-    imageFileProvider = mockk(),
     volumeGain = mockk(relaxed = true),
     sleepTimer = sleepTimer,
     analytics = mockk(relaxed = true),

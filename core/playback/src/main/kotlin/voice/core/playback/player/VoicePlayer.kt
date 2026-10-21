@@ -1,7 +1,5 @@
 package voice.core.playback.player
 
-import android.net.Uri
-import androidx.core.net.toUri
 import androidx.datastore.core.DataStore
 import androidx.media3.common.C
 import androidx.media3.common.ForwardingPlayer
@@ -11,8 +9,6 @@ import androidx.media3.exoplayer.ExoPlayer
 import dev.zacsweers.metro.Inject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -34,7 +30,6 @@ import voice.core.online.OnlinePreloadSettingsStore
 import voice.core.online.OnlineSourceStreamingClient
 import voice.core.playback.misc.Decibel
 import voice.core.playback.misc.VolumeGain
-import voice.core.playback.session.ImageFileProvider
 import voice.core.playback.session.MediaId
 import voice.core.playback.session.MediaItemProvider
 import voice.core.playback.session.bookId
@@ -43,7 +38,6 @@ import voice.core.playback.session.positionInMediaItem
 import voice.core.playback.session.toMediaIdOrNull
 import voice.core.sleeptimer.SleepTimer
 import voice.core.sleeptimer.SleepTimerState
-import java.io.File
 import java.time.Instant
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.ZERO
@@ -69,7 +63,6 @@ class VoicePlayer(
   private val onlinePreloadSettingsStore: DataStore<OnlinePreloadSettings>,
   @OnlineSourceStreamingClient
   private val onlineStreamingClient: OkHttpClient,
-  private val imageFileProvider: ImageFileProvider,
   private val scope: CoroutineScope,
   private val volumeGain: VolumeGain,
   private val sleepTimer: SleepTimer,
@@ -497,49 +490,28 @@ class VoicePlayer(
    * that request waits until playback (see [runPrepareIfAllowed]), the
    * preload state machine then keeps the next chapters warm.
    */
-  private suspend fun prepareBook(bookId: BookId): PreparedBook? = coroutineScope {
+  private suspend fun prepareBook(bookId: BookId): PreparedBook? {
     // books of the online source live in their own store: the room
     // lookup misses, the online catalog synthesizes the book instead
-    val book = repo.get(bookId) ?: onlinePlaybackCatalog.book(bookId) ?: return@coroutineScope null
+    val book = repo.get(bookId) ?: onlinePlaybackCatalog.book(bookId) ?: return null
     val currentPlaybackItem = book.playbackItemForPosition(
       chapterId = book.content.currentChapter,
       positionInChapterMs = book.content.positionInChapter,
-    ) ?: return@coroutineScope null
-
-    val coverDeferred = if (onlinePlaybackCatalog.isOnlineBookId(book.id)) {
-      async {
-        onlinePlaybackCatalog.onlineCover(book.id)
-          ?.takeIf { it.isNotBlank() }
-          ?.toSessionArtworkUri()
-      }
-    } else {
-      null
-    }
+    ) ?: return null
 
     // leading prefix: indexes == final full playlist, so chapter seeks and the
-    // import synchronizer stay correct while the tail is still missing
+    // import synchronizer stay correct while the tail is still missing. The
+    // artwork of every item comes from book.content.cover - online books
+    // included - so it must not be patched per code path here: the import
+    // synchronizer writes playlist items of its own and would drop it.
     val prefix = mediaItemProvider.playbackItemsPrefix(
       book = book,
       resumeItemIndex = currentPlaybackItem.index,
     )
-    val onlineCover = coverDeferred?.await()
-    val mediaItems = if (onlineCover == null) {
-      prefix.items
-    } else {
-      // the online cover resolves to a local file (or the remote url while it
-      // still downloads); it feeds the notification and Android Auto artwork
-      prefix.items.map { item ->
-        item.buildUpon()
-          .setMediaMetadata(
-            item.mediaMetadata.buildUpon().setArtworkUri(onlineCover).build(),
-          )
-          .build()
-      }
-    }
 
-    PreparedBook(
+    return PreparedBook(
       book = book,
-      mediaItems = mediaItems,
+      mediaItems = prefix.items,
       startIndex = prefix.resumeIndex,
       startPositionMs = currentPlaybackItem.positionInMediaItem(book.content.positionInChapter),
       needsFullPlaylist = prefix.isPartial,
@@ -554,22 +526,7 @@ class VoicePlayer(
   private suspend fun expandPlaylist(prepared: PreparedBook) {
     val prefixSize = prepared.mediaItems.size
     val tail = withContext(dispatcherProvider.io) {
-      val raw = mediaItemProvider.playbackItems(prepared.book, fromItemIndex = prefixSize)
-      if (raw.isEmpty()) return@withContext emptyList()
-      if (!onlinePlaybackCatalog.isOnlineBookId(prepared.book.id)) {
-        return@withContext raw
-      }
-      val cover = onlinePlaybackCatalog.onlineCover(prepared.book.id)
-        ?.takeIf { it.isNotBlank() }
-        ?.toSessionArtworkUri()
-        ?: return@withContext raw
-      raw.map { item ->
-        item.buildUpon()
-          .setMediaMetadata(
-            item.mediaMetadata.buildUpon().setArtworkUri(cover).build(),
-          )
-          .build()
-      }
+      mediaItemProvider.playbackItems(prepared.book, fromItemIndex = prefixSize)
     }
     if (tail.isEmpty()) return
     // drop the expansion when the user already switched books
@@ -594,18 +551,6 @@ class VoicePlayer(
       "Expanded playlist of ${prepared.book.id}: " +
         "prefix=$prefixSize +${missing.size} → ${already + missing.size}",
     )
-  }
-
-  /**
-   * The media session artwork is loaded by the system (lock screen, wear,
-   * auto): a local cover file must be handed out as a granted content:// uri,
-   * a remote url passes through unchanged.
-   */
-  private fun String.toSessionArtworkUri(): Uri {
-    val uri = toUri()
-    if (uri.scheme != "file") return uri
-    val file = uri.path?.let(::File) ?: return uri
-    return imageFileProvider.uri(file)
   }
 
   override fun setPlaybackSpeed(speed: Float) {
