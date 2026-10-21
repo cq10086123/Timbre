@@ -24,6 +24,7 @@ import voice.core.data.BookId
 import voice.core.data.Chapter
 import voice.core.data.ChapterId
 import voice.core.logging.api.Logger
+import java.io.File
 import java.io.IOException
 import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
@@ -546,7 +547,7 @@ public class OnlinePlaybackCatalog(
       chapters = chapterIds,
       currentChapter = chapterIds[startIndex],
       positionInChapter = startPosition.coerceAtLeast(0L),
-      cover = null,
+      cover = coverFileOf(onlineBook.cover),
       gain = onlineBook.gain,
       genre = null,
       narrator = null,
@@ -556,6 +557,25 @@ public class OnlinePlaybackCatalog(
       skipOutro = onlineBook.skipOutroMs,
     )
     return AssembledOnline(bookRef = bookRef, content = content, chapters = chapters)
+  }
+
+  /**
+   * The local cover file a shelf record points at, or null while the record
+   * still carries the remote url (or none at all).
+   *
+   * Carrying it into [BookContent.cover] means every consumer builds its
+   * artwork from the same place - the shelf card, the player screen and the
+   * [MediaItem]s of the playlist. Leaving it null forced the player to patch
+   * the artwork of the items it assembled itself, which every other writer of
+   * the playlist (the import/refresh synchronizer) knew nothing about: the
+   * media session then advertised chapters without any artwork uri, and the
+   * notification, lock screen and dynamic island lost the cover.
+   */
+  private fun coverFileOf(cover: String): File? {
+    if (!cover.startsWith("file:")) return null
+    // File.toURI() writes file:/data/... - strip the scheme, keep the path
+    val path = cover.removePrefix("file:").removePrefix("//")
+    return File(path).takeIf { it.isFile }
   }
 
   private data class AssembledOnline(
@@ -598,7 +618,7 @@ public class OnlinePlaybackCatalog(
       chapters = chapterIds,
       currentChapter = chapterIds[persistedIndex ?: 0],
       positionInChapter = persistedIndex?.let { onlineBook.positionMs }?.coerceAtLeast(0L) ?: 0L,
-      cover = null,
+      cover = coverFileOf(onlineBook.cover),
       gain = onlineBook.gain,
       genre = null,
       narrator = null,
