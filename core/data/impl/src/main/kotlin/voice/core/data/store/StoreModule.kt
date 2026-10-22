@@ -249,6 +249,17 @@ public interface StoreModule {
       defaultValue = "",
     )
   }
+
+  @Provides
+  @SingleIn(AppScope::class)
+  @AnnouncementDismissedStore
+  private fun announcementDismissed(factory: VoiceDataStoreFactory): DataStore<String> {
+    return factory.create(
+      serializer = String.serializer(),
+      fileName = "announcementDismissed",
+      defaultValue = "",
+    )
+  }
 }
 
 private class LegacyDarkThemeMigration(
