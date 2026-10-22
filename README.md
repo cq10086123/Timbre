@@ -52,7 +52,7 @@ Timbre（听书）是一款免费开源的 Android 有声书播放器，为中�
 **导入现成的接口源合集**：在 App 内选择「从链接导入」，粘贴这条直链：
 
 ```
-https://raw.githubusercontent.com/cq10086123/Timbre/refs/heads/main/samples/Timbre.jdr
+https://cdn.jsdelivr.net/gh/cq10086123/Timbre@main/samples/Timbre.jdr
 ```
 
 > ⚠️ 注意：部分接口源有请求限制，请勿频繁切换；部分接口支持缓存，因接口而异。

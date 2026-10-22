@@ -28,6 +28,15 @@ import voice.core.logging.api.Logger
 import voice.core.strings.R
 import voice.core.ui.icons.VoiceIcons
 
+/**
+ * 官方接口源包的默认地址，导入对话框首次打开时预填。
+ *
+ * 走 jsDelivr 而不是 raw.githubusercontent.com：后者在国内经常连不上，
+ * 新用户第一次导入就失败，还以为接口源坏了。
+ */
+private const val DEFAULT_SOURCE_URL =
+  "https://cdn.jsdelivr.net/gh/cq10086123/Timbre@main/samples/Timbre.jdr"
+
 /** 导入书源的两种来源：本地 .jdr 文件或在线链接。 */
 internal sealed interface SourceImport {
   data class Local(val uri: Uri) : SourceImport
@@ -63,7 +72,7 @@ internal fun SelectFolderButtonRow(
       }
     }
     var showSourceDialog by remember { mutableStateOf(false) }
-    var sourceUrl by remember { mutableStateOf("") }
+    var sourceUrl by remember { mutableStateOf(DEFAULT_SOURCE_URL) }
 
     SelectFolderButton(
       icon = VoiceIcons.Folder,
