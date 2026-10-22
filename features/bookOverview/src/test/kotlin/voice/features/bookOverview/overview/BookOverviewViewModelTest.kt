@@ -91,6 +91,9 @@ class BookOverviewViewModelTest {
       updateNotifier = mockk {
         every { update } returns MutableStateFlow(null)
       },
+      announcementNotifier = mockk {
+        every { prompt } returns MutableStateFlow(null)
+      },
       playerController = mockk<PlayerController>(),
       currentBookStoreDataStore = MemoryDataStore(null),
       gridModeStore = MemoryDataStore(GridMode.LIST),
@@ -174,6 +177,9 @@ class BookOverviewViewModelTest {
       playStateManager = PlayStateManager(),
       updateNotifier = mockk {
         every { update } returns MutableStateFlow(null)
+      },
+      announcementNotifier = mockk {
+        every { prompt } returns MutableStateFlow(null)
       },
       playerController = mockk<PlayerController> {
         every { livePlaybackStateFlow(currentBook.id) } returns livePlaybackFlow
@@ -356,6 +362,9 @@ class BookOverviewViewModelTest {
       updateNotifier = mockk {
         every { update } returns MutableStateFlow(null)
       },
+      announcementNotifier = mockk {
+        every { prompt } returns MutableStateFlow(null)
+      },
       playerController = mockk(),
       currentBookStoreDataStore = MemoryDataStore(null),
       gridModeStore = MemoryDataStore(GridMode.LIST),
@@ -510,6 +519,9 @@ class BookOverviewViewModelTest {
       playStateManager = PlayStateManager(),
       updateNotifier = mockk {
         every { update } returns MutableStateFlow(null)
+      },
+      announcementNotifier = mockk {
+        every { prompt } returns MutableStateFlow(null)
       },
       playerController = mockk(),
       currentBookStoreDataStore = MemoryDataStore(null),

@@ -52,6 +52,7 @@ import voice.core.scanner.DeviceHasStoragePermissionBug
 import voice.core.scanner.MediaScanTrigger
 import voice.core.search.BookSearch
 import voice.core.ui.GridCount
+import voice.core.update.AnnouncementNotifier
 import voice.core.update.UpdateNotifier
 import voice.features.bookOverview.di.BookOverviewScope
 import voice.features.bookOverview.search.BookSearchViewState
@@ -82,6 +83,7 @@ class BookOverviewViewModel(
   @KioskModeFeatureFlagQualifier
   private val kioskModeFeatureFlag: FeatureFlag<Boolean>,
   val updateNotifier: UpdateNotifier,
+  val announcementNotifier: AnnouncementNotifier,
   @OnlineSourceBooksStore private val onlineBooksStore: DataStore<List<OnlineBook>>,
   private val onlineChapterStore: OnlineChapterStore,
   private val onlinePlaybackCatalog: OnlinePlaybackCatalog,

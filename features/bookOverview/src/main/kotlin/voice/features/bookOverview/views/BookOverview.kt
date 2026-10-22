@@ -36,6 +36,7 @@ import dev.zacsweers.metro.Provides
 import kotlinx.coroutines.launch
 import voice.core.common.rootGraphAs
 import voice.core.data.BookId
+import voice.core.ui.AnnouncementDialog
 import voice.core.ui.PlayButton
 import voice.core.ui.UpdateDialog
 import voice.core.ui.VoiceTheme
@@ -137,6 +138,20 @@ fun BookOverviewScreen(modifier: Modifier = Modifier) {
       onDismissClick = {
         scope.launch {
           bookOverviewViewModel.updateNotifier.dismiss()
+        }
+      },
+    )
+  }
+  val announcement = bookOverviewViewModel.announcementNotifier.prompt.collectAsState().value
+  if (announcement != null) {
+    AnnouncementDialog(
+      announcement = announcement,
+      onKnowClick = {
+        bookOverviewViewModel.announcementNotifier.onKnow()
+      },
+      onNeverShowClick = {
+        scope.launch {
+          bookOverviewViewModel.announcementNotifier.neverShowAgain()
         }
       },
     )

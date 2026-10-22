@@ -373,6 +373,12 @@
     <string name="update.dialog.confirm">Update now</string>
     <!-- Title above the release notes in the update dialog. -->
     <string name="update.dialog.notes_title">What\'s new</string>
+    <!-- Title of the dialog that shows the announcement written in announcement.txt. -->
+    <string name="announcement.dialog.title">Announcement</string>
+    <!-- Confirmation of the announcement dialog; the same text returns on the next start until it is silenced. -->
+    <string name="announcement.dialog.know">Got it</string>
+    <!-- Silences the current announcement for good; editing announcement.txt pops it up again. -->
+    <string name="announcement.dialog.never">Don\'t show again</string>
     <!-- Shown in the version row of the settings when a newer version was published. -->
     <string name="settings.about.app_version.update_available">Update to %1$s available</string>
 
