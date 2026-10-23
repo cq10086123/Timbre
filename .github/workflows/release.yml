@@ -85,6 +85,14 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           INPUT_NOTES: ${{ inputs.releaseNotes }}
         run: |
+          # 非 main 分支发的是独立版本线，版本号可能低于 main 已发布版本
+          # （例如 3.5.0 低于 3.6.3）。不标 prerelease 会让 GitHub 把它设成
+          # 仓库的 latest，首页与 /releases/latest 会把一条更旧的代码线
+          # 当成最新正式版展示；标了之后照常可下载，只是不抢 latest
+          EXTRA=""
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            EXTRA="--prerelease"
+          fi
           cp app/build/outputs/apk/free/release/app-free-release.apk \
             "timbre-v${{ inputs.versionName }}.apk"
           if [ -n "$INPUT_NOTES" ]; then
@@ -94,13 +102,13 @@ jobs:
               "timbre-v${{ inputs.versionName }}.apk" \
               --title "Timbre v${{ inputs.versionName }}" \
               --notes-file "$NOTES_FILE" \
-              --target "$GITHUB_SHA"
+              --target "$GITHUB_SHA" $EXTRA
           else
             gh release create "v${{ inputs.versionName }}" \
               "timbre-v${{ inputs.versionName }}.apk" \
               --title "Timbre v${{ inputs.versionName }}" \
               --generate-notes \
-              --target "$GITHUB_SHA"
+              --target "$GITHUB_SHA" $EXTRA
           fi
 
       - name: 更新 update.json 供应用内检查更新
