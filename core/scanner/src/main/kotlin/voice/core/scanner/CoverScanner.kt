@@ -12,11 +12,13 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.withContext
 import voice.core.common.PlaybackIoGate
 import voice.core.data.Book
+import voice.core.data.BookId
 import voice.core.data.toUri
 import voice.core.logging.api.Logger
 import java.io.File
 import java.io.IOException
 import java.security.MessageDigest
+import java.util.concurrent.ConcurrentHashMap
 
 private val REMOTE_SCHEMES = setOf("http", "https")
 
@@ -192,7 +194,18 @@ internal class CoverScanner(
     }
   }
 
+  // The marker of a book is a digest over all of its chapters, and every cover
+  // pass asked for it again: once at every scan, and every few seconds while
+  // an import runs (a book with thousands of chapters re-hashed its whole list
+  // each time). The repository hands out the same Book instance as long as
+  // neither its content nor its chapters changed, so the instance is a safe
+  // key for the digest it produced.
+  private val markerCache = ConcurrentHashMap<BookId, Pair<Book, File>>()
+
   private fun markerFile(book: Book): File {
+    markerCache[book.id]?.let { (cachedBook, file) ->
+      if (cachedBook === book) return file
+    }
     val digestInput = buildString {
       append(book.id.value)
       book.chapters.forEach { chapter ->
@@ -207,7 +220,9 @@ internal class CoverScanner(
     val digest = MessageDigest.getInstance("SHA-1")
       .digest(digestInput.toByteArray())
       .joinToString("") { "%02x".format(it) }
-    return File(markerDir, digest)
+    return File(markerDir, digest).also { marker ->
+      markerCache[book.id] = book to marker
+    }
   }
 
   private suspend fun findAndSaveCoverFromDisc(book: Book): Boolean = withContext(Dispatchers.IO) {

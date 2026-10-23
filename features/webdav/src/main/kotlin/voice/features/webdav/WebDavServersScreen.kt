@@ -113,16 +113,6 @@ private fun WebDavServersView(
       )
     } else {
       LazyColumn(contentPadding = contentPadding) {
-        item {
-          ListItem(
-            modifier = Modifier.clickable(onClick = listener::openCacheSettings),
-          ) {
-            Column {
-              Text(stringResource(StringsR.string.webdav_cache_title))
-              Text(stringResource(StringsR.string.webdav_cache_settings_summary))
-            }
-          }
-        }
         items(viewState.servers, key = { it.id }) { server ->
           ListItem(
             modifier = Modifier.clickable { listener.editServer(server) },

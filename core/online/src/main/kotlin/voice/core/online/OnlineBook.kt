@@ -16,6 +16,13 @@ public data class OnlineBook(
   val title: String,
   val author: String = "",
   val cover: String = "",
+  /**
+   * The remote url [cover] was downloaded from. Kept even after [cover] points
+   * at the local file, because that file is the only copy of the image: when
+   * it disappears (the book is removed and restored, the folder is cleaned)
+   * the url is the only way to get the cover back.
+   */
+  val coverUrl: String? = null,
   val chapters: List<OnlineChapter> = emptyList(),
   val addedAt: Long = 0L,
   /**

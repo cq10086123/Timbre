@@ -14,7 +14,6 @@ dependencies {
   implementation(projects.core.remoteconfig.api)
   implementation(projects.core.data.api)
   implementation(projects.core.online)
-  implementation(projects.core.update)
 
   implementation(libs.androidxCore)
 

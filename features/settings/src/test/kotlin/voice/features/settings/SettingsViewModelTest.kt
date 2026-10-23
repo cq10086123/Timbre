@@ -24,7 +24,6 @@ import voice.core.data.sleeptimer.SleepTimerPreference
 import voice.core.featureflag.MemoryFeatureFlag
 import voice.core.ui.DynamicColorAvailability
 import voice.core.ui.GridCount
-import voice.core.update.UpdateNotifier
 import voice.navigation.Destination
 import voice.navigation.Navigator
 import kotlin.test.Test
@@ -92,9 +91,6 @@ class SettingsViewModelTest {
     },
     onlineSourceService = mockk(relaxed = true),
     dynamicColorAvailability = dynamicColorAvailability,
-    updateNotifier = mockk {
-      every { update } returns MutableStateFlow(null)
-    },
     dispatcherProvider = DispatcherProvider(scope.coroutineContext, scope.coroutineContext, scope.coroutineContext),
   )
 

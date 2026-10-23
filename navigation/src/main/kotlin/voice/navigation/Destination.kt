@@ -98,6 +98,23 @@ sealed interface Destination {
   }
 
   @Serializable
+  data class WebDavSettings(val origin: Origin) : Compose {
+    override val trackingName: String = "WebDavSettings"
+  }
+
+  /** Book folders and the playback cache: what the shelf imports from. */
+  @Serializable
+  data class WebDavImport(val origin: Origin) : Compose {
+    override val trackingName: String = "WebDavImport"
+  }
+
+  /** Backup folder, backing the shelf up and restoring it. */
+  @Serializable
+  data class WebDavBackup(val origin: Origin) : Compose {
+    override val trackingName: String = "WebDavBackup"
+  }
+
+  @Serializable
   data class WebDavServers(val origin: Origin) : Compose {
     override val trackingName: String get() = "WebDavServers"
   }
@@ -108,6 +125,12 @@ sealed interface Destination {
     val origin: Origin,
   ) : Compose {
     override val trackingName: String = "WebDavBrowse"
+  }
+
+  /** Picks the folder the shelf backup lives in. */
+  @Serializable
+  data class WebDavBackupFolder(val origin: Origin) : Compose {
+    override val trackingName: String = "WebDavBackupFolder"
   }
 
   @Serializable

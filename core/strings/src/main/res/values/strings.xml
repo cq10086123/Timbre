@@ -36,6 +36,7 @@
     <string name="bookmark.title">Bookmark</string>
     <!-- Generic add action and content description. -->
     <string name="common.action.add">Add</string>
+    <string name="common.action.cancel">Cancel</string>
     <!-- Generic content description for closing the current screen or dialog. -->
     <string name="common.action.close">Close</string>
     <!-- Generic delete action and content description. -->
@@ -365,26 +366,57 @@
     <string name="sleep_timer.dialog.title">Sweet dreams! 🌙</string>
     <!-- Sleep timer option and playback status for stopping at the end of a chapter. -->
     <string name="sleep_timer.end_of_chapter">End of Chapter</string>
-    <!-- Dialog title when a newer version was published. -->
-    <string name="update.dialog.title">Update available</string>
-    <!-- Dialog body when a newer version was published. -->
-    <string name="update.dialog.message">Version %1$s is available. Do you want to update now?</string>
-    <!-- Dialog button for opening the page of the latest release. -->
-    <string name="update.dialog.confirm">Update now</string>
-    <!-- Title above the release notes in the update dialog. -->
-    <string name="update.dialog.notes_title">What\'s new</string>
     <!-- Title of the dialog that shows the announcement written in announcement.txt. -->
     <string name="announcement.dialog.title">Announcement</string>
     <!-- Confirmation of the announcement dialog; the same text returns on the next start until it is silenced. -->
     <string name="announcement.dialog.know">Got it</string>
     <!-- Silences the current announcement for good; editing announcement.txt pops it up again. -->
     <string name="announcement.dialog.never">Don\'t show again</string>
-    <!-- Shown in the version row of the settings when a newer version was published. -->
-    <string name="settings.about.app_version.update_available">Update to %1$s available</string>
 
     <!-- WebDAV -->
     <string name="webdav_title">WebDAV</string>
-    <string name="webdav_settings_summary">Stream audiobooks from your NAS without using phone storage</string>
+    <string name="webdav_settings_summary">Importing books, backup and restore, servers</string>
+    <string name="webdav_settings_page_title">WebDAV settings</string>
+    <string name="webdav_section_import">Importing books</string>
+    <string name="webdav_section_backup">Backup and restore</string>
+    <string name="webdav_section_servers">Servers</string>
+    <string name="webdav_settings_import_summary">Book folders and the playback cache</string>
+    <string name="webdav_settings_backup_summary">Backup folder, backing up, restoring</string>
+    <string name="webdav_settings_book_folder_title">Book folders</string>
+    <string name="webdav_settings_book_folder_summary">Pick the folders on the NAS that hold your audiobooks</string>
+    <string name="webdav_server_pick_title">Choose a server</string>
+    <string name="webdav_settings_servers_summary">Add, edit and test your NAS servers</string>
+    <string name="settings_webdav_backup_title">Back up shelf and progress</string>
+    <string name="settings_webdav_backup_summary">Write the shelf and every playback position to the backup folder</string>
+    <string name="settings_webdav_restore_title">Restore from backup</string>
+    <string name="settings_webdav_restore_summary">Read the backup folder and merge its positions into the books on this device</string>
+    <string name="webdav_backup_folder_title">Backup folder</string>
+    <string name="webdav_backup_folder_choose_server">Choose a server</string>
+    <string name="webdav_backup_folder_use">Use this folder</string>
+    <string name="webdav_backup_folder_empty">No subfolders. You can use this folder.</string>
+    <string name="settings_webdav_backup_running">Working…</string>
+    <string name="settings_webdav_backup_done">Backed up %1$d → %2$s</string>
+    <string name="settings_webdav_restore_done">Restored from %3$s (%1$d/%2$d)</string>
+    <string name="settings_webdav_backup_no_server">Add a WebDAV server first</string>
+    <string name="settings_webdav_backup_no_folder">Pick a backup folder first</string>
+    <string name="settings_webdav_backup_empty_shelf">The shelf is empty, nothing to back up</string>
+    <string name="settings_webdav_backup_books_loading">Still importing (%1$d). Back up once the import finishes.</string>
+    <string name="settings_webdav_restore_no_file">No backup found on the server</string>
+    <string name="settings_webdav_backup_failed">Failed: %1$s</string>
+    <string name="webdav_backup_folder_not_set">Not set, pick a folder first</string>
+    <string name="webdav_backup_dialog_title">Backup label</string>
+    <string name="webdav_backup_dialog_hint">e.g. funny books</string>
+    <string name="webdav_backup_dialog_note">Leave empty for the default backup. An existing backup with the same label is overwritten.</string>
+    <string name="webdav_backup_dialog_confirm">Back up</string>
+    <string name="webdav_backup_existing_title">Backups already in this folder, tap to overwrite</string>
+    <string name="webdav_backup_existing_loading">Reading the backups already in this folder…</string>
+    <string name="webdav_backup_default_label">Default backup</string>
+    <string name="webdav_restore_picker_title">Choose a backup</string>
+    <string name="webdav_restore_picker_empty">No backups in this folder yet</string>
+    <string name="webdav_restore_picker_failed">Could not read the backup list</string>
+    <string name="webdav_no_folder_title">No backup folder yet</string>
+    <string name="webdav_no_folder_message">Pick a folder on your WebDAV server first. Backup and restore both write there, so nothing is backed up before you choose one.</string>
+    <string name="webdav_no_folder_action">Pick folder</string>
     <string name="settings_library_auto_refresh_wifi_title">Only refresh the shelf automatically on Wi-Fi</string>
     <string name="settings_library_auto_refresh_wifi_summary">Avoid automatic WebDAV refreshes on mobile data</string>
     <string name="webdav_server_add">Add server</string>
@@ -419,7 +451,7 @@
     <string name="webdav_add_as_library_root">Add subfolders as books</string>
     <string name="webdav_http_hint">Tip: without HTTPS the password travels unencrypted.</string>
     <string name="folder_add_type_webdav">WebDAV</string>
-    <string name="webdav_cache_title">Playback cache</string>
+    <string name="webdav_cache_title">Book cache</string>
     <string name="webdav_cache_settings_summary">Cache limit and prefetching</string>
     <string name="webdav_cache_usage">Cached: %1$s of %2$s</string>
     <string name="webdav_cache_clear">Clear cache</string>

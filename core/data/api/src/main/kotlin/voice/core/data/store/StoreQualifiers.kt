@@ -50,12 +50,6 @@ public annotation class AnalyticsConsentStore
 @Qualifier
 public annotation class DeveloperMenuUnlockedStore
 
-@Qualifier
-public annotation class UpdateLastCheckStore
-
-@Qualifier
-public annotation class UpdateDismissedStore
-
 /** The fingerprint of the announcement the user asked to never see again. */
 @Qualifier
 public annotation class AnnouncementDismissedStore

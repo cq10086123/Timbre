@@ -84,6 +84,24 @@ class OnlinePlaybackCatalogTest {
   }
 
   @Test
+  fun `a chapter list fetched from the source is stored for the next start`() = runTest {
+    // a book restored from a backup: the record carries metadata only and the
+    // chapter list of this device was never fetched
+    coEvery { service.shelfBook("A::$BOOK_ID") } returns shelfBook().copy(chapters = emptyList())
+    coEvery { service.chapters(SOURCE, BOOK_ID) } returns shelfBook().chapters
+
+    assertNotNull(catalog.book(bookId()))
+    // without the stored list every cold start went back to the source, and
+    // the player showed its loading screen for as long as that took
+    assertEquals(shelfBook().chapters, chapterStore.chapters("A::$BOOK_ID"))
+
+    // next start: the disk answers, the source is not asked a second time
+    val nextStart = OnlinePlaybackCatalog(service, FakeBooksStore(), chapterStore)
+    assertEquals(3, assertNotNull(nextStart.book(bookId())).chapters.size)
+    coVerify(exactly = 1) { val _ = service.chapters(SOURCE, BOOK_ID) }
+  }
+
+  @Test
   fun `starts at the requested chapter`() = runTest {
     coEvery { service.shelfBook("A::$BOOK_ID") } returns shelfBook()
     catalog.requestStartAt(SOURCE, BOOK_ID, "c2")

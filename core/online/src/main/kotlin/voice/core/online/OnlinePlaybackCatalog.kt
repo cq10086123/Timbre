@@ -511,7 +511,13 @@ public class OnlinePlaybackCatalog(
     val chapters = onlineBook.chapters.ifEmpty {
       runCatching { chapterStore.chapters(bookRef.key) }.getOrDefault(emptyList())
     }.ifEmpty {
-      runCatching { service.chapters(bookRef.source, bookRef.bookId) }.getOrDefault(emptyList())
+      // a book restored from a backup arrives without its list (the backup
+      // only carries metadata), so this fetch is the only copy: keeping it
+      // makes the next start read the disk instead of opening the player on
+      // a black screen while the source is asked again
+      runCatching { service.chapters(bookRef.source, bookRef.bookId) }
+        .getOrDefault(emptyList())
+        .also { fetched -> storeFetchedChapters(bookRef.key, fetched) }
     }
     if (chapters.isEmpty()) return null
 
@@ -557,6 +563,30 @@ public class OnlinePlaybackCatalog(
       skipOutro = onlineBook.skipOutroMs,
     )
     return AssembledOnline(bookRef = bookRef, content = content, chapters = chapters)
+  }
+
+  /**
+   * Writes a chapter list that came from the source to [chapterStore], so the
+   * next start reads it from disk instead of a network round trip.
+   *
+   * Only books without a stored list get here: a book added through the search
+   * dialog already has one, and a book restored from a backup has none because
+   * the backup carries metadata only. Without this the player showed its
+   * loading screen on every cold start of such a book.
+   */
+  private suspend fun storeFetchedChapters(
+    key: String,
+    chapters: List<OnlineChapter>,
+  ) {
+    if (chapters.isEmpty()) return
+    try {
+      chapterStore.put(key, chapters)
+    } catch (e: CancellationException) {
+      throw e
+    } catch (e: Exception) {
+      // the store is an optimization: a failing disk must not stop playback
+      Logger.w(e, "Could not store the chapter list of $key")
+    }
   }
 
   /**

@@ -73,6 +73,17 @@ public class BookRepositoryImpl(
       }
   }
 
+  override suspend fun incompleteCount(): Int {
+    warmUp()
+    return contentRepo.all()
+      .filter { it.isActive }
+      .count { content ->
+        val chapters = content.chapters
+        chapterRepo.prefetch(chapters)
+        chapters.any { chapterRepo.get(it) == null }
+      }
+  }
+
   override fun flow(id: BookId): Flow<Book?> {
     return contentRepo.flow(id)
       .map { it?.book() }

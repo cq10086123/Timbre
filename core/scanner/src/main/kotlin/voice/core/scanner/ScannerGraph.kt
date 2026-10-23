@@ -7,12 +7,29 @@ import dev.zacsweers.metro.Provides
 import dev.zacsweers.metro.Qualifier
 import dev.zacsweers.metro.SingleIn
 import kotlinx.coroutines.sync.Semaphore
+import voice.core.data.BookId
+import voice.core.data.backup.BookImportState
 
 @Qualifier
 internal annotation class MediaAnalysisSemaphore
 
 @ContributesTo(AppScope::class)
 public interface ScannerGraph {
+
+  /**
+   * The running import, for consumers that must not write a half-imported
+   * shelf - the WebDAV backup. Lives here because the scanner is the only
+   * module that knows the progress, and it already depends on data/api.
+   */
+  @Provides
+  @SingleIn(AppScope::class)
+  public fun bookImportState(reporter: ScanProgressReporter): BookImportState {
+    return object : BookImportState {
+      override fun chapterTotals(): Map<BookId, Int> {
+        return reporter.bookProgress.value.mapValues { (_, progress) -> progress.chaptersTotal }
+      }
+    }
+  }
 
   @Provides
   @SingleIn(AppScope::class)

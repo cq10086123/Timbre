@@ -57,6 +57,11 @@ public class WebDavCredentialResolver(
     return snapshot().firstOrNull { it.server.id == id }
   }
 
+  /** All servers whose stored password could be decrypted, in stored order. */
+  public fun all(): List<Resolved> {
+    return snapshot()
+  }
+
   public fun invalidate() {
     // Drop the TTL window so the next lookup re-decrypts (e.g. after a password
     // re-entry). The background collector will also refresh when the store
