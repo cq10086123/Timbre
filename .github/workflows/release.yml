@@ -104,6 +104,11 @@ jobs:
           fi
 
       - name: 更新 update.json 供应用内检查更新
+        # 只在 main 上发布时回写 update.json。其他分支是独立版本，版本号可能
+        # 低于 main 已发布的版本（例如 3.5.0 低于 3.6.3），回写会让装着正式版
+        # 的用户收到一条版本更旧、功能更少的「更新」提示；而且此时 HEAD 与
+        # main 未分叉与否不确定，push HEAD:main 本身也会失败
+        if: github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
