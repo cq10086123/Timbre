@@ -1,6 +1,6 @@
 {
-  "versionName": "3.6.3",
-  "versionCode": 633,
+  "versionName": "3.5.2",
+  "versionCode": 634,
   "releaseUrl": "https://github.com/cq10086123/Timbre/releases/latest",
-  "releaseNotes": "## 修复\n- 修复在线听书偶发导致书籍封面丢失\n- 修复并优化接口源导入地址\n\n## 接口源更新\n- 接口源新增「懒人VIP」源，请及时更新接口源\n- 本地下载导入：https://pan.quark.cn/s/3e8dc42b49a6\n- 或重新访问最新的接口源分享链接，在线导入"
+  "releaseNotes": "验证版本请勿下载，仅供作者验证"
 }
