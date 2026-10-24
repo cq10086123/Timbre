@@ -261,6 +261,7 @@
     <string name="settings_webdav_backup_running">处理中…</string>
     <string name="settings_webdav_backup_done">已备份 %1$d 本 → %2$s</string>
     <string name="settings_webdav_restore_done">已从 %3$s 恢复（%1$d/%2$d）</string>
+    <string name="settings_webdav_restore_missing_webdav">有 %1$d 本 WebDAV 书籍还没导入进来，需先重新添加对应书源并等扫描完成，再恢复一次才能合上进度</string>
     <string name="settings_webdav_backup_no_server">请先添加一个 WebDAV 服务器</string>
     <string name="settings_webdav_backup_no_folder">请先设置备份目录</string>
     <string name="settings_webdav_backup_empty_shelf">书架是空的，没有可备份的内容</string>

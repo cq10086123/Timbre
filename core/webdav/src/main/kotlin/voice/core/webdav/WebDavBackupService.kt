@@ -210,10 +210,17 @@ public class WebDavBackupService(
     val byId = local.associateBy { it.id.value }
     val byFallback = local.groupBy { it.fallbackKey() }
     var restored = 0
+    var missingWebDav = 0
     for (entry in payload.books) {
       // an id is exact and preferred; the name/duration key covers devices
       // where the same book got a different uri
-      val book = byId[entry.id] ?: byFallback[entry.fallbackKey()]?.firstOrNull() ?: continue
+      val book = byId[entry.id] ?: byFallback[entry.fallbackKey()]?.firstOrNull()
+      if (book == null) {
+        // a webdav book cannot be recreated here: its chapters come from the
+        // server, so it only comes back once its source is registered again
+        if (entry.isRemoteBook()) missingWebDav++
+        continue
+      }
       apply(book, entry)
       restored++
     }
@@ -231,12 +238,13 @@ public class WebDavBackupService(
       restored += result.restored
       total += result.total
     }
-    Logger.d("WebDAV restore merged $restored of $total books")
+    Logger.d("WebDAV restore merged $restored of $total books ($missingWebDav webdav books missing)")
     WebDavRestoreResult.Success(
       restored = restored,
       total = total,
       serverName = target.location.serverName,
       label = label?.trim()?.ifEmpty { null },
+      missingWebDav = missingWebDav,
     )
   }
 
@@ -332,6 +340,11 @@ public class WebDavBackupService(
 
   private fun WebDavBackupBook.fallbackKey(): String {
     return "$name|$chapterCount|$totalDurationMs"
+  }
+
+  /** True for books served over http(s), which is every webdav book. */
+  private fun WebDavBackupBook.isRemoteBook(): Boolean {
+    return id.startsWith("http://") || id.startsWith("https://")
   }
 
   /**

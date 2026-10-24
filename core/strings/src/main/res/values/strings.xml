@@ -409,6 +409,7 @@
     <string name="settings_webdav_backup_running">Working…</string>
     <string name="settings_webdav_backup_done">Backed up %1$d → %2$s</string>
     <string name="settings_webdav_restore_done">Restored from %3$s (%1$d/%2$d)</string>
+    <string name="settings_webdav_restore_missing_webdav">%1$d WebDAV book(s) are not on this device yet. Add their source again and wait for the scan, then restore once more to merge their progress.</string>
     <string name="settings_webdav_backup_no_server">Add a WebDAV server first</string>
     <string name="settings_webdav_backup_no_folder">Pick a backup folder first</string>
     <string name="settings_webdav_backup_empty_shelf">The shelf is empty, nothing to back up</string>

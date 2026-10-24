@@ -72,6 +72,17 @@ private fun WebDavBackupView(
 ) {
   // resolved before LazyColumn: its content lambda is not composable
   val status = webDavBackupMessage(viewState.backupState)
+  val restoreDone = viewState.backupState as? WebDavBackupUiState.RestoreDone
+  // books of the backup that sit on a webdav server and are not imported here
+  // cannot get their progress back in this run, so say what to do about it
+  val missingWebDavHint = if (restoreDone != null && restoreDone.missingWebDav > 0) {
+    stringResource(
+      StringsR.string.settings_webdav_restore_missing_webdav,
+      restoreDone.missingWebDav,
+    )
+  } else {
+    null
+  }
   val busy = viewState.backupState == WebDavBackupUiState.Busy
   val location = viewState.location
   val folderSummary = if (location == null) {
@@ -132,6 +143,16 @@ private fun WebDavBackupView(
             text = message,
             style = MaterialTheme.typography.bodySmall,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+          )
+        }
+      }
+      missingWebDavHint?.let { hint ->
+        item {
+          Text(
+            text = hint,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
           )
         }
       }

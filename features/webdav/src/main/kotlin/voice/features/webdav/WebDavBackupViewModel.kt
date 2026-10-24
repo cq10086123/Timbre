@@ -39,6 +39,8 @@ sealed interface WebDavBackupUiState {
     val total: Int,
     val server: String,
     val label: String?,
+    /** Webdav books of the backup that are not on this device yet. */
+    val missingWebDav: Int = 0,
   ) : WebDavBackupUiState
 
   /** No server is configured, or its password cannot be decrypted. */
@@ -224,6 +226,7 @@ class WebDavBackupViewModel(
             total = result.total,
             server = result.serverName,
             label = result.label,
+            missingWebDav = result.missingWebDav,
           )
         WebDavRestoreResult.NoServer -> WebDavBackupUiState.NoServer
         WebDavRestoreResult.NoFolder -> WebDavBackupUiState.NoFolder

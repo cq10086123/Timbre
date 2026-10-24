@@ -113,6 +113,13 @@ public sealed interface WebDavRestoreResult {
     public val total: Int,
     public val serverName: String,
     public val label: String?,
+    /**
+     * Books the backup carries that live on a WebDAV server and are missing
+     * here. Their chapters come from the server, so restore cannot put them
+     * back: the source has to be added again, and only then can their progress
+     * be merged. The ui says so instead of silently reporting a partial count.
+     */
+    public val missingWebDav: Int = 0,
   ) : WebDavRestoreResult
 
   public data object NoServer : WebDavRestoreResult
