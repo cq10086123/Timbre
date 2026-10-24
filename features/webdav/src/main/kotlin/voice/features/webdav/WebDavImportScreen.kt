@@ -75,6 +75,18 @@ private fun WebDavImportView(
           onClick = listener::openCacheSettings,
         )
       }
+      item {
+        SettingRow(
+          icon = VoiceIcons.Speed,
+          title = stringResource(StringsR.string.settings_playback_import_parallelism_title),
+          subtitle = stringResource(StringsR.string.settings_playback_import_parallelism_summary),
+          onClick = listener::onImportParallelismRowClick,
+          trailingText = stringResource(
+            StringsR.string.settings_playback_import_parallelism_value,
+            viewState.importParallelism,
+          ),
+        )
+      }
     }
   }
   viewState.serverPicker?.let { servers ->
@@ -82,6 +94,13 @@ private fun WebDavImportView(
       servers = servers,
       onSelect = listener::browseServer,
       onDismiss = listener::dismissServerPicker,
+    )
+  }
+  if (viewState.showingImportParallelismDialog) {
+    ImportParallelismDialog(
+      currentLevel = viewState.importParallelism,
+      onLevelSelect = listener::importParallelismChanged,
+      onDismiss = listener::dismissImportParallelismDialog,
     )
   }
 }

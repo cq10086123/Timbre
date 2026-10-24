@@ -18,7 +18,6 @@ import voice.core.data.GridMode
 import voice.core.data.ThemeColorScheme
 import voice.core.data.ThemeMode
 import voice.core.data.sleeptimer.SleepTimerPreference
-import voice.core.data.store.AnalysisParallelismStore
 import voice.core.data.store.AnalyticsConsentStore
 import voice.core.data.store.DeveloperMenuUnlockedStore
 import voice.core.data.store.GridModeStore
@@ -63,8 +62,6 @@ class SettingsViewModel(
   private val developerMenuUnlockedStore: DataStore<Boolean>,
   @WebDavAutoRefreshWifiStore
   private val autoRefreshWifiStore: DataStore<Boolean>,
-  @AnalysisParallelismStore
-  private val analysisParallelismStore: DataStore<Int>,
   @OnlineSourceEnabledStore
   private val onlineSourceEnabledStore: DataStore<Boolean>,
   @OnlineSourceBaseUrlStore
@@ -100,7 +97,6 @@ class SettingsViewModel(
     }
     val showDeveloperMenu by remember { developerMenuUnlockedStore.data }.collectAsState(initial = false)
     val autoRefreshWifi by remember { autoRefreshWifiStore.data }.collectAsState(initial = true)
-    val importParallelism by remember { analysisParallelismStore.data }.collectAsState(initial = 1)
     val onlineSourceEnabled by remember { onlineSourceEnabledStore.data }.collectAsState(initial = false)
     val onlineSourceBaseUrl by remember { onlineSourceBaseUrlStore.data }.collectAsState(initial = "")
     val onlineSourceCredential by remember { onlineSourceCredentialStore.data }.collectAsState(initial = "")
@@ -131,7 +127,6 @@ class SettingsViewModel(
       showAnalyticSetting = appInfoProvider.analyticsIncluded,
       showDeveloperMenu = showDeveloperMenu,
       autoRefreshWifi = autoRefreshWifi,
-      importParallelism = importParallelism,
       onlineSourceEnabled = onlineSourceEnabled,
       onlineSourceBaseUrl = onlineSourceBaseUrl,
       onlineSourceCredential = onlineSourceCredential,
@@ -295,17 +290,6 @@ class SettingsViewModel(
     needBaseUrl -> StringsR.string.settings_online_source_error_need_base_url
     invalidUrl -> StringsR.string.settings_online_source_error_invalid_url
     else -> StringsR.string.settings_online_source_error_invalid
-  }
-
-  override fun onImportParallelismRowClick() {
-    dialog.value = SettingsViewState.Dialog.ImportParallelism
-  }
-
-  override fun importParallelismChanged(level: Int) {
-    dialog.value = null
-    mainScope.launch {
-      analysisParallelismStore.updateData { level }
-    }
   }
 
   override fun openPlayerSettings() {

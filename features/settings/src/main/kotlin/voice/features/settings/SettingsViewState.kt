@@ -17,7 +17,6 @@ data class SettingsViewState(
   val analyticsEnabled: Boolean,
   val showDeveloperMenu: Boolean,
   val autoRefreshWifi: Boolean,
-  val importParallelism: Int,
   val onlineSourceEnabled: Boolean,
   val onlineSourceBaseUrl: String,
   val onlineSourceCredential: String,
@@ -32,7 +31,6 @@ data class SettingsViewState(
 ) {
 
   enum class Dialog {
-    ImportParallelism,
     OnlineSourceBaseUrl,
     OnlineSourceCredential,
     Theme,
@@ -45,7 +43,6 @@ data class SettingsViewState(
         themeMode = ThemeMode.FollowSystem,
         themeColorScheme = ThemeColorScheme.VoiceBlue,
         showThemeColorSchemePref = true,
-        importParallelism = 1,
         onlineSourceEnabled = false,
         onlineSourceBaseUrl = "",
         onlineSourceCredential = "",

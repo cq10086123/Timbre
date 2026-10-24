@@ -71,9 +71,6 @@ class SettingsViewModelTest {
     kioskModeFeatureFlag = kioskModeFeatureFlag,
     developerMenuUnlockedStore = developerMenuUnlockedStore,
     autoRefreshWifiStore = autoRefreshWifiStore,
-    analysisParallelismStore = mockk {
-      every { data } returns flowOf(1)
-    },
     onlineSourceEnabledStore = mockk {
       every { data } returns flowOf(false)
     },

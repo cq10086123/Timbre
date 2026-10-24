@@ -23,8 +23,6 @@ interface SettingsListener {
   fun openExtensions()
   fun openSourceShare()
   fun setAutoRefreshWifi(checked: Boolean)
-  fun onImportParallelismRowClick()
-  fun importParallelismChanged(level: Int)
   fun setOnlineSourceEnabled(checked: Boolean)
   fun onOnlineSourceBaseUrlRowClick()
   fun onOnlineSourceCredentialRowClick()
@@ -45,8 +43,6 @@ interface SettingsListener {
       override fun setThemeMode(themeMode: ThemeMode) {}
       override fun setThemeColorScheme(themeColorScheme: ThemeColorScheme) {}
       override fun toggleGrid() {}
-      override fun onImportParallelismRowClick() {}
-      override fun importParallelismChanged(level: Int) {}
       override fun setOnlineSourceEnabled(checked: Boolean) {}
       override fun onOnlineSourceBaseUrlRowClick() {}
       override fun onOnlineSourceCredentialRowClick() {}

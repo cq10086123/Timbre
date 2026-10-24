@@ -3,6 +3,8 @@ package voice.features.webdav
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.datastore.core.DataStore
 import dev.zacsweers.metro.Assisted
 import dev.zacsweers.metro.AssistedFactory
 import dev.zacsweers.metro.AssistedInject
@@ -11,6 +13,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import voice.core.common.DispatcherProvider
 import voice.core.common.MainScope
+import voice.core.data.store.AnalysisParallelismStore
 import voice.core.webdav.WebDavLibrary
 import voice.core.webdav.WebDavServer
 import voice.navigation.Destination
@@ -20,6 +23,10 @@ import voice.navigation.Origin
 data class WebDavSettingsViewState(
   /** Server picker of the import page, non-null while it is open. */
   val serverPicker: List<WebDavServer>? = null,
+  /** Chapters analysed at the same time while importing. */
+  val importParallelism: Int = 1,
+  /** True while the concurrency picker of the import page is open. */
+  val showingImportParallelismDialog: Boolean = false,
 )
 
 /**
@@ -29,6 +36,8 @@ data class WebDavSettingsViewState(
 @AssistedInject
 class WebDavSettingsViewModel(
   private val webDavLibrary: WebDavLibrary,
+  @AnalysisParallelismStore
+  private val analysisParallelismStore: DataStore<Int>,
   dispatcherProvider: DispatcherProvider,
   private val navigator: Navigator,
   @Assisted
@@ -37,11 +46,17 @@ class WebDavSettingsViewModel(
 
   private val scope = MainScope(dispatcherProvider)
   private val serverPicker = MutableStateFlow<List<WebDavServer>?>(null)
+  private val importParallelismDialog = mutableStateOf(false)
 
   @Composable
   fun viewState(): WebDavSettingsViewState {
     val servers by serverPicker.collectAsState()
-    return WebDavSettingsViewState(serverPicker = servers)
+    val importParallelism by analysisParallelismStore.data.collectAsState(initial = 1)
+    return WebDavSettingsViewState(
+      serverPicker = servers,
+      importParallelism = importParallelism,
+      showingImportParallelismDialog = importParallelismDialog.value,
+    )
   }
 
   fun openServers() {
@@ -83,6 +98,21 @@ class WebDavSettingsViewModel(
 
   fun dismissServerPicker() {
     serverPicker.value = null
+  }
+
+  fun onImportParallelismRowClick() {
+    importParallelismDialog.value = true
+  }
+
+  fun dismissImportParallelismDialog() {
+    importParallelismDialog.value = false
+  }
+
+  fun importParallelismChanged(level: Int) {
+    importParallelismDialog.value = false
+    scope.launch {
+      analysisParallelismStore.updateData { level }
+    }
   }
 
   fun back() {

@@ -5,21 +5,26 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import voice.core.ui.icons.VoiceIcons
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import voice.core.strings.R as StringsR
 
 /** One settings entry: icon, title, and a line explaining what it does. */
 @Composable
@@ -29,6 +34,7 @@ internal fun SettingRow(
   subtitle: String,
   onClick: () -> Unit,
   enabled: Boolean = true,
+  trailingText: String? = null,
 ) {
   ListItem(
     modifier = Modifier.clickable(enabled = enabled, onClick = onClick),
@@ -37,6 +43,11 @@ internal fun SettingRow(
     },
     supportingContent = {
       Text(subtitle)
+    },
+    trailingContent = trailingText?.let { text ->
+      {
+        Text(text = text, style = MaterialTheme.typography.bodyLarge)
+      }
     },
   ) {
     Text(title)
@@ -96,6 +107,54 @@ internal fun ChoiceRow(
       HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
     }
   }
+}
+
+/** Pick how many chapters are analysed at the same time while importing. */
+@Composable
+internal fun ImportParallelismDialog(
+  currentLevel: Int,
+  onLevelSelect: (Int) -> Unit,
+  onDismiss: () -> Unit,
+) {
+  AlertDialog(
+    onDismissRequest = onDismiss,
+    title = {
+      Text(stringResource(StringsR.string.settings_playback_import_parallelism_title))
+    },
+    text = {
+      Column {
+        Text(
+          modifier = Modifier.padding(bottom = 8.dp),
+          text = stringResource(StringsR.string.settings_playback_import_parallelism_summary),
+          style = MaterialTheme.typography.bodySmall,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        (1..3).forEach { level ->
+          Row(
+            modifier = Modifier
+              .fillMaxWidth()
+              .clickable { onLevelSelect(level) },
+            verticalAlignment = Alignment.CenterVertically,
+          ) {
+            RadioButton(
+              selected = level == currentLevel,
+              onClick = { onLevelSelect(level) },
+            )
+            Text(
+              text = stringResource(StringsR.string.settings_playback_import_parallelism_option, level),
+              style = MaterialTheme.typography.bodyLarge,
+            )
+          }
+        }
+      }
+    },
+    confirmButton = {},
+    dismissButton = {
+      TextButton(onClick = onDismiss) {
+        Text(stringResource(StringsR.string.common_dialog_cancel))
+      }
+    },
+  )
 }
 
 /** "2026-10-23 17:05 · 92 KB", dropping whichever half is unknown. */
