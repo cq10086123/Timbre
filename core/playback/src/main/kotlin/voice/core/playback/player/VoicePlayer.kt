@@ -343,6 +343,14 @@ class VoicePlayer(
   @Volatile
   private var currentBookIsOnline: Boolean = false
 
+  // 已经交给播放器的书（正在组装或组装完成）。setBook 是异步的，而 withheld
+  // 的 prepare 会让 playbackState 停在 IDLE，调用方光看状态分不清"这本书还
+  // 没设过"和"设过了只是没 prepare"，就会重复 setMediaItem；那会 cancel 掉
+  // 正在进行的组装，连它已经发出的音频解析一起中断 —— 请求收不回来，源端
+  // 的限流额度已经花掉，用户真正点的那一集于是 429。
+  @Volatile
+  private var bookIdInPlayer: BookId? = null
+
   // prepare()/play() arriving while setBook is still assembling ran on an
   // empty playlist and did nothing. The flag re-applies them once the items
   // land; play() needs no flag because playWhenReady persists on the player.
@@ -374,6 +382,7 @@ class VoicePlayer(
     playlistExpandJob?.cancel()
     pendingPrepare = false
     currentBookIsOnline = false
+    bookIdInPlayer = null
     super.stop()
   }
 
@@ -382,6 +391,7 @@ class VoicePlayer(
     playlistExpandJob?.cancel()
     pendingPrepare = false
     currentBookIsOnline = false
+    bookIdInPlayer = null
     super.clearMediaItems()
   }
 
@@ -426,6 +436,15 @@ class VoicePlayer(
       }
       return
     }
+    // 同一本书已经交给播放器（正在组装或已组装）：直接忽略这次设置。
+    // 重建会 cancel 掉正在跑的组装，连它已经发出的音频解析一起中断，而
+    // 请求收不回来 —— 源端的限流额度照样被吃掉，用户真正点的那一集就 429。
+    // 这条判定不依赖跨进程查询，客户端走哪条路径都拦得住；要真正重载这本
+    // 书（导入新章节等）请先 clearMediaItems()/stop() 把标记清掉。
+    if (bookIdInPlayer == mediaId.id) {
+      Logger.d("setBook(${mediaId.id}) ignored: playlist already handed over")
+      return
+    }
     // Assembling touches the database and builds one MediaItem per chapter:
     // both grow with the chapter count and must never run on the calling
     // (usually main) thread. Later calls win: an assembly still in flight is
@@ -434,52 +453,73 @@ class VoicePlayer(
     playlistExpandJob?.cancel()
     pendingPrepare = false
     currentBookIsOnline = onlinePlaybackCatalog.isOnlineBookId(mediaId.id)
+    // 同步落下标记：播放列表还没组装完，这本书也已经"归播放器了"，
+    // 调用方不该再设一次（那会把这里的组装取消掉）
+    bookIdInPlayer = mediaId.id
     setBookJob = scope.launch {
-      // a failed assembly (book deleted, position no longer resolvable) must
-      // not re-prepare the previous book's stale playlist, so the trailing
-      // prepare is gated on the items actually having been set
-      var assembled = false
-      var expand: PreparedBook? = null
-      val assemblyDuration = measureTime {
-        // one IO hop: load the book, build a leading prefix and resolve cover.
-        val prepared = withContext(dispatcherProvider.io) {
-          prepareBook(mediaId.id)
-        } ?: return@measureTime
-        player.setPlaybackSpeed(prepared.book.content.playbackSpeed)
-        // apply directly instead of through setSkipSilenceEnabled: that
-        // override persists the value, which would rewrite the shelf on
-        // every prepare with the value just read from it
-        if (player is ExoPlayer) {
-          player.skipSilenceEnabled = prepared.book.content.skipSilence
+      try {
+        // a failed assembly (book deleted, position no longer resolvable) must
+        // not re-prepare the previous book's stale playlist, so the trailing
+        // prepare is gated on the items actually having been set
+        var assembled = false
+        var expand: PreparedBook? = null
+        val assemblyDuration = measureTime {
+          // one IO hop: load the book, build a leading prefix and resolve cover.
+          val prepared = withContext(dispatcherProvider.io) {
+            prepareBook(mediaId.id)
+          }
+          if (prepared == null) {
+            // 组装失败就放开标记，否则调用方会一直以为"已经设过"，
+            // 这本书再也重建不起来
+            if (bookIdInPlayer == mediaId.id) {
+              bookIdInPlayer = null
+            }
+            return@measureTime
+          }
+          player.setPlaybackSpeed(prepared.book.content.playbackSpeed)
+          // apply directly instead of through setSkipSilenceEnabled: that
+          // override persists the value, which would rewrite the shelf on
+          // every prepare with the value just read from it
+          if (player is ExoPlayer) {
+            player.skipSilenceEnabled = prepared.book.content.skipSilence
+          }
+          volumeGain.gain = Decibel(prepared.book.content.gain)
+          player.setMediaItems(
+            prepared.mediaItems,
+            prepared.startIndex,
+            prepared.startPositionMs,
+          )
+          assembled = true
+          if (prepared.needsFullPlaylist) {
+            expand = prepared
+          }
         }
-        volumeGain.gain = Decibel(prepared.book.content.gain)
-        player.setMediaItems(
-          prepared.mediaItems,
-          prepared.startIndex,
-          prepared.startPositionMs,
-        )
-        assembled = true
-        if (prepared.needsFullPlaylist) {
-          expand = prepared
+        // prepare()/play() that arrived while the book was still assembling ran
+        // on an empty playlist and did nothing: apply them now that the items
+        // landed, otherwise tap-play on a cold book stays silent. For an online
+        // book the prepare stays withheld while paused (runPrepareIfAllowed).
+        if (assembled && (pendingPrepare || player.playWhenReady)) {
+          pendingPrepare = true
+          runPrepareIfAllowed()
         }
-      }
-      // prepare()/play() that arrived while the book was still assembling ran
-      // on an empty playlist and did nothing: apply them now that the items
-      // landed, otherwise tap-play on a cold book stays silent. For an online
-      // book the prepare stays withheld while paused (runPrepareIfAllowed).
-      if (assembled && (pendingPrepare || player.playWhenReady)) {
-        pendingPrepare = true
-        runPrepareIfAllowed()
-      }
-      // assembling the playlist of a book with thousands of chapters is the
-      // one step of a playback start that grows with the chapter count. The
-      // log marks how long it took so a slow start can be attributed.
-      Logger.i("setBook(${mediaItem.mediaId}) took $assemblyDuration")
-      val toExpand = expand ?: return@launch
-      // append the tail off the critical path; indexes already match the final
-      // playlist so chapter picks inside the prefix work immediately
-      playlistExpandJob = scope.launch {
-        expandPlaylist(toExpand)
+        // assembling the playlist of a book with thousands of chapters is the
+        // one step of a playback start that grows with the chapter count. The
+        // log marks how long it took so a slow start can be attributed.
+        Logger.i("setBook(${mediaItem.mediaId}) took $assemblyDuration")
+        val toExpand = expand ?: return@launch
+        // append the tail off the critical path; indexes already match the final
+        // playlist so chapter picks inside the prefix work immediately
+        playlistExpandJob = scope.launch {
+          expandPlaylist(toExpand)
+        }
+      } catch (e: Throwable) {
+        // 组装抛异常（数据库读失败、书被删掉的竞态）也必须放开标记，
+        // 否则这本书会被永远当成"已经设过"，之后再也重建不起来。
+        // 只在标记仍属于这本书时清，避免抹掉后一本书的标记。
+        if (bookIdInPlayer == mediaId.id) {
+          bookIdInPlayer = null
+        }
+        throw e
       }
     }
   }

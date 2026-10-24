@@ -128,11 +128,21 @@ public class ExtensionSourceBackend(
     source: String,
     bookId: String,
     chapterId: String,
+    order: Int?,
   ): ResolvedStream? {
     val sourceId = sourceId(source)
+    val extras = chapterExtras.get("$sourceId/$bookId/$chapterId")
+    val base = linkedMapOf<String, Any>("bookId" to bookId, "chapterId" to chapterId)
+    // 章节附加字段是进程内 LRU（200 条）：冷启动、大书一次塞满之后，
+    // 有些源在 audio 阶段就只剩 bookId/chapterId 可用，只能自己回头一页页
+    // 翻找集号。集号 App 本来就持久化着，补给它就不用再翻。源自己声明过
+    // order 时一律以源为准，这里绝不覆盖。
+    if (extras?.containsKey("order") != true) {
+      order?.takeIf { it > 0 }?.let { base["order"] = it }
+    }
     val params = params(
-      base = linkedMapOf("bookId" to bookId, "chapterId" to chapterId),
-      extras = chapterExtras.get("$sourceId/$bookId/$chapterId"),
+      base = base,
+      extras = extras,
     )
     val json = engineProvider.useEngine(sourceId) {
       it.invoke("audio", params)

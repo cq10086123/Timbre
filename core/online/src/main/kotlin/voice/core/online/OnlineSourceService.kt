@@ -163,15 +163,23 @@ public class OnlineSourceService internal constructor(
     }
   }
 
-  /** Resolves a temporary direct streaming url (plus optional headers) for one chapter. */
+  /**
+   * Resolves a temporary direct streaming url (plus optional headers) for one chapter.
+   *
+   * [order] is the chapter's position in the album, forwarded to extension
+   * sources only: their audio stage often accepts an episode number instead of
+   * the chapter id, and the extras collected while listing chapters do not
+   * survive a cold start. The built-in server resolves the number itself.
+   */
   public suspend fun resolveDirectUrl(
     source: String,
     bookId: String,
     chapterId: String,
+    order: Int? = null,
   ): ResolvedStream? {
     val backend = extensionBackendFor(source)
     if (backend != null) {
-      return backend.resolveDirectUrl(source, bookId, chapterId)
+      return backend.resolveDirectUrl(source, bookId, chapterId, order)
     }
     val (base, _) = authed()
     return withRelogin { client.sourceAudio(base, it, source, bookId, chapterId)?.let(::ResolvedStream) }

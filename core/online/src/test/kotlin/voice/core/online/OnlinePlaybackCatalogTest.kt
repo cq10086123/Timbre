@@ -182,20 +182,48 @@ class OnlinePlaybackCatalogTest {
     // the player re-opens the stream on every seek: asking the source again
     // would stall the chapter the user is already listening to
     val ref = OnlineChapterRef(THIRD_PARTY_SOURCE, BOOK_ID, "c1")
-    coEvery { service.resolveDirectUrl(THIRD_PARTY_SOURCE, BOOK_ID, "c1") } returns ResolvedStream(STREAM_URL)
+    coEvery { service.resolveDirectUrl(THIRD_PARTY_SOURCE, BOOK_ID, "c1", null) } returns ResolvedStream(STREAM_URL)
 
     assertEquals(STREAM_URL, catalog.resolveStreamUrl(ref)?.url)
     assertEquals(STREAM_URL, catalog.resolveStreamUrl(ref)?.url)
-    coVerify(exactly = 1) { val _ = service.resolveDirectUrl(THIRD_PARTY_SOURCE, BOOK_ID, "c1") }
+    coVerify(exactly = 1) { val _ = service.resolveDirectUrl(THIRD_PARTY_SOURCE, BOOK_ID, "c1", null) }
 
     // a signed link the server rejects is dropped, so the next resolve is fresh
     assertTrue(catalog.invalidateStreamUrl(ref))
     assertEquals(STREAM_URL, catalog.resolveStreamUrl(ref)?.url)
     coVerify(exactly = 2) {
-      val _ = service.resolveDirectUrl(THIRD_PARTY_SOURCE, BOOK_ID, "c1")
+      val _ = service.resolveDirectUrl(THIRD_PARTY_SOURCE, BOOK_ID, "c1", null)
     }
     // always true: the data source retries once even when nothing was cached
     assertTrue(catalog.invalidateStreamUrl(OnlineChapterRef(THIRD_PARTY_SOURCE, BOOK_ID, "unknown")))
+  }
+
+  @Test
+  fun `resolve hands the persisted chapter order to the source`() = runTest {
+    // 源在 chapters 阶段声明的 order（懒人源里就是"第几集"）只活在进程内 LRU
+    // 里，冷启动就没了；源只能自己从头翻页找集号，第 N 集要 ceil(N/50) 次
+    // 串行请求。App 本来就持久化着这个序号，必须显式传回去。
+    coEvery { service.shelfBook("A::$BOOK_ID") } returns shelfBook().copy(
+      chapters = listOf(OnlineChapter(id = "c1", title = "第1集", order = 7)),
+    )
+    assertNotNull(catalog.book(bookId()))
+    coEvery { service.resolveDirectUrl(SOURCE, BOOK_ID, "c1", 7) } returns ResolvedStream(STREAM_URL)
+
+    val ref = OnlineChapterRef(SOURCE, BOOK_ID, "c1")
+    assertEquals(STREAM_URL, catalog.resolveStreamUrl(ref)?.url)
+    coVerify(exactly = 1) { val _ = service.resolveDirectUrl(SOURCE, BOOK_ID, "c1", 7) }
+  }
+
+  @Test
+  fun `resolve omits the order when the source never declared one`() = runTest {
+    // order == 0 表示源没给过序号：硬塞一个下去只会误导源，宁可不传
+    coEvery { service.shelfBook("A::$BOOK_ID") } returns shelfBook()
+    assertNotNull(catalog.book(bookId()))
+    coEvery { service.resolveDirectUrl(SOURCE, BOOK_ID, "c1", null) } returns ResolvedStream(STREAM_URL)
+
+    val ref = OnlineChapterRef(SOURCE, BOOK_ID, "c1")
+    assertEquals(STREAM_URL, catalog.resolveStreamUrl(ref)?.url)
+    coVerify(exactly = 1) { val _ = service.resolveDirectUrl(SOURCE, BOOK_ID, "c1", null) }
   }
 
   @Test
@@ -213,7 +241,7 @@ class OnlinePlaybackCatalogTest {
     val started = kotlinx.coroutines.CompletableDeferred<Unit>()
     val release = kotlinx.coroutines.CompletableDeferred<Unit>()
     var calls = 0
-    coEvery { service.resolveDirectUrl(THIRD_PARTY_SOURCE, BOOK_ID, "c1") } coAnswers {
+    coEvery { service.resolveDirectUrl(THIRD_PARTY_SOURCE, BOOK_ID, "c1", null) } coAnswers {
       calls++
       started.complete(Unit)
       release.await()
@@ -239,7 +267,7 @@ class OnlinePlaybackCatalogTest {
     val ref = OnlineChapterRef(THIRD_PARTY_SOURCE, BOOK_ID, "c1")
     val started = kotlinx.coroutines.CompletableDeferred<Unit>()
     val release = kotlinx.coroutines.CompletableDeferred<Unit>()
-    coEvery { service.resolveDirectUrl(THIRD_PARTY_SOURCE, BOOK_ID, "c1") } coAnswers {
+    coEvery { service.resolveDirectUrl(THIRD_PARTY_SOURCE, BOOK_ID, "c1", null) } coAnswers {
       started.complete(Unit)
       release.await()
       ResolvedStream("https://cdn.example.com/rejected.mp3")
@@ -253,10 +281,10 @@ class OnlinePlaybackCatalogTest {
     assertEquals("https://cdn.example.com/rejected.mp3", slow.await()?.url)
 
     // next resolve must hit the source again instead of serving the rejected url
-    coEvery { service.resolveDirectUrl(THIRD_PARTY_SOURCE, BOOK_ID, "c1") } returns ResolvedStream(STREAM_URL)
+    coEvery { service.resolveDirectUrl(THIRD_PARTY_SOURCE, BOOK_ID, "c1", null) } returns ResolvedStream(STREAM_URL)
     assertEquals(STREAM_URL, catalog.resolveStreamUrl(ref)?.url)
     coVerify(atLeast = 2) {
-      val _ = service.resolveDirectUrl(THIRD_PARTY_SOURCE, BOOK_ID, "c1")
+      val _ = service.resolveDirectUrl(THIRD_PARTY_SOURCE, BOOK_ID, "c1", null)
     }
   }
 
@@ -264,7 +292,7 @@ class OnlinePlaybackCatalogTest {
   fun `the resolving state is reported per book`() = runTest {
     val ref = OnlineChapterRef(THIRD_PARTY_SOURCE, BOOK_ID, "c1")
     var resolvingWhileRunning: Set<String>? = null
-    coEvery { service.resolveDirectUrl(THIRD_PARTY_SOURCE, BOOK_ID, "c1") } coAnswers {
+    coEvery { service.resolveDirectUrl(THIRD_PARTY_SOURCE, BOOK_ID, "c1", null) } coAnswers {
       resolvingWhileRunning = catalog.resolvingBooks.value
       ResolvedStream(STREAM_URL)
     }
@@ -281,7 +309,7 @@ class OnlinePlaybackCatalogTest {
 
   @Test
   fun `a failed resolve clears the resolving state again`() = runTest {
-    coEvery { service.resolveDirectUrl(THIRD_PARTY_SOURCE, BOOK_ID, "c1") } returns null
+    coEvery { service.resolveDirectUrl(THIRD_PARTY_SOURCE, BOOK_ID, "c1", null) } returns null
 
     assertNull(catalog.resolveStreamUrl(OnlineChapterRef(THIRD_PARTY_SOURCE, BOOK_ID, "c1")))
     assertTrue(catalog.resolvingBooks.value.isEmpty())

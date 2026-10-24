@@ -115,6 +115,39 @@ class ExtensionSourceBackendTest {
   }
 
   @Test
+  fun audioGetsThePersistedOrderWhenTheForwardedFieldsAreGone() = runTest {
+    // 冷启动后 chapterExtras 是空的（进程内 LRU 活不过进程），集号只能靠 App
+    // 持久化的 order 补上，否则源得自己从头一页页翻找
+    val recorded = RecordedEngine(mapOf("audio" to """"https://cdn.example.com/10.mp3""""))
+    val backend = backendWith(recorded.responses, recorded)
+
+    val stream = backend.resolveDirectUrl("jdr:demo", "7", "10", 10)
+
+    assertEquals("https://cdn.example.com/10.mp3", stream?.url)
+    val audioParams = recorded.paramsByStage.getValue("audio")
+    assertTrue(audioParams.contains(""""order":10"""), audioParams)
+  }
+
+  @Test
+  fun theSourcesOwnOrderWinsOverTheFallback() = runTest {
+    // 源自己声明过 order 就必须以源为准，App 的兜底值不能覆盖它
+    val recorded = RecordedEngine(
+      mapOf(
+        "chapters" to """[{"chapter_id":"10","title":"第一章","order":3}]""",
+        "audio" to """"https://cdn.example.com/10.mp3"""",
+      ),
+    )
+    val backend = backendWith(recorded.responses, recorded)
+    val _ = backend.chapters("jdr:demo", "7")
+
+    val _ = backend.resolveDirectUrl("jdr:demo", "7", "10", 99)
+
+    val audioParams = recorded.paramsByStage.getValue("audio")
+    assertTrue(audioParams.contains(""""order":3"""), audioParams)
+    assertFalse(audioParams.contains("99"), audioParams)
+  }
+
+  @Test
   fun missingSearchTitleFailsTheContract() = runTest {
     val recorded = RecordedEngine(mapOf("search" to """[{"id":"7"}]"""))
     val backend = backendWith(recorded.responses, recorded)

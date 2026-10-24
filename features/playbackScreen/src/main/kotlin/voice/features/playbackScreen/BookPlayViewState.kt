@@ -1,6 +1,7 @@
 package voice.features.playbackScreen
 
 import androidx.compose.runtime.Immutable
+import voice.core.online.OnlinePlaybackErrorKind
 import voice.core.playback.misc.Decibel
 import voice.features.sleepTimer.SleepTimerViewState
 import kotlin.time.Duration
@@ -77,3 +78,17 @@ internal sealed interface BookPlayDialogViewState {
   @JvmInline
   value class SleepTimer(val viewState: SleepTimerViewState) : BookPlayDialogViewState
 }
+
+/**
+ * 取流失败要弹给用户看的原文。
+ *
+ * 不同源的报错格式完全不一样（有的给 HTTP 状态码，有的给业务 msg，有的只说
+ * 拿不到地址），所以 [detail] 一律照搬源脚本抛出的字符串，App 不替它们组织
+ * 语言 —— 拼接、归类、改写成"这一章没有音频"都只会把真正的原因盖掉。
+ * [kind] 只在源什么都没说（[detail] 为空）时用来选一句兜底文案。
+ */
+@Immutable
+internal data class BookPlaySourceErrorViewState(
+  val kind: OnlinePlaybackErrorKind,
+  val detail: String? = null,
+)

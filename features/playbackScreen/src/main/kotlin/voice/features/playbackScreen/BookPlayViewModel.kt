@@ -89,6 +89,14 @@ class BookPlayViewModel(
   internal val dialogState: State<BookPlayDialogViewState?>
     field = mutableStateOf<BookPlayDialogViewState?>(null)
 
+  /**
+   * 在线源取流失败时的原始报错。用窗口而不是 snackbar：源给的原因经常是
+   * 一整句业务话术（"同一IP每 30 秒仅可请求 1 次音频，请 26 秒后再试…"），
+   * 一闪而过的底部提示根本读不完，也没法复制。
+   */
+  internal val sourceError: State<BookPlaySourceErrorViewState?>
+    field = mutableStateOf<BookPlaySourceErrorViewState?>(null)
+
   init {
     scope.launch {
       player.pauseIfCurrentBookDifferentFrom(bookId)
@@ -97,7 +105,7 @@ class BookPlayViewModel(
     scope.launch {
       onlinePlaybackCatalog.playbackErrors.collect { error ->
         if (error.bookUri == bookId.value) {
-          viewEffects.tryEmit(BookPlayViewEffect.OnlineSourceError(error.kind))
+          sourceError.value = BookPlaySourceErrorViewState(error.kind, error.detail)
         }
       }
     }
@@ -284,6 +292,11 @@ class BookPlayViewModel(
   fun dismissDialog() {
     Logger.d("dismissDialog")
     dialogState.value = null
+  }
+
+  fun dismissSourceError() {
+    Logger.d("dismissSourceError")
+    sourceError.value = null
   }
 
   fun incrementSleepTime() {

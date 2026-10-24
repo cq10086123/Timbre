@@ -298,6 +298,7 @@ class OnlineSourceServiceTest {
       source: String,
       bookId: String,
       chapterId: String,
+      order: Int?,
     ): ResolvedStream = ResolvedStream("https://audio.example.com/a.mp3")
   }
 

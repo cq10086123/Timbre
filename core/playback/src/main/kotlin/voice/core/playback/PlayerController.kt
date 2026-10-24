@@ -211,8 +211,12 @@ class PlayerController(
     ) {
       return true
     }
-    // only the content is needed to start the book, resolving all of its
-    // chapters here would delay the first playback of a big book
+    // 走到这里有两种情况：这本书还没交给播放器，或者交过了但播放列表还在
+    // 组装、withheld 的 prepare 让状态停在 IDLE（上面那两个条件都看不出来）。
+    // 后者不能靠"再 setMediaItem 一次"来救 —— 那会 cancel 掉正在进行的组装
+    // 和它已经发出的音频解析，请求收不回来、源端限流额度已经花掉。
+    // 由 VoicePlayer.setBook 自己保证幂等：同一本书的重复设置直接忽略，
+    // 这里照常再设一次 + prepare，落到播放器那边要么组装要么只补 prepare。
     val content = contentRepo.get(bookId)
       ?: onlinePlaybackCatalog.content(bookId)
       ?: return false
