@@ -32,6 +32,9 @@ public annotation class WebDavBookSourcesStore
 @Qualifier
 public annotation class WebDavCacheSettingsStore
 
+@Qualifier
+public annotation class WebDavBackupTargetStore
+
 internal class WebDavDataStoreSerializer<T>(
   override val defaultValue: T,
   private val json: Json,
@@ -104,6 +107,17 @@ public interface WebDavGraph {
       serializer = WebDavCacheSettings.serializer(),
       defaultValue = WebDavCacheSettings(),
       fileName = "webDavCacheSettings",
+    )
+  }
+
+  @Provides
+  @SingleIn(AppScope::class)
+  @WebDavBackupTargetStore
+  public fun webDavBackupTargetStore(factory: WebDavStoreFactory): DataStore<WebDavBackupTarget> {
+    return factory.create(
+      serializer = WebDavBackupTarget.serializer(),
+      defaultValue = WebDavBackupTarget(),
+      fileName = "webDavBackupTarget",
     )
   }
 }

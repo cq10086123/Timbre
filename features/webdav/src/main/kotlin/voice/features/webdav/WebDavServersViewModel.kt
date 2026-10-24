@@ -192,10 +192,6 @@ class WebDavServersViewModel(
     navigator.goTo(Destination.WebDavBrowse(server.id, origin))
   }
 
-  fun openCacheSettings() {
-    navigator.goTo(Destination.WebDavCache)
-  }
-
   fun back() {
     navigator.goBack()
   }

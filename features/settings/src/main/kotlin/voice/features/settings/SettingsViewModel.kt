@@ -243,7 +243,7 @@ class SettingsViewModel(
   }
 
   override fun openWebDav() {
-    navigator.goTo(Destination.WebDavServers(Origin.Default))
+    navigator.goTo(Destination.WebDavSettings(Origin.Default))
   }
 
   override fun openExtensions() {

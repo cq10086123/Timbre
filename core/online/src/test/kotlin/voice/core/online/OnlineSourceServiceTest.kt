@@ -186,6 +186,55 @@ class OnlineSourceServiceTest {
   }
 
   @Test
+  fun `backfill falls back to the url when the cover file is gone`() = runTest {
+    booksStore.updateData {
+      listOf(
+        OnlineBook(
+          source = "A",
+          bookId = "b5",
+          title = "T",
+          cover = "file:/data/user/0/app/files/online_covers/dead.img",
+          coverUrl = "http://127.0.0.1:9/cover.jpg",
+        ),
+      )
+    }
+
+    service.backfillCovers()
+
+    // the download cannot succeed here; the record must still stop pointing
+    // at a file that does not exist
+    assertEquals("http://127.0.0.1:9/cover.jpg", booksStore.data.first().single().cover)
+  }
+
+  @Test
+  fun `restoring a cover path of another device falls back to its url`() = runTest {
+    service.restoreShelfEntry(
+      OnlineBook(
+        source = "A",
+        bookId = "b7",
+        title = "T",
+        cover = "file:/data/user/0/another.device/files/online_covers/dead.img",
+        coverUrl = "https://example.com/cover.jpg",
+      ),
+    )
+
+    val stored = booksStore.data.first().single()
+    assertEquals("https://example.com/cover.jpg", stored.cover)
+    assertEquals("https://example.com/cover.jpg", stored.coverUrl)
+  }
+
+  @Test
+  fun `restoring keeps a cover file that is really on this device`() = runTest {
+    val file = assertNotNull(coverStore.write("A::b8", byteArrayOf(9, 9)))
+
+    service.restoreShelfEntry(
+      OnlineBook(source = "A", bookId = "b8", title = "T", cover = file.toURI().toString()),
+    )
+
+    assertEquals(file.toURI().toString(), booksStore.data.first().single().cover)
+  }
+
+  @Test
   fun `extension sources work without any server configuration`() = runTest {
     val backend = FakeExtensionBackend()
     val service = OnlineSourceService(
@@ -249,6 +298,7 @@ class OnlineSourceServiceTest {
       source: String,
       bookId: String,
       chapterId: String,
+      order: Int?,
     ): ResolvedStream = ResolvedStream("https://audio.example.com/a.mp3")
   }
 

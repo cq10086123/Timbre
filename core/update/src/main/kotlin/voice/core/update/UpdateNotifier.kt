@@ -16,6 +16,18 @@ import voice.core.common.DispatcherProvider
 import voice.core.data.store.UpdateDismissedStore
 import voice.core.data.store.UpdateLastCheckStore
 
+/**
+ * Master switch for the "new version available" prompt. This is a plain code
+ * constant on purpose — flip this one line instead of adding or deleting code:
+ *
+ * - `true`: check update.json once a day after start, and pop the dialog when
+ *   the published version is newer than the installed one.
+ * - `false`: the feature is off entirely. No request leaves the device, no
+ *   dialog is shown, and the version row in settings never advertises an
+ *   update either.
+ */
+internal const val AUTO_UPDATE_ENABLED = true
+
 data class UpdateAvailable(
   val versionName: String,
   /** The release notes (markdown) of the new version, or null when unknown. */
@@ -52,6 +64,10 @@ class UpdateNotifier(
   val prompt: StateFlow<UpdateAvailable?> = _prompt
 
   fun onAppStarted() {
+    if (!AUTO_UPDATE_ENABLED) {
+      // switched off at the source: no update.json request, no popup
+      return
+    }
     scope.launch {
       // let the app settle first: the scan warms up caches and the first
       // screen is being composed, the update check is the least important

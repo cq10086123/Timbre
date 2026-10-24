@@ -13,6 +13,14 @@ public interface BookRepository {
 
   public suspend fun all(): List<Book>
 
+  /**
+   * How many shelf books [all] cannot build because one of their chapters is
+   * not stored yet - typically a WebDAV folder whose chapter list is still
+   * being scanned. [all] silently skips those, so anything that has to be
+   * complete (a backup) must check this first instead of trusting the count.
+   */
+  public suspend fun incompleteCount(): Int
+
   public fun flow(id: BookId): Flow<Book?>
 
   public suspend fun get(id: BookId): Book?

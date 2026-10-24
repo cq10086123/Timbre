@@ -72,12 +72,30 @@ internal constructor(
   /** Starts the app-start refresh when the network policy allows it. */
   public fun automaticScan() {
     scope.launch {
+      // The first shelf composition assembles every book, which reads the
+      // content table and then every chapter row. The scan does the same
+      // warm-up, but only after its own start-up delay - by then the first
+      // frame has already paid for both queries. Starting it here overlaps
+      // the read with the activity/DI start-up instead.
+      warmUpLibraryCaches()
       val wifiOnly = autoRefreshWifiStore.data.first()
       if (!wifiOnly || isWifiConnected()) {
         scan()
       } else {
         Logger.i("Skipping automatic library refresh because Wi-Fi is unavailable")
       }
+    }
+  }
+
+  private suspend fun warmUpLibraryCaches() {
+    try {
+      val books = bookRepo.all()
+      Logger.i("warmed up the book cache with ${books.size} books before the first frame")
+    } catch (e: CancellationException) {
+      throw e
+    } catch (e: Exception) {
+      // the shelf reads the same data and reports its own failure
+      Logger.w(e, "Could not warm up the book cache at start-up")
     }
   }
 

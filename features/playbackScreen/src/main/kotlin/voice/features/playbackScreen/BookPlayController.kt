@@ -67,16 +67,22 @@ fun BookPlayScreen(bookId: BookId) {
             viewModel.onBatteryOptimizationRequested()
           }
         }
-        is BookPlayViewEffect.OnlineSourceError -> {
-          val message = when (viewEffect.kind) {
-            OnlinePlaybackErrorKind.NETWORK -> onlineNetworkErrorMessage
-            OnlinePlaybackErrorKind.AUTH -> onlineAuthErrorMessage
-            OnlinePlaybackErrorKind.CONTENT -> onlineContentErrorMessage
-          }
-          snackbarHostState.showSnackbar(message = message)
-        }
       }
     }
+  }
+  // 取流失败走窗口而不是 snackbar：源给的常常是一整句业务话术，底部
+  // 一闪而过既读不完也复制不了。
+  val sourceError = viewModel.sourceError.value
+  if (sourceError != null) {
+    SourceErrorDialog(
+      state = sourceError,
+      fallbackMessage = when (sourceError.kind) {
+        OnlinePlaybackErrorKind.NETWORK -> onlineNetworkErrorMessage
+        OnlinePlaybackErrorKind.AUTH -> onlineAuthErrorMessage
+        OnlinePlaybackErrorKind.CONTENT -> onlineContentErrorMessage
+      },
+      onDismiss = viewModel::dismissSourceError,
+    )
   }
   if (viewState == null) {
     // the book is not there yet: without this the screen stays empty while it

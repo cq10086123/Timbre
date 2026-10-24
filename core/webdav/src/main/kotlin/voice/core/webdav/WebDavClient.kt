@@ -12,8 +12,10 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import okhttp3.Call
 import okhttp3.Callback
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import voice.core.logging.api.Logger
 import java.io.IOException
@@ -171,6 +173,52 @@ public class WebDavClient {
     // the collection itself), so it cannot answer a depth 0 lookup of the
     // resource itself
     return propfind(server, password, url, depth = 0).firstOrNull()
+  }
+
+  /**
+   * Uploads [bytes] to [url], replacing whatever is stored there.
+   *
+   * The caller has to make sure the parent collection exists: a PUT into a
+   * missing collection is answered with `409 Conflict` by most servers.
+   */
+  public suspend fun put(
+    server: WebDavServer,
+    password: String,
+    url: String,
+    bytes: ByteArray,
+    contentType: String,
+  ): Unit = withContext(Dispatchers.IO) {
+    val builder = Request.Builder()
+      .url(url)
+      .put(bytes.toRequestBody(contentType.toMediaType()))
+    preemptiveAuthHeader(server, password)?.let { builder.header("Authorization", it) }
+    clientFor(server, password).await(builder.build()).use { response ->
+      when (response.code) {
+        in 200..299 -> Unit
+        401, 403 -> throw WebDavException.Auth(url)
+        else -> throw WebDavException.Http(response.code, url)
+      }
+    }
+  }
+
+  /** Downloads [url]. Returns null when the resource does not exist. */
+  public suspend fun getBytes(
+    server: WebDavServer,
+    password: String,
+    url: String,
+  ): ByteArray? = withContext(Dispatchers.IO) {
+    val builder = Request.Builder()
+      .url(url)
+      .get()
+    preemptiveAuthHeader(server, password)?.let { builder.header("Authorization", it) }
+    clientFor(server, password).await(builder.build()).use { response ->
+      when (response.code) {
+        200 -> response.body.bytes()
+        404 -> null
+        401, 403 -> throw WebDavException.Auth(url)
+        else -> throw WebDavException.Http(response.code, url)
+      }
+    }
   }
 
   public suspend fun probe(

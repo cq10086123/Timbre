@@ -511,7 +511,13 @@ public class OnlinePlaybackCatalog(
     val chapters = onlineBook.chapters.ifEmpty {
       runCatching { chapterStore.chapters(bookRef.key) }.getOrDefault(emptyList())
     }.ifEmpty {
-      runCatching { service.chapters(bookRef.source, bookRef.bookId) }.getOrDefault(emptyList())
+      // a book restored from a backup arrives without its list (the backup
+      // only carries metadata), so this fetch is the only copy: keeping it
+      // makes the next start read the disk instead of opening the player on
+      // a black screen while the source is asked again
+      runCatching { service.chapters(bookRef.source, bookRef.bookId) }
+        .getOrDefault(emptyList())
+        .also { fetched -> storeFetchedChapters(bookRef.key, fetched) }
     }
     if (chapters.isEmpty()) return null
 
@@ -557,6 +563,30 @@ public class OnlinePlaybackCatalog(
       skipOutro = onlineBook.skipOutroMs,
     )
     return AssembledOnline(bookRef = bookRef, content = content, chapters = chapters)
+  }
+
+  /**
+   * Writes a chapter list that came from the source to [chapterStore], so the
+   * next start reads it from disk instead of a network round trip.
+   *
+   * Only books without a stored list get here: a book added through the search
+   * dialog already has one, and a book restored from a backup has none because
+   * the backup carries metadata only. Without this the player showed its
+   * loading screen on every cold start of such a book.
+   */
+  private suspend fun storeFetchedChapters(
+    key: String,
+    chapters: List<OnlineChapter>,
+  ) {
+    if (chapters.isEmpty()) return
+    try {
+      chapterStore.put(key, chapters)
+    } catch (e: CancellationException) {
+      throw e
+    } catch (e: Exception) {
+      // the store is an optimization: a failing disk must not stop playback
+      Logger.w(e, "Could not store the chapter list of $key")
+    }
   }
 
   /**
@@ -843,8 +873,10 @@ public class OnlinePlaybackCatalog(
     reportErrors: Boolean,
   ): ResolvedStream? {
     return try {
-      service.resolveDirectUrl(ref.source, ref.bookId, ref.chapterId)
-        ?: fail(ref, OnlinePlaybackErrorKind.CONTENT, "The source returned no audio url", reportErrors)
+      service.resolveDirectUrl(ref.source, ref.bookId, ref.chapterId, chapterOrderOf(ref))
+        // 源没抛异常、只是返回空：这时没有任何"源自己的说法"可转述，
+        // detail 留空让界面用本地化的兜底文案，别拿 App 编的英文去顶替。
+        ?: fail(ref, OnlinePlaybackErrorKind.CONTENT, detail = null, reportErrors = reportErrors)
     } catch (e: CancellationException) {
       throw e
     } catch (e: OnlineSourceException) {
@@ -859,6 +891,36 @@ public class OnlinePlaybackCatalog(
     } catch (e: Exception) {
       fail(ref, OnlinePlaybackErrorKind.CONTENT, e.message, reportErrors)
     }
+  }
+
+  /**
+   * 这一集在专辑里的序号（持久化的 [OnlineChapter.order]），查不到就返回 null。
+   *
+   * 源的 audio 阶段有的只认序号、不认章节 id，而它在 chapters 阶段抛出来的
+   * 附加字段只活在一个进程内的 LRU 里（冷启动、大书之后就没有了），源只好
+   * 自己从头一页页翻找集号 —— 第 N 集要 `ceil(N/50)` 次串行请求，预缓存整本
+   * 时这个开销会乘上章节数。序号本来就跟着章节列表存在磁盘上，直接补给它。
+   *
+   * 章节列表在组装播放列表时已经读进 [OnlineChapterStore] 的内存缓存，这里
+   * 只是一次线性扫描，不会碰磁盘。
+   */
+  private suspend fun chapterOrderOf(ref: OnlineChapterRef): Int? {
+    val key = OnlineBookRef(ref.source, ref.bookId).key
+    // 搜索直接播放时章节列表还在手上（stash 里带 inline 列表），加入书架之后
+    // 书架记录只存元数据，列表在磁盘上的 [OnlineChapterStore] 里 —— 两处都看。
+    val inline = assembledBooks[key]?.chapters
+    val chapters = if (!inline.isNullOrEmpty()) {
+      inline
+    } else {
+      try {
+        chapterStore.chapters(key)
+      } catch (e: CancellationException) {
+        throw e
+      } catch (_: Exception) {
+        return null
+      }
+    }
+    return chapters.firstOrNull { it.id == ref.chapterId }?.order?.takeIf { it > 0 }
   }
 
   /** Remembers an assembled book so the resolve step can still see its title. */

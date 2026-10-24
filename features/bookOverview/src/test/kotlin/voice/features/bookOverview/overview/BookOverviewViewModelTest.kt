@@ -46,7 +46,6 @@ import voice.core.scanner.DeviceHasStoragePermissionBug
 import voice.core.scanner.MediaScanTrigger
 import voice.core.search.BookSearch
 import voice.core.ui.GridCount
-import voice.core.update.UpdateNotifier
 import voice.features.bookOverview.book
 import voice.features.bookOverview.search.BookSearchViewState
 import voice.navigation.Destination

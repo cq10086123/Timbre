@@ -11,6 +11,8 @@ import org.junit.Before
 import org.junit.runner.RunWith
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 @RunWith(AndroidJUnit4::class)
@@ -323,6 +325,85 @@ class WebDavClientTest {
     val result = client.probe(newServer(), "wrong", url = server.url("/dav").toString())
 
     assertEquals(expected = WebDavProbeResult.AuthError, actual = result)
+  }
+
+  @Test
+  fun putSendsTheBodyWithBasicAuth() = runTest {
+    server.enqueue(
+      MockResponse.Builder()
+        .code(201)
+        .build(),
+    )
+    val body = """{"version":1}""".toByteArray()
+    val url = server.url("/dav/.timbre-backup.json").toString()
+
+    client.put(newServer(), "secret", url, body, contentType = "application/json")
+
+    val recorded = server.takeRequest()
+    assertEquals(expected = "PUT", actual = recorded.method)
+    assertEquals(expected = "application/json", actual = recorded.headers["Content-Type"])
+    assertEquals(expected = """{"version":1}""", actual = recorded.body?.utf8())
+    assertEquals(
+      expected = "Basic ${java.util.Base64.getEncoder().encodeToString("user:secret".toByteArray())}",
+      actual = recorded.headers["Authorization"],
+    )
+  }
+
+  @Test
+  fun putMapsAuthAndHttpFailures() = runTest {
+    server.enqueue(
+      MockResponse.Builder()
+        .code(401)
+        .build(),
+    )
+    assertFailsWith<WebDavException.Auth> {
+      client.put(newServer(), "wrong", server.url("/dav/x").toString(), ByteArray(0), "application/json")
+    }
+
+    server.enqueue(
+      MockResponse.Builder()
+        .code(507)
+        .build(),
+    )
+    val http = assertFailsWith<WebDavException.Http> {
+      client.put(newServer(), "secret", server.url("/dav/x").toString(), ByteArray(0), "application/json")
+    }
+    assertEquals(expected = 507, actual = http.code)
+  }
+
+  @Test
+  fun getBytesReturnsTheBodyOrNullWhenMissing() = runTest {
+    server.enqueue(
+      MockResponse.Builder()
+        .code(200)
+        .body("""{"version":1}""")
+        .build(),
+    )
+    val url = server.url("/dav/.timbre-backup.json").toString()
+
+    val bytes = client.getBytes(newServer(), "secret", url)
+    assertEquals(expected = """{"version":1}""", actual = bytes?.decodeToString())
+    assertEquals(expected = "GET", actual = server.takeRequest().method)
+
+    server.enqueue(
+      MockResponse.Builder()
+        .code(404)
+        .build(),
+    )
+    assertNull(client.getBytes(newServer(), "secret", url))
+  }
+
+  @Test
+  fun getBytesMapsAuthFailures() = runTest {
+    server.enqueue(
+      MockResponse.Builder()
+        .code(403)
+        .build(),
+    )
+
+    assertFailsWith<WebDavException.Auth> {
+      client.getBytes(newServer(), "wrong", server.url("/dav/x").toString())
+    }
   }
 
   private fun propfindBody(): String {

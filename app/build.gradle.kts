@@ -31,7 +31,7 @@ android {
 
   defaultConfig {
     applicationId = providers.gradleProperty("voice.applicationId").orNull ?: "app.timbre.audiobook"
-    versionName = providers.gradleProperty("voice.versionName").orNull ?: "1.0.0"
+    versionName = providers.gradleProperty("voice.versionName").orNull ?: "3.5.0"
     versionCode = providers.gradleProperty("voice.versionCode").orNull?.toInt() ?: Int.MAX_VALUE
 
     testInstrumentationRunner = "voice.app.VoiceJUnitRunner"

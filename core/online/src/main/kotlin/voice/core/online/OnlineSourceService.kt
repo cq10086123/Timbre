@@ -163,15 +163,23 @@ public class OnlineSourceService internal constructor(
     }
   }
 
-  /** Resolves a temporary direct streaming url (plus optional headers) for one chapter. */
+  /**
+   * Resolves a temporary direct streaming url (plus optional headers) for one chapter.
+   *
+   * [order] is the chapter's position in the album, forwarded to extension
+   * sources only: their audio stage often accepts an episode number instead of
+   * the chapter id, and the extras collected while listing chapters do not
+   * survive a cold start. The built-in server resolves the number itself.
+   */
   public suspend fun resolveDirectUrl(
     source: String,
     bookId: String,
     chapterId: String,
+    order: Int? = null,
   ): ResolvedStream? {
     val backend = extensionBackendFor(source)
     if (backend != null) {
-      return backend.resolveDirectUrl(source, bookId, chapterId)
+      return backend.resolveDirectUrl(source, bookId, chapterId, order)
     }
     val (base, _) = authed()
     return withRelogin { client.sourceAudio(base, it, source, bookId, chapterId)?.let(::ResolvedStream) }
@@ -204,10 +212,16 @@ public class OnlineSourceService internal constructor(
     }
     booksStore.updateData { current ->
       val existing = current.firstOrNull { it.key == book.key }
+      // the url a cover was downloaded from outlives the file it produced:
+      // keep it so a deleted file can be fetched again
+      val coverUrl = book.cover.takeIf { it.startsWith("http") }
+        ?: existing?.coverUrl
+        ?: book.coverUrl
       val merged = if (existing == null) {
-        book
+        book.copy(coverUrl = coverUrl)
       } else {
         book.copy(
+          coverUrl = coverUrl,
           currentChapterId = existing.currentChapterId,
           positionMs = existing.positionMs,
           skipIntroMs = existing.skipIntroMs,
@@ -250,6 +264,59 @@ public class OnlineSourceService internal constructor(
     }
   }
 
+  /**
+   * Upserts a shelf entry coming from a backup. Unlike [addToShelf], which is
+   * meant for re-adds from a search result and keeps what the device already
+   * has, this one writes the backed-up position and settings over the stored
+   * ones. A book that is already on the shelf keeps its own title, cover and
+   * added time - only the playback state comes from the backup.
+   */
+  public suspend fun restoreShelfEntry(book: OnlineBook) {
+    val backupCover = usableCover(book.key, book.cover, book.coverUrl)
+    booksStore.updateData { current ->
+      val existing = current.firstOrNull { it.key == book.key }
+      val merged = if (existing == null) {
+        book.copy(cover = backupCover, chapters = emptyList())
+      } else {
+        existing.copy(
+          // the backup carries a cover of its own (a file it wrote, or the
+          // remote url); keep the stored one only when the backup has none
+          cover = backupCover.ifBlank { usableCover(book.key, existing.cover, existing.coverUrl) },
+          coverUrl = book.coverUrl ?: existing.coverUrl,
+          currentChapterId = book.currentChapterId,
+          positionMs = book.positionMs,
+          skipIntroMs = book.skipIntroMs,
+          skipOutroMs = book.skipOutroMs,
+          skipSilence = book.skipSilence,
+          playbackSpeed = book.playbackSpeed,
+          gain = book.gain,
+        )
+      }
+      // insert where the added time belongs instead of at the front, so a
+      // restore does not shuffle the shelf
+      val without = current.filterNot { it.key == book.key }
+      val index = without.indexOfFirst { it.addedAt <= merged.addedAt }
+      without.toMutableList().apply { add(if (index < 0) size else index, merged) }
+    }
+  }
+
+  /**
+   * A cover value that means something on this device: a remote url, or a
+   * local file that is really there. A path recorded by another device - or
+   * one whose file was deleted when the book left the shelf - is dropped in
+   * favour of [url], so it neither renders blank nor travels into the next
+   * backup again.
+   */
+  private suspend fun usableCover(
+    key: String,
+    cover: String,
+    url: String? = null,
+  ): String {
+    if (cover.startsWith("http")) return cover
+    if (cover.startsWith("file:") && coverStore.file(key) != null) return cover
+    return url?.takeIf { it.startsWith("http") }.orEmpty()
+  }
+
   /** Removes an online book. Only the record - server files stay untouched. */
   public suspend fun removeFromShelf(key: String) {
     booksStore.updateData { current ->
@@ -263,20 +330,42 @@ public class OnlineSourceService internal constructor(
    * Downloads covers for shelf records that still point at a remote url. Runs
    * at app start, one cover at a time; a book whose cover cannot be fetched
    * right now simply keeps its remote url and is retried next start.
+   *
+   * A record whose local file is gone (the book was removed from the shelf and
+   * restored, or the folder was cleaned) goes back to the url it came from, so
+   * the cover shows again and gets localized by the next run.
    */
   public suspend fun backfillCovers() {
     val books = runCatching { booksStore.data.first() }.getOrDefault(emptyList())
     for (book in books) {
-      if (!book.cover.startsWith("http")) continue
-      // a file may already exist while the record is still remote (a previous
-      // rewrite failed after the download): serve it without re-downloading
       val existing = coverStore.file(book.key)
-      if (existing != null) {
-        rewriteRecordCover(book.key, existing)
-      } else {
-        rewriteCoverToLocalFile(book.key, book.cover)
+      if (book.cover.startsWith("http")) {
+        // a file may already exist while the record is still remote (a previous
+        // rewrite failed after the download): serve it without re-downloading
+        if (existing != null) {
+          rewriteRecordCover(book.key, existing)
+        } else {
+          rewriteCoverToLocalFile(book.key, book.cover)
+        }
+        continue
       }
+      if (existing != null) continue
+      val url = book.coverUrl?.takeIf { it.startsWith("http") } ?: continue
+      fallBackToRemoteCover(book.key, url)
     }
+  }
+
+  /** Points a record with a missing cover file at [url], then localizes it. */
+  private suspend fun fallBackToRemoteCover(
+    key: String,
+    url: String,
+  ) {
+    runCatching {
+      booksStore.updateData { books ->
+        books.map { book -> if (book.key == key) book.copy(cover = url) else book }
+      }
+    }.onFailure { Logger.w("Could not fall back to the remote cover of $key: $it") }
+    rewriteCoverToLocalFile(key, url)
   }
 
   /**
@@ -317,7 +406,9 @@ public class OnlineSourceService internal constructor(
           val matches = book.key == key &&
             book.cover.startsWith("http") &&
             (expectedRemoteUrl == null || book.cover == expectedRemoteUrl)
-          if (matches) book.copy(cover = file.toURI().toString()) else book
+          // the url stays next to the file: [backfillCovers] needs it when
+          // the file is gone
+          if (matches) book.copy(cover = file.toURI().toString(), coverUrl = book.cover) else book
         }
       }
     }.onFailure { Logger.w("Could not rewrite the cover of $key to the local file: $it") }
