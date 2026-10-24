@@ -37,6 +37,8 @@ interface SettingsListener {
   fun onlineSourceCredentialChanged(value: String)
   fun openPlayerSettings()
   fun onAppVersionClick()
+  fun onUpdateDialogConfirm()
+  fun onUpdateDialogDismiss()
 
   fun openDeveloperMenu()
 
@@ -74,6 +76,8 @@ interface SettingsListener {
       override fun openSourceShare() {}
       override fun setAutoRefreshWifi(checked: Boolean) {}
       override fun onAppVersionClick() {}
+      override fun onUpdateDialogConfirm() {}
+      override fun onUpdateDialogDismiss() {}
       override fun openDeveloperMenu() {}
     }
   }

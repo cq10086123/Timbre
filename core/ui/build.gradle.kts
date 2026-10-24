@@ -14,6 +14,7 @@ dependencies {
   api(projects.core.data.api)
   implementation(projects.core.initializer)
   implementation(projects.core.strings)
+  implementation(projects.core.update)
   implementation(libs.lifecycle.compose)
   implementation(libs.materialKolor)
   implementation(libs.navigation3.ui)

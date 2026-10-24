@@ -38,6 +38,7 @@ import voice.core.online.OnlineSourceException
 import voice.core.online.OnlineSourceService
 import voice.core.ui.DynamicColorAvailability
 import voice.core.ui.GridCount
+import voice.core.update.UpdateNotifier
 import voice.navigation.Destination
 import voice.navigation.Navigator
 import voice.navigation.Origin
@@ -81,6 +82,7 @@ class SettingsViewModel(
   private val onlineSourceCredentialStore: DataStore<String>,
   private val onlineSourceService: OnlineSourceService,
   private val dynamicColorAvailability: DynamicColorAvailability,
+  private val updateNotifier: UpdateNotifier,
   dispatcherProvider: DispatcherProvider,
 ) : SettingsListener {
 
@@ -88,6 +90,7 @@ class SettingsViewModel(
   internal val viewEffects: SharedFlow<SettingsViewEffect>
     field = MutableSharedFlow<SettingsViewEffect>(extraBufferCapacity = 1)
   private val dialog = mutableStateOf<SettingsViewState.Dialog?>(null)
+  private val showUpdateDialog = mutableStateOf(false)
   private val onlineSourceVerifyState = mutableStateOf(false)
   private val onlineSourceVerifyError = mutableStateOf<Int?>(null)
   private var appVersionTapCount = 0
@@ -115,6 +118,7 @@ class SettingsViewModel(
     val onlineSourceCredential by remember { onlineSourceCredentialStore.data }.collectAsState(initial = "")
     val onlineSourceVerifying = onlineSourceVerifyState.value
     val onlineSourceVerifyError = onlineSourceVerifyError.value
+    val update by updateNotifier.update.collectAsState()
     val showThemeColorSchemePref = remember {
       dynamicColorAvailability.isSupported()
     }
@@ -126,6 +130,7 @@ class SettingsViewModel(
       autoRewindInSeconds = autoRewindAmount,
       dialog = dialog.value,
       appVersion = appInfoProvider.versionName,
+      availableUpdate = update,
       useGrid = when (gridMode) {
         GridMode.LIST -> false
         GridMode.GRID -> true
@@ -151,6 +156,7 @@ class SettingsViewModel(
       kioskMode = kioskMode,
       // kept out of the list for now; flip this to true to bring the row back
       showOnlineSource = false,
+      showUpdateDialog = showUpdateDialog.value,
     )
   }
 
@@ -379,6 +385,12 @@ class SettingsViewModel(
 
   override fun onAppVersionClick() {
     mainScope.launch {
+      if (updateNotifier.update.value != null) {
+        // show what changed instead of jumping straight to the browser; the
+        // dialog's confirm button opens the release page from there
+        showUpdateDialog.value = true
+        return@launch
+      }
       if (developerMenuUnlockedStore.data.first()) {
         return@launch
       }
@@ -387,6 +399,21 @@ class SettingsViewModel(
         viewEffects.emit(SettingsViewEffect.DeveloperMenuUnlocked)
       }
     }
+  }
+
+  override fun onUpdateDialogConfirm() {
+    mainScope.launch {
+      showUpdateDialog.value = false
+      updateNotifier.onUpdatePageOpened()
+      navigator.goTo(Destination.Website(UpdateNotifier.RELEASE_PAGE_URL))
+    }
+  }
+
+  override fun onUpdateDialogDismiss() {
+    // closes the dialog only: the row keeps showing "update available", so the
+    // notes stay reachable. Dismissing for good happens on the book overview
+    // screen, where the prompt shows up on its own.
+    showUpdateDialog.value = false
   }
 
   override fun openDeveloperMenu() {

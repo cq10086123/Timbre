@@ -50,6 +50,14 @@ public annotation class AnalyticsConsentStore
 @Qualifier
 public annotation class DeveloperMenuUnlockedStore
 
+/** The day (epoch day) of the last update check, so it runs once a day at most. */
+@Qualifier
+public annotation class UpdateLastCheckStore
+
+/** The release the user dismissed, so its prompt does not come back. */
+@Qualifier
+public annotation class UpdateDismissedStore
+
 /** The fingerprint of the announcement the user asked to never see again. */
 @Qualifier
 public annotation class AnnouncementDismissedStore

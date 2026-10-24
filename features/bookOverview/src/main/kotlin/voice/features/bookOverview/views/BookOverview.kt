@@ -38,6 +38,7 @@ import voice.core.common.rootGraphAs
 import voice.core.data.BookId
 import voice.core.ui.AnnouncementDialog
 import voice.core.ui.PlayButton
+import voice.core.ui.UpdateDialog
 import voice.core.ui.VoiceTheme
 import voice.core.ui.playButtonSharedBoundsModifier
 import voice.features.bookOverview.bottomSheet.BottomSheetContent
@@ -124,6 +125,21 @@ fun BookOverviewScreen(modifier: Modifier = Modifier) {
       onDismiss = deleteBookViewModel::onDismiss,
       onConfirmDeletion = deleteBookViewModel::onConfirmDeletion,
       onDeleteCheckBoxCheck = deleteBookViewModel::onDeleteCheckBoxCheck,
+    )
+  }
+  val update = bookOverviewViewModel.updateNotifier.prompt.collectAsState().value
+  if (update != null) {
+    UpdateDialog(
+      update = update,
+      onUpdateClick = {
+        bookOverviewViewModel.openLatestRelease()
+        bookOverviewViewModel.updateNotifier.onUpdatePageOpened()
+      },
+      onDismissClick = {
+        scope.launch {
+          bookOverviewViewModel.updateNotifier.dismiss()
+        }
+      },
     )
   }
   val announcement = bookOverviewViewModel.announcementNotifier.prompt.collectAsState().value

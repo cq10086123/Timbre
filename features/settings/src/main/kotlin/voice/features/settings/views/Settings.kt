@@ -45,6 +45,7 @@ import dev.zacsweers.metro.ContributesTo
 import dev.zacsweers.metro.IntoSet
 import dev.zacsweers.metro.Provides
 import voice.core.common.rootGraphAs
+import voice.core.ui.UpdateDialog
 import voice.core.ui.VoiceTheme
 import voice.core.ui.icons.VoiceIcons
 import voice.features.settings.SettingsListener
@@ -414,6 +415,7 @@ private fun Settings(
       item {
         AppVersion(
           appVersion = viewState.appVersion,
+          update = viewState.availableUpdate,
           onClick = listener::onAppVersionClick,
         )
       }
@@ -433,6 +435,14 @@ private fun Settings(
       }
     }
     Dialog(viewState, listener)
+    val update = viewState.availableUpdate
+    if (viewState.showUpdateDialog && update != null) {
+      UpdateDialog(
+        update = update,
+        onUpdateClick = listener::onUpdateDialogConfirm,
+        onDismissClick = listener::onUpdateDialogDismiss,
+      )
+    }
   }
 }
 
