@@ -2,5 +2,5 @@
   "versionName": "3.6.3",
   "versionCode": 637,
   "releaseUrl": "https://github.com/cq10086123/Timbre/releases/latest",
-  "releaseNotes": "<!-- Release notes generated using configuration in .github/release.yml at 458da4b8af16beadbd66ff1afcf0002a5b53cd9b -->\n\n## What's Changed\n### 🧱 Other Changes\n* Timbre p by @cq10086123 in https://github.com/cq10086123/Timbre/pull/118\n\n\n**Full Changelog**: https://github.com/cq10086123/Timbre/compare/v3.5.0...v3.6.3"
+  "releaseNotes": "- WebDAV 备份与恢复：书架上的书、读到第几章、章节内位置、最后播放时间，以及倍速、跳过静音、跳过片头片尾、音量增益，都能备份到你自己的 WebDAV 目录，换机或重装后一键拉回\n- 统一的 WebDAV 设置页：服务器、书籍文件夹、备份与恢复集中在一处，支持添加多个服务器，自签证书可勾选信任\n- 在线书（接口源）的书源与书籍 ID 一并备份，恢复后自动回到书架，首次打开会重新拉取章节\n- 在线书的章节会存到本地，再次打开不必重新请求\n\n### 修复\n- 修复同一本书被重复组装播放列表，导致切换章节时卡顿、进度跳动\n- 修复章节序号（order）没有传给接口源脚本，部分源章节顺序错乱或取不到播放地址\n- 在线书播放失败时，弹窗直接显示接口源返回的原始报错，方便判断是源的问题还是网络问题\n- 修复书籍章节较多时反复校验封面，导致扫描期间卡顿\n\n### 说明\n- 恢复只合并本机已经存在的书：音频和章节不搬运，书本身仍需在本机或 WebDAV 书籍文件夹里\n- 如果备份里有 WebDAV 书但本机还没有，恢复时会提示；先添加对应书源并等扫描完成，再恢复一次即可合上进度\n- 备份文件只在你自己的 WebDAV 上，应用不上传任何数据"
 }
