@@ -301,18 +301,6 @@ private fun Settings(
       }
 
       item {
-        SeekTimeRow(viewState.seekTimeInSeconds) {
-          listener.onSeekAmountRowClick()
-        }
-      }
-
-      item {
-        AutoRewindRow(viewState.autoRewindInSeconds) {
-          listener.onAutoRewindRowClick()
-        }
-      }
-
-      item {
         ListItem(
           modifier = Modifier.clickable { listener.openPlayerSettings() },
           leadingContent = {
@@ -349,29 +337,6 @@ private fun Settings(
           },
         ) {
           Text(stringResource(StringsR.string.settings_playback_import_parallelism_title))
-        }
-      }
-
-      item {
-        ListItem(
-          modifier = Modifier.clickable { listener.setBtSkipToChapter(!viewState.btSkipToChapter) },
-          leadingContent = {
-            Icon(
-              imageVector = VoiceIcons.FastRewind,
-              contentDescription = stringResource(StringsR.string.settings_playback_bt_skip_chapter_title),
-            )
-          },
-          supportingContent = {
-            Text(stringResource(StringsR.string.settings_playback_bt_skip_chapter_summary))
-          },
-          trailingContent = {
-            Switch(
-              checked = viewState.btSkipToChapter,
-              onCheckedChange = listener::setBtSkipToChapter,
-            )
-          },
-        ) {
-          Text(stringResource(StringsR.string.settings_playback_bt_skip_chapter_title))
         }
       }
 
@@ -515,13 +480,6 @@ private fun Dialog(
 ) {
   val dialog = viewState.dialog ?: return
   when (dialog) {
-    SettingsViewState.Dialog.AutoRewindAmount -> {
-      AutoRewindAmountDialog(
-        currentSeconds = viewState.autoRewindInSeconds,
-        onSecondsConfirm = listener::autoRewindAmountChang,
-        onDismiss = listener::dismissDialog,
-      )
-    }
     SettingsViewState.Dialog.OnlineSourceBaseUrl -> {
       OnlineSourceTextDialog(
         title = stringResource(StringsR.string.settings_online_source_base_url_title),
@@ -550,13 +508,6 @@ private fun Dialog(
       ImportParallelismDialog(
         currentLevel = viewState.importParallelism,
         onLevelSelect = listener::importParallelismChanged,
-        onDismiss = listener::dismissDialog,
-      )
-    }
-    SettingsViewState.Dialog.SeekTime -> {
-      SeekAmountDialog(
-        currentSeconds = viewState.seekTimeInSeconds,
-        onSecondsConfirm = listener::seekAmountChanged,
         onDismiss = listener::dismissDialog,
       )
     }

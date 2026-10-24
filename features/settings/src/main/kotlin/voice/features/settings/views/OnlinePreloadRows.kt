@@ -5,7 +5,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
@@ -20,7 +19,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import voice.core.ui.icons.VoiceIcons
 import kotlin.math.roundToInt
 import voice.core.strings.R as StringsR
 
@@ -37,12 +35,6 @@ internal fun OnlinePreloadEnabledRow(
     modifier = Modifier
       .clickable { onCheck(!checked) }
       .fillMaxWidth(),
-    leadingContent = {
-      Icon(
-        imageVector = VoiceIcons.Download,
-        contentDescription = stringResource(StringsR.string.settings_playback_online_preload_title),
-      )
-    },
     supportingContent = {
       Text(stringResource(StringsR.string.settings_playback_online_preload_summary))
     },

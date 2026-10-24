@@ -20,11 +20,8 @@ import voice.core.data.ThemeMode
 import voice.core.data.sleeptimer.SleepTimerPreference
 import voice.core.data.store.AnalysisParallelismStore
 import voice.core.data.store.AnalyticsConsentStore
-import voice.core.data.store.AutoRewindAmountStore
-import voice.core.data.store.BtSkipToChapterStore
 import voice.core.data.store.DeveloperMenuUnlockedStore
 import voice.core.data.store.GridModeStore
-import voice.core.data.store.SeekTimeStore
 import voice.core.data.store.SleepTimerPreferenceStore
 import voice.core.data.store.ThemeColorSchemeStore
 import voice.core.data.store.ThemeModeStore
@@ -51,10 +48,6 @@ class SettingsViewModel(
   private val themeModeStore: DataStore<ThemeMode>,
   @ThemeColorSchemeStore
   private val themeColorSchemeStore: DataStore<ThemeColorScheme>,
-  @AutoRewindAmountStore
-  private val autoRewindAmountStore: DataStore<Int>,
-  @SeekTimeStore
-  private val seekTimeStore: DataStore<Int>,
   private val navigator: Navigator,
   private val appInfoProvider: AppInfoProvider,
   @GridModeStore
@@ -70,8 +63,6 @@ class SettingsViewModel(
   private val developerMenuUnlockedStore: DataStore<Boolean>,
   @WebDavAutoRefreshWifiStore
   private val autoRefreshWifiStore: DataStore<Boolean>,
-  @BtSkipToChapterStore
-  private val btSkipToChapterStore: DataStore<Boolean>,
   @AnalysisParallelismStore
   private val analysisParallelismStore: DataStore<Int>,
   @OnlineSourceEnabledStore
@@ -99,8 +90,6 @@ class SettingsViewModel(
   fun viewState(): SettingsViewState {
     val themeMode by remember { themeModeStore.data }.collectAsState(initial = ThemeMode.FollowSystem)
     val themeColorScheme by remember { themeColorSchemeStore.data }.collectAsState(initial = ThemeColorScheme.VoiceBlue)
-    val autoRewindAmount by remember { autoRewindAmountStore.data }.collectAsState(initial = 0)
-    val seekTime by remember { seekTimeStore.data }.collectAsState(initial = 0)
     val gridMode by remember { gridModeStore.data }.collectAsState(initial = GridMode.GRID)
     val autoSleepTimer by remember { sleepTimerPreferenceStore.data }.collectAsState(
       initial = SleepTimerPreference.Default,
@@ -111,7 +100,6 @@ class SettingsViewModel(
     }
     val showDeveloperMenu by remember { developerMenuUnlockedStore.data }.collectAsState(initial = false)
     val autoRefreshWifi by remember { autoRefreshWifiStore.data }.collectAsState(initial = true)
-    val btSkipToChapter by remember { btSkipToChapterStore.data }.collectAsState(initial = true)
     val importParallelism by remember { analysisParallelismStore.data }.collectAsState(initial = 1)
     val onlineSourceEnabled by remember { onlineSourceEnabledStore.data }.collectAsState(initial = false)
     val onlineSourceBaseUrl by remember { onlineSourceBaseUrlStore.data }.collectAsState(initial = "")
@@ -126,8 +114,6 @@ class SettingsViewModel(
       themeMode = themeMode,
       themeColorScheme = themeColorScheme,
       showThemeColorSchemePref = showThemeColorSchemePref,
-      seekTimeInSeconds = seekTime,
-      autoRewindInSeconds = autoRewindAmount,
       dialog = dialog.value,
       appVersion = appInfoProvider.versionName,
       availableUpdate = update,
@@ -145,7 +131,6 @@ class SettingsViewModel(
       showAnalyticSetting = appInfoProvider.analyticsIncluded,
       showDeveloperMenu = showDeveloperMenu,
       autoRefreshWifi = autoRefreshWifi,
-      btSkipToChapter = btSkipToChapter,
       importParallelism = importParallelism,
       onlineSourceEnabled = onlineSourceEnabled,
       onlineSourceBaseUrl = onlineSourceBaseUrl,
@@ -202,26 +187,6 @@ class SettingsViewModel(
     }
   }
 
-  override fun seekAmountChanged(seconds: Int) {
-    mainScope.launch {
-      seekTimeStore.updateData { seconds }
-    }
-  }
-
-  override fun onSeekAmountRowClick() {
-    dialog.value = SettingsViewState.Dialog.SeekTime
-  }
-
-  override fun autoRewindAmountChang(seconds: Int) {
-    mainScope.launch {
-      autoRewindAmountStore.updateData { seconds }
-    }
-  }
-
-  override fun onAutoRewindRowClick() {
-    dialog.value = SettingsViewState.Dialog.AutoRewindAmount
-  }
-
   override fun dismissDialog() {
     dialog.value = null
   }
@@ -253,12 +218,6 @@ class SettingsViewModel(
   override fun setAutoRefreshWifi(checked: Boolean) {
     mainScope.launch {
       autoRefreshWifiStore.updateData { checked }
-    }
-  }
-
-  override fun setBtSkipToChapter(checked: Boolean) {
-    mainScope.launch {
-      btSkipToChapterStore.updateData { checked }
     }
   }
 

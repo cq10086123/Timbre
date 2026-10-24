@@ -1,9 +1,13 @@
 package voice.features.settings.player
 
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.ListItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -20,9 +24,13 @@ import dev.zacsweers.metro.Provides
 import voice.core.common.rootGraphAs
 import voice.core.online.OnlinePreloadSettings
 import voice.core.ui.icons.VoiceIcons
+import voice.features.settings.views.AutoRewindAmountDialog
+import voice.features.settings.views.AutoRewindRow
 import voice.features.settings.views.OnlinePreloadEnabledRow
 import voice.features.settings.views.OnlinePreloadSliderDialog
 import voice.features.settings.views.OnlinePreloadValueRow
+import voice.features.settings.views.SeekAmountDialog
+import voice.features.settings.views.SeekTimeRow
 import voice.navigation.Destination
 import voice.navigation.NavEntryProvider
 import voice.core.strings.R as StringsR
@@ -53,6 +61,25 @@ private fun PlayerSettings(
     },
   ) { contentPadding ->
     LazyColumn(contentPadding = contentPadding) {
+      item {
+        SeekTimeRow(viewState.seekTimeInSeconds) {
+          viewModel.onSeekAmountRowClick()
+        }
+      }
+
+      item {
+        AutoRewindRow(viewState.autoRewindInSeconds) {
+          viewModel.onAutoRewindRowClick()
+        }
+      }
+
+      item {
+        BtSkipChapterRow(
+          checked = viewState.btSkipToChapter,
+          onCheckedChange = viewModel::setBtSkipToChapter,
+        )
+      }
+
       item {
         OnlinePreloadEnabledRow(
           checked = viewState.onlinePreloadEnabled,
@@ -135,7 +162,44 @@ private fun PlayerSettings(
         onDismiss = viewModel::dismissDialog,
       )
     }
+    PlayerSettingsViewState.Dialog.SeekTime -> {
+      SeekAmountDialog(
+        currentSeconds = viewState.seekTimeInSeconds,
+        onSecondsConfirm = viewModel::seekAmountChanged,
+        onDismiss = viewModel::dismissDialog,
+      )
+    }
+    PlayerSettingsViewState.Dialog.AutoRewindAmount -> {
+      AutoRewindAmountDialog(
+        currentSeconds = viewState.autoRewindInSeconds,
+        onSecondsConfirm = viewModel::autoRewindAmountChanged,
+        onDismiss = viewModel::dismissDialog,
+      )
+    }
     null -> {}
+  }
+}
+
+@Composable
+private fun BtSkipChapterRow(
+  checked: Boolean,
+  onCheckedChange: (Boolean) -> Unit,
+) {
+  ListItem(
+    modifier = Modifier
+      .clickable { onCheckedChange(!checked) }
+      .fillMaxWidth(),
+    supportingContent = {
+      Text(stringResource(StringsR.string.settings_playback_bt_skip_chapter_summary))
+    },
+    trailingContent = {
+      Switch(
+        checked = checked,
+        onCheckedChange = onCheckedChange,
+      )
+    },
+  ) {
+    Text(stringResource(StringsR.string.settings_playback_bt_skip_chapter_title))
   }
 }
 

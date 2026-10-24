@@ -9,8 +9,6 @@ data class SettingsViewState(
   val themeMode: ThemeMode,
   val themeColorScheme: ThemeColorScheme,
   val showThemeColorSchemePref: Boolean,
-  val seekTimeInSeconds: Int,
-  val autoRewindInSeconds: Int,
   val appVersion: String,
   val dialog: Dialog?,
   val useGrid: Boolean,
@@ -19,7 +17,6 @@ data class SettingsViewState(
   val analyticsEnabled: Boolean,
   val showDeveloperMenu: Boolean,
   val autoRefreshWifi: Boolean,
-  val btSkipToChapter: Boolean,
   val importParallelism: Int,
   val onlineSourceEnabled: Boolean,
   val onlineSourceBaseUrl: String,
@@ -35,8 +32,6 @@ data class SettingsViewState(
 ) {
 
   enum class Dialog {
-    AutoRewindAmount,
-    SeekTime,
     ImportParallelism,
     OnlineSourceBaseUrl,
     OnlineSourceCredential,
@@ -50,9 +45,6 @@ data class SettingsViewState(
         themeMode = ThemeMode.FollowSystem,
         themeColorScheme = ThemeColorScheme.VoiceBlue,
         showThemeColorSchemePref = true,
-        seekTimeInSeconds = 42,
-        autoRewindInSeconds = 12,
-        btSkipToChapter = true,
         importParallelism = 1,
         onlineSourceEnabled = false,
         onlineSourceBaseUrl = "",

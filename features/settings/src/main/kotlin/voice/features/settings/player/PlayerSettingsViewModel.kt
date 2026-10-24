@@ -9,6 +9,9 @@ import dev.zacsweers.metro.Inject
 import kotlinx.coroutines.launch
 import voice.core.common.DispatcherProvider
 import voice.core.common.MainScope
+import voice.core.data.store.AutoRewindAmountStore
+import voice.core.data.store.BtSkipToChapterStore
+import voice.core.data.store.SeekTimeStore
 import voice.core.online.OnlinePreloadSettings
 import voice.core.online.OnlinePreloadSettingsStore
 import voice.navigation.Navigator
@@ -18,6 +21,12 @@ class PlayerSettingsViewModel(
   private val navigator: Navigator,
   @OnlinePreloadSettingsStore
   private val onlinePreloadSettingsStore: DataStore<OnlinePreloadSettings>,
+  @SeekTimeStore
+  private val seekTimeStore: DataStore<Int>,
+  @AutoRewindAmountStore
+  private val autoRewindAmountStore: DataStore<Int>,
+  @BtSkipToChapterStore
+  private val btSkipToChapterStore: DataStore<Boolean>,
   dispatcherProvider: DispatcherProvider,
 ) {
 
@@ -27,12 +36,18 @@ class PlayerSettingsViewModel(
   @Composable
   fun viewState(): PlayerSettingsViewState {
     val settings by onlinePreloadSettingsStore.data.collectAsState(initial = OnlinePreloadSettings.Default)
+    val seekTime by seekTimeStore.data.collectAsState(initial = 0)
+    val autoRewindAmount by autoRewindAmountStore.data.collectAsState(initial = 0)
+    val btSkipToChapter by btSkipToChapterStore.data.collectAsState(initial = true)
     val coerced = OnlinePreloadSettings.coerce(settings)
     return PlayerSettingsViewState(
       onlinePreloadEnabled = coerced.enabled,
       onlinePreloadTriggerSeconds = coerced.triggerSeconds,
       onlinePreloadChapterCount = coerced.chapterCount,
       onlinePreloadIntervalSeconds = coerced.intervalSeconds,
+      seekTimeInSeconds = seekTime,
+      autoRewindInSeconds = autoRewindAmount,
+      btSkipToChapter = btSkipToChapter,
       dialog = dialog.value,
     )
   }
@@ -81,6 +96,34 @@ class PlayerSettingsViewModel(
     dialog.value = null
     scope.launch {
       onlinePreloadSettingsStore.updateData { OnlinePreloadSettings.coerce(it.copy(intervalSeconds = seconds)) }
+    }
+  }
+
+  fun seekAmountChanged(seconds: Int) {
+    dialog.value = null
+    scope.launch {
+      seekTimeStore.updateData { seconds }
+    }
+  }
+
+  fun onSeekAmountRowClick() {
+    dialog.value = PlayerSettingsViewState.Dialog.SeekTime
+  }
+
+  fun autoRewindAmountChanged(seconds: Int) {
+    dialog.value = null
+    scope.launch {
+      autoRewindAmountStore.updateData { seconds }
+    }
+  }
+
+  fun onAutoRewindRowClick() {
+    dialog.value = PlayerSettingsViewState.Dialog.AutoRewindAmount
+  }
+
+  fun setBtSkipToChapter(checked: Boolean) {
+    scope.launch {
+      btSkipToChapterStore.updateData { checked }
     }
   }
 }

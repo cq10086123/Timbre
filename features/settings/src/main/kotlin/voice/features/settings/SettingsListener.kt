@@ -11,10 +11,6 @@ interface SettingsListener {
   fun setThemeMode(themeMode: ThemeMode)
   fun setThemeColorScheme(themeColorScheme: ThemeColorScheme)
   fun toggleGrid()
-  fun seekAmountChanged(seconds: Int)
-  fun onSeekAmountRowClick()
-  fun autoRewindAmountChang(seconds: Int)
-  fun onAutoRewindRowClick()
   fun dismissDialog()
   fun openProjectRepository()
   fun openSupportVoice()
@@ -27,7 +23,6 @@ interface SettingsListener {
   fun openExtensions()
   fun openSourceShare()
   fun setAutoRefreshWifi(checked: Boolean)
-  fun setBtSkipToChapter(checked: Boolean)
   fun onImportParallelismRowClick()
   fun importParallelismChanged(level: Int)
   fun setOnlineSourceEnabled(checked: Boolean)
@@ -50,11 +45,6 @@ interface SettingsListener {
       override fun setThemeMode(themeMode: ThemeMode) {}
       override fun setThemeColorScheme(themeColorScheme: ThemeColorScheme) {}
       override fun toggleGrid() {}
-      override fun seekAmountChanged(seconds: Int) {}
-      override fun onSeekAmountRowClick() {}
-      override fun autoRewindAmountChang(seconds: Int) {}
-      override fun onAutoRewindRowClick() {}
-      override fun setBtSkipToChapter(checked: Boolean) {}
       override fun onImportParallelismRowClick() {}
       override fun importParallelismChanged(level: Int) {}
       override fun setOnlineSourceEnabled(checked: Boolean) {}

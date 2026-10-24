@@ -37,8 +37,6 @@ class SettingsViewModelTest {
   private val scope = TestScope()
   private val themeModeStore = MemoryDataStore(ThemeMode.FollowSystem)
   private val themeColorSchemeStore = MemoryDataStore(ThemeColorScheme.VoiceBlue)
-  private val autoRewindAmountStore = MemoryDataStore(10)
-  private val seekTimeStore = MemoryDataStore(30)
   private val gridModeStore = MemoryDataStore(GridMode.GRID)
   private val sleepTimerPreferenceStore = MemoryDataStore(SleepTimerPreference.Default)
   private val analyticsConsentStore = MemoryDataStore(false)
@@ -64,8 +62,6 @@ class SettingsViewModelTest {
   private val viewModel = SettingsViewModel(
     themeModeStore = themeModeStore,
     themeColorSchemeStore = themeColorSchemeStore,
-    autoRewindAmountStore = autoRewindAmountStore,
-    seekTimeStore = seekTimeStore,
     navigator = navigator,
     appInfoProvider = appInfoProvider,
     gridModeStore = gridModeStore,
@@ -75,9 +71,6 @@ class SettingsViewModelTest {
     kioskModeFeatureFlag = kioskModeFeatureFlag,
     developerMenuUnlockedStore = developerMenuUnlockedStore,
     autoRefreshWifiStore = autoRefreshWifiStore,
-    btSkipToChapterStore = mockk {
-      every { data } returns flowOf(true)
-    },
     analysisParallelismStore = mockk {
       every { data } returns flowOf(1)
     },
