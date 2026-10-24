@@ -74,20 +74,6 @@ private fun PlayerSettings(
       }
 
       item {
-        BtSkipChapterRow(
-          checked = viewState.btSkipToChapter,
-          onCheckedChange = viewModel::setBtSkipToChapter,
-        )
-      }
-
-      item {
-        OnlinePreloadEnabledRow(
-          checked = viewState.onlinePreloadEnabled,
-          onCheck = viewModel::setOnlinePreloadEnabled,
-        )
-      }
-
-      item {
         OnlinePreloadValueRow(
           titleRes = StringsR.string.settings_playback_online_preload_trigger_title,
           valueText = stringResource(
@@ -121,6 +107,20 @@ private fun PlayerSettings(
         ) {
           viewModel.onOnlinePreloadIntervalRowClick()
         }
+      }
+
+      item {
+        BtSkipChapterRow(
+          checked = viewState.btSkipToChapter,
+          onCheckedChange = viewModel::setBtSkipToChapter,
+        )
+      }
+
+      item {
+        OnlinePreloadEnabledRow(
+          checked = viewState.onlinePreloadEnabled,
+          onCheck = viewModel::setOnlinePreloadEnabled,
+        )
       }
     }
   }
