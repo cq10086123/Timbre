@@ -11,10 +11,10 @@ import java.net.URL
  * the main branch. Plain text on purpose: whatever is in the file is what the
  * dialog shows, no parsing, no format to keep in sync with the app.
  *
- * The endpoints: raw.githubusercontent reflects main within a minute, jsDelivr
- * is reachable from mainland China where github is not, and caching is harmless
- * here because a cached announcement is still the announcement the user was
- * supposed to see.
+ * The endpoints mirror [UpdateChecker]: raw.githubusercontent reflects main
+ * within a minute, jsDelivr is reachable from mainland China where github is
+ * not, and caching is harmless here because a cached announcement is still the
+ * announcement the user was supposed to see.
  */
 @Inject
 class AnnouncementChecker {
