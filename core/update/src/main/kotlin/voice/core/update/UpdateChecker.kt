@@ -29,14 +29,12 @@ class UpdateChecker {
   // China where github often is not — but it caches branch URLs for up to 12h
   // and its purge API is unreliable, so right after a release it serves stale
   // notes and even a lower version, which the update prompt then offers as a
-  // "downgrade". The GitHub api is the last resort; it always answers with the
-  // freshly published release and its body. Every endpoint is tried in order
-  // and a failure or a timeout of one is silently ignored.
+  // "downgrade". Every endpoint is tried in order and a failure or a timeout
+  // of one is silently ignored.
   private val endpoints = listOf(
     "https://raw.githubusercontent.com/cq10086123/Timbre/main/update.json",
     "https://cdn.jsdelivr.net/gh/cq10086123/Timbre@main/update.json",
     "https://fastly.jsdelivr.net/gh/cq10086123/Timbre@main/update.json",
-    "https://api.github.com/repos/cq10086123/Timbre/releases/latest",
   )
 
   /**
@@ -63,34 +61,21 @@ class UpdateChecker {
       } else {
         null
       }
-      body?.let { parseRelease(endpoint, it) }
+      body?.let { parseRelease(it) }
     } finally {
       connection.disconnect()
     }
   }
 
-  internal fun parseRelease(
-    endpoint: String,
-    body: String,
-  ): LatestRelease? {
+  internal fun parseRelease(body: String): LatestRelease? {
     val element = json.parseToJsonElement(body).jsonObject
-    return if (endpoint.endsWith(JSON_FILE_NAME)) {
-      val versionName = element[VERSION_NAME_KEY]?.jsonPrimitive?.contentOrNull ?: return null
-      LatestRelease(versionName, element[RELEASE_NOTES_KEY]?.jsonPrimitive?.contentOrNull)
-    } else {
-      // the GitHub api answers with the release tag, e.g. "v1.0.9", and the
-      // markdown release notes in the body field
-      val tagName = element[TAG_NAME_KEY]?.jsonPrimitive?.contentOrNull ?: return null
-      LatestRelease(tagName.removePrefix("v"), element[BODY_KEY]?.jsonPrimitive?.contentOrNull)
-    }
+    val versionName = element[VERSION_NAME_KEY]?.jsonPrimitive?.contentOrNull ?: return null
+    return LatestRelease(versionName, element[RELEASE_NOTES_KEY]?.jsonPrimitive?.contentOrNull)
   }
 
   private companion object {
-    const val JSON_FILE_NAME = "update.json"
     const val VERSION_NAME_KEY = "versionName"
     const val RELEASE_NOTES_KEY = "releaseNotes"
-    const val TAG_NAME_KEY = "tag_name"
-    const val BODY_KEY = "body"
     const val HTTP_OK = 200
     const val CONNECT_TIMEOUT_MS = 5_000
     const val READ_TIMEOUT_MS = 8_000
