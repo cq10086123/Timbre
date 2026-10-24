@@ -1,6 +1,6 @@
 {
   "versionName": "3.6.3",
-  "versionCode": 636,
+  "versionCode": 637,
   "releaseUrl": "https://github.com/cq10086123/Timbre/releases/latest",
-  "releaseNotes": "<!-- Release notes generated using configuration in .github/release.yml at 9244c548ef110a762d22672f2e313a0e1fdc754b -->\n\n## What's Changed\n### 🧱 Other Changes\n* Timbre p by @cq10086123 in https://github.com/cq10086123/Timbre/pull/118\n\n\n**Full Changelog**: https://github.com/cq10086123/Timbre/compare/v3.5.2...v3.6.3"
+  "releaseNotes": "<!-- Release notes generated using configuration in .github/release.yml at 458da4b8af16beadbd66ff1afcf0002a5b53cd9b -->\n\n## What's Changed\n### 🧱 Other Changes\n* Timbre p by @cq10086123 in https://github.com/cq10086123/Timbre/pull/118\n\n\n**Full Changelog**: https://github.com/cq10086123/Timbre/compare/v3.5.0...v3.6.3"
 }
