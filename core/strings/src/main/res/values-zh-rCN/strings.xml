@@ -150,6 +150,8 @@
     <string name="playback.online.error.offline">当前处于离线模式，在线音频暂不可用</string>
     <string name="playback.online.error.auth">在线书源密钥未通过验证，请在设置中更新</string>
     <string name="playback.online.error.content">在线书源没有返回这一章的音频地址</string>
+    <string name="playback.online.error.timeout">连接书源超时，请检查网络后重试</string>
+    <string name="playback.online.error.canceled">请求已取消</string>
     <string name="playback.online.error.title">播放出错</string>
     <string name="playback.online.error.dismiss">知道了</string>
     <string name="settings.online_source.error.invalid">密钥无效或无法连接服务器</string>

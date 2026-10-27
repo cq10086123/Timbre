@@ -313,6 +313,8 @@
     <string name="playback.online.error.offline">You are currently offline. Online audio is unavailable.</string>
     <string name="playback.online.error.auth">The online source key was rejected. Update it in the settings.</string>
     <string name="playback.online.error.content">The online source did not return an audio url for this chapter.</string>
+    <string name="playback.online.error.timeout">Connecting to the book source timed out. Check your network and try again.</string>
+    <string name="playback.online.error.canceled">The request was canceled.</string>
     <string name="playback.online.error.title">Playback failed</string>
     <string name="playback.online.error.dismiss">Got it</string>
     <string name="settings.online_source.error.invalid">Invalid key or server unreachable</string>

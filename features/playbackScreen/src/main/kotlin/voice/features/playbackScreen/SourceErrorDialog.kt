@@ -27,6 +27,7 @@ internal fun SourceErrorDialog(
   fallbackMessage: String,
   onDismiss: () -> Unit,
 ) {
+  val frameworkRes = state.detail?.let(::frameworkErrorRes)
   val raw = state.detail?.let(::rawSourceErrorText)?.takeIf(String::isNotEmpty)
   AlertDialog(
     onDismissRequest = onDismiss,
@@ -43,7 +44,7 @@ internal fun SourceErrorDialog(
       // 高度上限 + 滚动，免得某个源把整页 HTML 当异常抛出来撑爆弹窗。
       SelectionContainer {
         Text(
-          text = raw ?: fallbackMessage,
+          text = frameworkRes?.let { stringResource(it) } ?: raw ?: fallbackMessage,
           modifier = Modifier
             .heightIn(max = MAX_SOURCE_ERROR_HEIGHT)
             .verticalScroll(rememberScrollState()),
@@ -51,6 +52,21 @@ internal fun SourceErrorDialog(
       }
     },
   )
+}
+
+/**
+ * 网络库自己抛的异常 message 不是源说的话，原文上屏只会让人看不懂 ——
+ * - `timeout`：OkHttp 的 callTimeout 到点（SandboxHttp 默认 30 秒），服务器没把
+ *   响应回完。这是 OkHttp 源码里写死的单词，不是接口返回的内容。
+ * - `canceled`：请求完成前被取消（切章、预加载让路等）。
+ *
+ * 这类单词映射成本地化文案；其余 message（源的业务话术、QuickJS 报错等）
+ * 一律原样透传，保持"源说什么就显示什么"。
+ */
+internal fun frameworkErrorRes(detail: String): Int? = when (detail.trim()) {
+  "timeout" -> StringsR.string.playback_online_error_timeout
+  "canceled" -> StringsR.string.playback_online_error_canceled
+  else -> null
 }
 
 /**
