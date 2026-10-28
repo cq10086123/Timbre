@@ -11,6 +11,7 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
@@ -26,6 +27,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import okhttp3.MediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -40,9 +42,65 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.coroutines.coroutineContext
 
-/** Progress of one manual cache job, keyed by the canonical book uri. */
+/** State of one chapter of the cached window, drawn as the progress map. */
+public enum class OnlineCacheMark {
+  /** Not reached yet. */
+  PENDING,
+
+  /** The chapter in flight. */
+  RUNNING,
+
+  /** A complete file is on the device. */
+  CACHED,
+
+  /** The chapter was attempted and failed. */
+  FAILED,
+}
+
+/** Why one chapter could not be cached. */
+public enum class OnlineCacheFailureReason {
+  /** The source handed out no playable url for it. */
+  RESOLVE,
+
+  /** The transfer broke off (network error, timeout, rejected request). */
+  DOWNLOAD,
+
+  /** The server answered with a web page or json instead of audio. */
+  NOT_AUDIO,
+
+  /** The transfer ended before the announced length arrived. */
+  INCOMPLETE,
+}
+
+/** One failed chapter, with the reason worth showing to the user. */
+public data class OnlineCacheFailure(
+  val title: String,
+  val reason: OnlineCacheFailureReason,
+)
+
+/** Why a cache run ended, so the dialog can say more than "it stopped". */
+public enum class OnlineCacheStopReason {
+  /** Every chapter of the window is on the device. */
+  COMPLETED,
+
+  /** Too many chapters failed in a row; the source is probably rate limiting. */
+  TOO_MANY_FAILURES,
+
+  /** The chapter list could not be loaded at all. */
+  NO_CHAPTER_LIST,
+
+  /** The user refused to cache over mobile data. */
+  METERED_DECLINED,
+
+  /** Several runs in a row ended without a single chapter. */
+  GAVE_UP,
+
+  /** Something unexpected threw. */
+  ERROR,
+}
+
+/** Progress of one manual cache job; [states] keys it by the canonical book uri. */
 public data class OnlineCacheState(
-  val bookUri: String,
   val total: Int,
   val done: Int,
   val failed: Int,
@@ -53,6 +111,21 @@ public data class OnlineCacheState(
    * The progress bar stays visible, the chapter count is just frozen.
    */
   val awaitingConfirmation: Boolean = false,
+  /** Bytes already written for the chapter in flight. */
+  val currentBytes: Long = 0L,
+  /** Size of the chapter in flight; -1 while the server has not announced it. */
+  val currentTotalBytes: Long = -1L,
+  /** Smoothed transfer rate of the chapter in flight, 0 while unknown. */
+  val bytesPerSecond: Long = 0L,
+  /**
+   * One mark per chapter of the window, in order. Capped at [MAX_MARKS] so a
+   * ten thousand chapter job does not copy a list that size on every tick.
+   */
+  val marks: List<OnlineCacheMark> = emptyList(),
+  /** The chapters that failed, capped at [MAX_LISTED_FAILURES]. */
+  val failures: List<OnlineCacheFailure> = emptyList(),
+  /** Set once the run is over, so the dialog can explain why it stopped. */
+  val stopReason: OnlineCacheStopReason? = null,
 )
 
 /** What the cache dialog shows about one book. */
@@ -102,6 +175,10 @@ public data class OnlineCacheConfirmation(
  * so is one that keeps ending its runs without a single chapter (dead source),
  * while a job that keeps downloading is never given up on.
  *
+ * Every run ends in a state that names its outcome ([OnlineCacheStopReason])
+ * and, when chapters failed, the reason per chapter: a cache that silently
+ * stops is a cache the user cannot act on.
+ *
  * Mobile data is never spent silently: whenever a job is about to touch the
  * network on a metered connection it asks through [meteredConfirmation] first
  * and waits. Consent covers one job run, so a cache that ran on wifi asks
@@ -145,6 +222,13 @@ public class OnlineBookCacheManager(
   private val pendingConfirmation = AtomicReference<CompletableDeferred<Boolean>?>(null)
   private val resumeRequested = AtomicBoolean(false)
 
+  /**
+   * Store writes run on one consumer in send order. Two `launch`es would race:
+   * a `forget` from a cancel landing before the `remember` of the very job it
+   * cancels leaves a request that comes back on the next app start.
+   */
+  private val storeWrites = Channel<suspend () -> Unit>(Channel.UNLIMITED)
+
   private val _states = MutableStateFlow<Map<String, OnlineCacheState>>(emptyMap())
 
   /** The cache jobs by canonical book uri. */
@@ -154,6 +238,21 @@ public class OnlineBookCacheManager(
 
   /** The metered question the UI has to answer, or null when there is none. */
   public val meteredConfirmation: StateFlow<OnlineCacheConfirmation?> = _meteredConfirmation
+
+  init {
+    scope.launch {
+      for (write in storeWrites) {
+        try {
+          write()
+        } catch (e: CancellationException) {
+          throw e
+        } catch (e: Exception) {
+          // a store hiccup must not take the cache job down with it
+          Logger.w(e, "Online cache job store write failed")
+        }
+      }
+    }
+  }
 
   /** The cache job of [bookUri], or null when it was never cached this session. */
   public fun stateFor(bookUri: String): Flow<OnlineCacheState?> {
@@ -262,8 +361,15 @@ public class OnlineBookCacheManager(
     val bookRef = OnlineUri.parseBookUri(bookId.value) ?: return false
     val generation = (generations[bookId.value] ?: 0) + 1
     generations[bookId.value] = generation
-    jobs[bookId.value]?.cancel()
-    val _ = runCatching { jobs[bookId.value]?.join() }
+    val job = jobs[bookId.value]
+    job?.cancel()
+    // a cancelled download leaves the read loop at once, but a call still
+    // waiting for the response headers only aborts when its socket times out.
+    // Waiting for that would freeze the clear button for up to a minute, so
+    // the wait is bounded - a download that outlives it sees a stale
+    // generation and discards its file instead of publishing it into the
+    // directory that was just deleted.
+    val _ = withTimeoutOrNull(CLEAR_WAIT_MS) { job?.join() }
     forget(bookId.value)
     return withContext(dispatcherProvider.io) {
       val cleared = fileCache.clearBook(bookRef.source, bookRef.bookId)
@@ -272,23 +378,24 @@ public class OnlineBookCacheManager(
     }
   }
 
-  /** Writes only when [generation] is still the latest job of [bookUri]. */
+  /**
+   * Writes only when [generation] is still the latest job of [bookUri].
+   *
+   * The check sits *inside* the atomic update on purpose: `cancel` bumps the
+   * generation and then drops the entry, so a progress tick that read the
+   * generation just before the bump could otherwise write its state back
+   * after the drop and leave a frozen bar that never moves again. Re-running
+   * the check after a CAS retry closes that window.
+   */
   private fun setState(
     bookUri: String,
     generation: Int,
     state: OnlineCacheState,
   ) {
-    if (!isCurrent(bookUri, generation)) return
-    _states.update { it + (bookUri to state) }
-  }
-
-  /** Drops the progress entry of a job that ended without finishing. */
-  private fun clearState(
-    bookUri: String,
-    generation: Int,
-  ) {
-    if (!isCurrent(bookUri, generation)) return
-    _states.update { it - bookUri }
+    _states.update { current ->
+      if (!isCurrent(bookUri, generation)) return@update current
+      current + (bookUri to state)
+    }
   }
 
   /** Updates only when [generation] is still the latest job of [bookUri]. */
@@ -297,11 +404,41 @@ public class OnlineBookCacheManager(
     generation: Int,
     transform: (OnlineCacheState) -> OnlineCacheState,
   ) {
-    if (!isCurrent(bookUri, generation)) return
     _states.update { current ->
+      if (!isCurrent(bookUri, generation)) return@update current
       val state = current[bookUri] ?: return@update current
       current + (bookUri to transform(state))
     }
+  }
+
+  /**
+   * Ends the visible job of [bookUri] with a reason the dialog can explain.
+   * The entry stays, so the sheet keeps showing what happened instead of
+   * silently reverting to "nothing is running".
+   */
+  private fun stopState(
+    bookUri: String,
+    generation: Int,
+    reason: OnlineCacheStopReason,
+  ) {
+    updateState(bookUri, generation) { it.ended(reason) }
+  }
+
+  /**
+   * The fields of a run that is over: no chapter in flight, no speed, no
+   * "downloading". Shared by every path that ends a job so a new terminal
+   * field can never be forgotten in one of them.
+   */
+  private fun OnlineCacheState.ended(reason: OnlineCacheStopReason?): OnlineCacheState {
+    return copy(
+      downloading = false,
+      awaitingConfirmation = false,
+      currentTitle = "",
+      currentBytes = 0,
+      currentTotalBytes = -1,
+      bytesPerSecond = 0,
+      stopReason = reason,
+    )
   }
 
   private fun start(
@@ -319,7 +456,6 @@ public class OnlineBookCacheManager(
       bookUri,
       generation,
       OnlineCacheState(
-        bookUri = bookUri,
         total = job.count,
         done = 0,
         failed = 0,
@@ -369,12 +505,10 @@ public class OnlineBookCacheManager(
         generation = generation,
       )
       if (!meteredAllowed) {
-        // the user said no: nothing was downloaded, so the bar goes away
-        // instead of freezing at zero, and the job is not resumed either
-        if (isCurrent(bookUri, generation)) {
-          clearState(bookUri, generation)
-          forget(bookUri)
-        }
+        // the user said no: nothing was downloaded, so the job is dropped and
+        // not resumed - the sheet still says why it did nothing
+        stopState(bookUri, generation, OnlineCacheStopReason.METERED_DECLINED)
+        forget(bookUri)
         return
       }
     }
@@ -383,23 +517,69 @@ public class OnlineBookCacheManager(
     if (chapters.isEmpty()) {
       // no chapter list at all (offline, source gone): keep the job so the
       // next start can retry, unless it keeps failing without any progress
-      clearState(bookUri, generation)
-      persistUnlessGivenUp(bookUri, generation, job, progressed = false)
+      stopState(bookUri, generation, OnlineCacheStopReason.NO_CHAPTER_LIST)
+      val _ = persistUnlessGivenUp(bookUri, generation, job, progressed = false)
       return
     }
     val startOffset = startIndex(localBook, chapters)
     val window = chapters.drop(startOffset).take(job.count)
-    val doneAtStart = window.count { chapter -> fileCache.isCached(chapterRef(bookRef, chapter)) }
-    var done = doneAtStart
+    val marks = MutableList(minOf(window.size, MAX_MARKS)) { OnlineCacheMark.PENDING }
+    var done = 0
+    window.forEachIndexed { index, chapter ->
+      if (fileCache.isCached(chapterRef(bookRef, chapter))) {
+        done++
+        if (index < marks.size) marks[index] = OnlineCacheMark.CACHED
+      }
+    }
+    val doneAtStart = done
     var failed = 0
     var consecutiveFailures = 0
     var pacedAny = false
     var declined = false
-    setState(
-      bookUri,
-      generation,
-      OnlineCacheState(bookUri, window.size, done, 0, downloading = true),
+    var stopReason: OnlineCacheStopReason? = null
+    val failures = mutableListOf<OnlineCacheFailure>()
+
+    // the state is rewritten from several threads: the download callback
+    // publishes progress while the loop is suspended in the transfer
+    val stateLock = Any()
+    var current = OnlineCacheState(
+      total = window.size,
+      done = done,
+      failed = 0,
+      downloading = true,
+      marks = marks.toList(),
     )
+    setState(bookUri, generation, current)
+
+    fun publish(transform: (OnlineCacheState) -> OnlineCacheState) {
+      val next = synchronized(stateLock) {
+        current = transform(current)
+        current
+      }
+      setState(bookUri, generation, next)
+    }
+
+    fun mark(
+      index: Int,
+      value: OnlineCacheMark,
+    ) {
+      if (index < 0 || index >= marks.size || marks[index] == value) return
+      marks[index] = value
+      publish { it.copy(marks = marks.toList()) }
+    }
+
+    fun fail(
+      chapter: OnlineChapter,
+      reason: OnlineCacheFailureReason,
+      index: Int,
+    ) {
+      failed++
+      consecutiveFailures++
+      if (failures.size < MAX_LISTED_FAILURES) failures.add(OnlineCacheFailure(chapter.title, reason))
+      mark(index, OnlineCacheMark.FAILED)
+      publish { it.copy(done = done, failed = failed, failures = failures.toList()) }
+    }
+
     try {
       for ((offset, chapter) in window.withIndex()) {
         coroutineContext.ensureActive()
@@ -423,7 +603,15 @@ public class OnlineBookCacheManager(
             break
           }
         }
-        updateState(bookUri, generation) { it.copy(currentTitle = chapter.title) }
+        publish {
+          it.copy(
+            currentTitle = chapter.title,
+            currentBytes = 0,
+            currentTotalBytes = -1,
+            bytesPerSecond = 0,
+          )
+        }
+        mark(offset, OnlineCacheMark.RUNNING)
         // Pace the chapters: the configured per-episode delay lets the source
         // cool down between downloads instead of hammering it with the whole
         // window up front (which gets rate limited and fails).
@@ -434,26 +622,48 @@ public class OnlineBookCacheManager(
         val _ = withTimeoutOrNull(PLAYBACK_GATE_WAIT_MS) {
           playbackIoGate.whilePlaybackLoads { }
         }
-        // resolveStreamUrl reports failures as null and only throws on
-        // cancellation, so no runCatching: it would swallow the cancellation
-        val stream = catalog.resolveStreamUrl(ref)
+        // resolving must stay silent here: a cache run failing to resolve a
+        // chapter is not the player failing to play one, and the error flow
+        // would pop the playback dialog over a background download
+        val stream = catalog.resolveStreamUrl(ref, reportErrors = false)
         if (stream == null || stream.url.isBlank()) {
-          failed++
-          consecutiveFailures++
-          updateState(bookUri, generation) { it.copy(done = done, failed = failed) }
+          fail(chapter, OnlineCacheFailureReason.RESOLVE, offset)
           if (consecutiveFailures >= ABORT_AFTER_CONSECUTIVE_FAILURES) break
           continue
         }
-        val downloaded = downloadSlots.withPermit { downloadToCache(ref, stream.url) }
-        if (downloaded) {
-          done++
-          consecutiveFailures = 0
-        } else {
-          failed++
-          consecutiveFailures++
+        val sampler = SpeedSampler()
+        val outcome = downloadSlots.withPermit {
+          downloadToCache(
+            ref = ref,
+            stream = stream,
+            stillWanted = { isCurrent(bookUri, generation) },
+          ) { written, total ->
+            val speed = sampler.sample(written)
+            publish {
+              it.copy(
+                currentBytes = written,
+                currentTotalBytes = total,
+                bytesPerSecond = speed,
+              )
+            }
+          }
         }
-        updateState(bookUri, generation) { it.copy(done = done, failed = failed) }
+        when (outcome) {
+          DownloadOutcome.Stored -> {
+            done++
+            consecutiveFailures = 0
+            mark(offset, OnlineCacheMark.CACHED)
+            publish { it.copy(done = done) }
+          }
+          is DownloadOutcome.Failed -> fail(chapter, outcome.reason, offset)
+        }
         if (consecutiveFailures >= ABORT_AFTER_CONSECUTIVE_FAILURES) break
+      }
+      stopReason = when {
+        declined -> OnlineCacheStopReason.METERED_DECLINED
+        done >= window.size -> OnlineCacheStopReason.COMPLETED
+        consecutiveFailures >= ABORT_AFTER_CONSECUTIVE_FAILURES -> OnlineCacheStopReason.TOO_MANY_FAILURES
+        else -> null
       }
     } catch (e: CancellationException) {
       throw e
@@ -462,25 +672,27 @@ public class OnlineBookCacheManager(
       // must not vanish without a trace: the job stays persisted, so the next
       // start retries it
       Logger.w(e, "Online cache job of $bookUri failed")
+      stopReason = OnlineCacheStopReason.ERROR
     } finally {
       // a cancelled job must not leave the dialog spinning: chapters cached
       // so far are kept and the job simply reports as finished
-      updateState(bookUri, generation) {
-        it.copy(downloading = false, currentTitle = "", awaitingConfirmation = false)
-      }
+      val reason = stopReason
+      publish { it.ended(reason) }
     }
     // an unfinished job stays persisted so the next app start continues it,
     // and so does one whose chapters failed: the missing ones are the work of
     // the next run. `done` counts every window chapter that is on the device,
     // the failed ones included in its shortfall
-    persistUnlessGivenUp(
+    val gaveUp = persistUnlessGivenUp(
       bookUri = bookUri,
       generation = generation,
       job = job,
       progressed = done > doneAtStart,
       unfinished = done < window.size && !declined,
     )
-    if (declined) clearState(bookUri, generation)
+    if (gaveUp) {
+      updateState(bookUri, generation) { it.copy(stopReason = OnlineCacheStopReason.GAVE_UP) }
+    }
   }
 
   /**
@@ -489,6 +701,9 @@ public class OnlineBookCacheManager(
    * counter, so a slow cache is never given up on; a job whose runs end
    * without a single chapter (dead source, no network) is dropped instead of
    * being retried on every app start.
+   *
+   * Returns true when the job was dropped because it kept ending without
+   * progress, so the caller can say so instead of leaving a stale bar.
    */
   private fun persistUnlessGivenUp(
     bookUri: String,
@@ -496,15 +711,16 @@ public class OnlineBookCacheManager(
     job: OnlineCacheJob,
     progressed: Boolean,
     unfinished: Boolean = true,
-  ) {
+  ): Boolean {
     // a stale job must not delete the persisted request of its successor
-    if (!isCurrent(bookUri, generation)) return
+    if (!isCurrent(bookUri, generation)) return false
     val attempts = if (progressed) 0 else job.attempts + 1
     if (unfinished && attempts < MAX_RESUME_ATTEMPTS) {
       remember(job.copy(attempts = attempts))
-    } else {
-      forget(bookUri)
+      return false
     }
+    forget(bookUri)
+    return unfinished
   }
 
   /** True while [generation] is the job of [bookUri] that owns its outcome. */
@@ -517,26 +733,40 @@ public class OnlineBookCacheManager(
 
   /**
    * Publishes the metered question and suspends until the user answered it.
-   * Prompts are serialized, so two jobs never stack two dialogs; a cancelled
-   * job abandons the wait and hands the prompt slot to the next job.
+   * Prompts are serialized, so two jobs never stack two dialogs; a job that
+   * queues behind another one already says it is waiting instead of looking
+   * frozen at zero.
    */
   private suspend fun awaitMeteredPermission(
     confirmation: OnlineCacheConfirmation,
     bookUri: String,
     generation: Int,
   ): Boolean {
-    return confirmationGate.withLock {
-      val answer = CompletableDeferred<Boolean>()
-      pendingConfirmation.set(answer)
-      _meteredConfirmation.value = confirmation
-      updateState(bookUri, generation) { it.copy(awaitingConfirmation = true) }
-      try {
-        answer.await()
-      } finally {
-        pendingConfirmation.set(null)
-        _meteredConfirmation.value = null
-        updateState(bookUri, generation) { it.copy(awaitingConfirmation = false) }
+    // drop the chapter in flight: while the question is open nothing is being
+    // downloaded, and "downloading: episode 7" with a frozen bar would lie
+    updateState(bookUri, generation) {
+      it.copy(
+        awaitingConfirmation = true,
+        currentTitle = "",
+        currentBytes = 0,
+        currentTotalBytes = -1,
+        bytesPerSecond = 0,
+      )
+    }
+    try {
+      return confirmationGate.withLock {
+        val answer = CompletableDeferred<Boolean>()
+        pendingConfirmation.set(answer)
+        _meteredConfirmation.value = confirmation
+        try {
+          answer.await()
+        } finally {
+          pendingConfirmation.set(null)
+          _meteredConfirmation.value = null
+        }
       }
+    } finally {
+      updateState(bookUri, generation) { it.copy(awaitingConfirmation = false) }
     }
   }
 
@@ -563,43 +793,108 @@ public class OnlineBookCacheManager(
 
   /** Remembers the request before it runs, so a killed process resumes it. */
   private fun remember(job: OnlineCacheJob) {
-    scope.launch {
-      // a store hiccup must not take the cache job down with it
-      val _ = runCatching {
-        jobsStore.updateData { jobs -> jobs.filterNot { it.bookUri == job.bookUri } + job }
-      }
+    storeWrites.trySend {
+      jobsStore.updateData { jobs -> jobs.filterNot { it.bookUri == job.bookUri } + job }
     }
   }
 
   /** Drops the persisted request: the job is done, cancelled or declined. */
   private fun forget(bookUri: String) {
-    scope.launch {
-      val _ = runCatching { jobsStore.updateData { jobs -> jobs.filterNot { it.bookUri == bookUri } } }
+    storeWrites.trySend {
+      jobsStore.updateData { jobs -> jobs.filterNot { it.bookUri == bookUri } }
     }
   }
 
-  /** Downloads [url] into the file cache; false when it could not be stored. */
+  /** The result of one chapter download, with the reason when it failed. */
+  private sealed interface DownloadOutcome {
+    /** The chapter is on the device. */
+    data object Stored : DownloadOutcome
+
+    data class Failed(val reason: OnlineCacheFailureReason) : DownloadOutcome
+  }
+
+  /**
+   * Downloads [stream] into the file cache, reporting the transfer so the
+   * dialog can show a per chapter bar.
+   *
+   * A 200 is not proof of a chapter: sources keep serving html error pages and
+   * links that expire into a json error, and a truncated transfer looks like a
+   * finished one. Storing those would make [OnlineChapterFileCache.isCached]
+   * skip the chapter forever, so the file is only published when its bytes
+   * match what the server announced and it does not start like a web page.
+   */
   private suspend fun downloadToCache(
     ref: OnlineChapterRef,
-    url: String,
-  ): Boolean = withContext(Dispatchers.IO) {
+    stream: ResolvedStream,
+    stillWanted: () -> Boolean,
+    onProgress: (written: Long, total: Long) -> Unit,
+  ): DownloadOutcome = withContext(Dispatchers.IO) {
     try {
-      val requestUrl = OnlineStreamUrlPolicy.applyCertFallback(url)
-      download(requestUrl).use { response ->
-        if (!response.isSuccessful) return@withContext false
+      val requestUrl = OnlineStreamUrlPolicy.applyCertFallback(stream.url)
+      download(requestUrl, stream.headers).use { response ->
+        if (!response.isSuccessful) {
+          Logger.w("Online chapter download for $ref answered ${response.code}")
+          return@withContext DownloadOutcome.Failed(OnlineCacheFailureReason.DOWNLOAD)
+        }
+        if (isErrorContentType(response.body.contentType())) {
+          Logger.w("Online chapter download for $ref answered ${response.body.contentType()} instead of audio")
+          return@withContext DownloadOutcome.Failed(OnlineCacheFailureReason.NOT_AUDIO)
+        }
+        val expected = response.body.contentLength()
         val tmp = fileCache.tmpFileFor(ref)
         tmp.parentFile?.mkdirs()
+        var written = 0L
+        var rejected = false
+        var lastEmit = 0L
         response.body.byteStream().use { input ->
           FileOutputStream(tmp).use { output ->
-            input.copyTo(output)
+            val buffer = ByteArray(DOWNLOAD_BUFFER_BYTES)
+            while (true) {
+              coroutineContext.ensureActive()
+              val read = input.read(buffer)
+              if (read < 0) break
+              // an expired link often answers 200 with "{" or "<!doctype":
+              // checking the first chunk keeps that out of the cache
+              if (written == 0L && looksLikeText(buffer, read)) {
+                rejected = true
+                break
+              }
+              output.write(buffer, 0, read)
+              written += read
+              val now = System.currentTimeMillis()
+              if (now - lastEmit >= PROGRESS_INTERVAL_MS) {
+                lastEmit = now
+                onProgress(written, expected)
+              }
+            }
           }
         }
-        if (tmp.length() <= 0L) {
+        if (rejected) {
           tmp.delete()
-          return@withContext false
+          return@withContext DownloadOutcome.Failed(OnlineCacheFailureReason.NOT_AUDIO)
+        }
+        onProgress(written, expected)
+        if (written <= 0L) {
+          tmp.delete()
+          return@withContext DownloadOutcome.Failed(OnlineCacheFailureReason.DOWNLOAD)
+        }
+        if (expected > 0L && written != expected) {
+          Logger.w("Online chapter download for $ref stopped at $written of $expected bytes")
+          tmp.delete()
+          return@withContext DownloadOutcome.Failed(OnlineCacheFailureReason.INCOMPLETE)
+        }
+        // a clear (or a newer job) may have raced this download: publishing
+        // now would put a chapter back into a directory that was just emptied
+        if (!stillWanted()) {
+          tmp.delete()
+          return@withContext DownloadOutcome.Failed(OnlineCacheFailureReason.DOWNLOAD)
         }
         coroutineContext.ensureActive()
-        fileCache.completeDownload(ref)
+        if (fileCache.completeDownload(ref)) {
+          DownloadOutcome.Stored
+        } else {
+          DownloadOutcome.Failed(OnlineCacheFailureReason.DOWNLOAD)
+        }
       }
     } catch (e: CancellationException) {
       fileCache.discardTmp(ref)
@@ -610,8 +905,39 @@ public class OnlineBookCacheManager(
       // a call cancelled below surfaces as an IOException: rethrow it as a
       // cancellation instead of counting the chapter as failed
       coroutineContext.ensureActive()
-      false
+      DownloadOutcome.Failed(OnlineCacheFailureReason.DOWNLOAD)
     }
+  }
+
+  /**
+   * A content type that says "this is a web page / api answer", never audio.
+   * Unknown types stay allowed: plenty of cdns serve mp3 as
+   * `application/octet-stream`, and rejecting those would break working
+   * sources.
+   */
+  private fun isErrorContentType(contentType: MediaType?): Boolean {
+    if (contentType == null) return false
+    val type = contentType.type.lowercase()
+    val subtype = contentType.subtype.lowercase()
+    return type == "text" || "html" in subtype || "json" in subtype || "xml" in subtype
+  }
+
+  /** True when the first bytes of a body look like markup instead of audio. */
+  private fun looksLikeText(
+    buffer: ByteArray,
+    length: Int,
+  ): Boolean {
+    for (index in 0 until minOf(length, TEXT_SNIFF_BYTES)) {
+      val byte = buffer[index].toInt() and 0xFF
+      when {
+        // a utf-8 bom or leading whitespace is still html
+        byte == 0xEF || byte == 0xBB || byte == 0xBF -> continue
+        byte == 0x20 || byte == 0x09 || byte == 0x0A || byte == 0x0D -> continue
+        byte == '<'.code || byte == '{'.code || byte == '['.code -> return true
+        else -> return false
+      }
+    }
+    return false
   }
 
   /**
@@ -619,16 +945,19 @@ public class OnlineBookCacheManager(
    * unusable the same way streaming does: after a failed https handshake the
    * address is retried over plain http.
    */
-  private suspend fun download(url: String): Response {
+  private suspend fun download(
+    url: String,
+    headers: Map<String, String>,
+  ): Response {
     return try {
-      executeCancellable(downloadRequest(url))
+      executeCancellable(downloadRequest(url, headers))
     } catch (e: IOException) {
       coroutineContext.ensureActive()
       val httpUrl = OnlineStreamUrlPolicy.downgradeToHttp(url)
       if (httpUrl == null || !isCertificateProblem(e)) throw e
       Logger.w("TLS handshake failed for source host, retrying over http: ${e.message}")
       OnlineStreamUrlPolicy.rememberCertBroken(url)
-      executeCancellable(downloadRequest(httpUrl))
+      executeCancellable(downloadRequest(httpUrl, headers))
     }
   }
 
@@ -654,7 +983,10 @@ public class OnlineBookCacheManager(
     }
   }
 
-  private suspend fun downloadRequest(url: String): Request {
+  private suspend fun downloadRequest(
+    url: String,
+    sourceHeaders: Map<String, String>,
+  ): Request {
     val builder = Request.Builder().url(url)
     // urls served by the configured server require the bearer token; third
     // party cdn links must not receive it
@@ -663,12 +995,47 @@ public class OnlineBookCacheManager(
     if (token.isNotEmpty() && base.isNotEmpty() && url.startsWith(base)) {
       builder.header("Authorization", "Bearer $token")
     }
+    // headers the source script asked for (Referer / User-Agent / Cookie for
+    // hotlink protected cdns). Playback sends them too; without them a
+    // chapter downloads fine while streaming and fails every single time.
+    for ((name, value) in sourceHeaders) {
+      builder.header(name, value)
+    }
     return builder.build()
   }
 
   private fun isCertificateProblem(e: Throwable): Boolean = generateSequence(e) { it.cause }
     .take(8)
     .any { it is javax.net.ssl.SSLException || it is java.security.cert.CertificateException }
+
+  /**
+   * Smooths the transfer rate of one chapter: raw samples jump around, a
+   * smoothed number is what tells the user whether the source is slow or the
+   * file is just big.
+   */
+  private class SpeedSampler {
+    private var lastBytes = 0L
+    private var lastAt = 0L
+    private var rate = 0L
+
+    fun sample(bytes: Long): Long {
+      val now = System.currentTimeMillis()
+      if (lastAt == 0L) {
+        lastBytes = bytes
+        lastAt = now
+        return 0L
+      }
+      val elapsed = now - lastAt
+      if (elapsed < SPEED_SAMPLE_MS) return rate
+      val delta = bytes - lastBytes
+      lastAt = now
+      lastBytes = bytes
+      if (delta <= 0L) return rate
+      val instant = delta * 1_000L / elapsed
+      rate = if (rate == 0L) instant else (rate * 3L + instant) / 4L
+      return rate
+    }
+  }
 
   private companion object {
     /** Upper bound of one manual cache job; the window is capped by the book anyway. */
@@ -689,5 +1056,24 @@ public class OnlineBookCacheManager(
 
     /** How long a download waits for the player to finish buffering. */
     const val PLAYBACK_GATE_WAIT_MS = 15_000L
+
+    /** How long a clear waits for the stopped job before deleting anyway. */
+    const val CLEAR_WAIT_MS = 2_000L
+
+    /** The progress map covers the first chapters of the window only. */
+    const val MAX_MARKS = 240
+
+    /** The failure list is a diagnosis, not a log: a dozen is plenty. */
+    const val MAX_LISTED_FAILURES = 12
+
+    /** Progress callbacks are throttled: five states a second is smooth. */
+    const val PROGRESS_INTERVAL_MS = 200L
+
+    /** Minimum window between two speed samples. */
+    const val SPEED_SAMPLE_MS = 700L
+
+    const val DOWNLOAD_BUFFER_BYTES = 64 * 1024
+
+    const val TEXT_SNIFF_BYTES = 8
   }
 }

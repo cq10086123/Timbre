@@ -1,6 +1,8 @@
 package voice.features.bookOverview.onlineActions
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
@@ -10,12 +12,14 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -30,12 +34,17 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
+import voice.core.online.OnlineCacheFailureReason
+import voice.core.online.OnlineCacheMark
 import voice.core.online.OnlineCacheState
+import voice.core.online.OnlineCacheStopReason
 import voice.core.online.OnlineChapterRefreshResult
 import voice.features.bookOverview.formatBytes
 import voice.core.strings.R as StringsR
@@ -92,10 +101,10 @@ private fun OnlineChapterRefreshResult.toMessage(): String {
 }
 
 /**
- * Caching needs more room than a dialog has and, above all, two things that
- * have to stay visible: the live progress and the clear action. Both sit in
- * the fixed footer below the scrollable options - down in an alert dialog's
- * text slot they were the first thing a phone screen clipped away.
+ * Caching needs more room than a dialog has and, above all, the live state has
+ * to stay visible while the options scroll. The headline (what is happening,
+ * overall progress, the episode in flight) is therefore pinned above the
+ * scrollable part, and the fixed footer keeps the clear action reachable.
  */
 @Composable
 internal fun OnlineCacheDialog(
@@ -137,6 +146,15 @@ internal fun OnlineCacheDialog(
         maxLines = 2,
         overflow = TextOverflow.Ellipsis,
       )
+      if (progress != null) {
+        CacheHeadline(
+          progress = progress,
+          modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 24.dp)
+            .padding(top = 12.dp),
+        )
+      }
       Column(
         modifier = Modifier
           .weight(weight = 1f, fill = false)
@@ -180,8 +198,12 @@ internal fun OnlineCacheDialog(
               text = stringResource(StringsR.string.online_cache_offline_hint),
               style = MaterialTheme.typography.bodySmall,
             )
+            if (progress != null && (progress.marks.isNotEmpty() || progress.failures.isNotEmpty())) {
+              Spacer(modifier = Modifier.height(12.dp))
+              CacheDetails(progress = progress)
+            }
             // while a job runs the options would only collect dust: the sheet
-            // stays short and the live progress keeps the stage
+            // stays short and the live state keeps the stage
             if (!downloading) {
               Spacer(modifier = Modifier.height(12.dp))
               Text(
@@ -271,19 +293,6 @@ internal fun OnlineCacheDialog(
           }
         }
       }
-      // the footer is what the old alert dialog clipped: progress and the
-      // clear action never scroll out of sight
-      if (progress != null &&
-        (progress.downloading || progress.awaitingConfirmation || progress.failed > 0)
-      ) {
-        CacheProgress(
-          progress = progress,
-          modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 24.dp)
-            .padding(top = 12.dp),
-        )
-      }
       Row(
         modifier = Modifier
           .fillMaxWidth()
@@ -328,7 +337,15 @@ internal fun OnlineCacheDialog(
             onClick = onStartCache,
             enabled = !viewState.loading && info != null && remaining > 0,
           ) {
-            Text(stringResource(StringsR.string.online_cache_start))
+            Text(
+              stringResource(
+                if (progress?.stopReason.needsRetry()) {
+                  StringsR.string.online_cache_retry
+                } else {
+                  StringsR.string.online_cache_start
+                },
+              ),
+            )
           }
         }
       }
@@ -337,59 +354,268 @@ internal fun OnlineCacheDialog(
   }
 }
 
+/** A stopped run that has work left is worth another tap, not a fresh setup. */
+private fun OnlineCacheStopReason?.needsRetry(): Boolean {
+  return when (this) {
+    OnlineCacheStopReason.TOO_MANY_FAILURES,
+    OnlineCacheStopReason.NO_CHAPTER_LIST,
+    OnlineCacheStopReason.GAVE_UP,
+    OnlineCacheStopReason.ERROR,
+    -> true
+    else -> false
+  }
+}
+
+/**
+ * The pinned part of the sheet: what the job is doing, how far the window is
+ * and how far the episode in flight is. It never scrolls away, so a running
+ * cache is always described by the same four lines.
+ */
 @Composable
-private fun CacheProgress(
+private fun CacheHeadline(
   progress: OnlineCacheState,
   modifier: Modifier = Modifier,
 ) {
-  val fraction = if (progress.total <= 0) {
-    0f
-  } else {
-    (progress.done.toFloat() / progress.total).coerceIn(0f, 1f)
-  }
-  val percent = (fraction * 100).toInt()
-  Column(modifier = modifier) {
-    // a bar and a current episode only mean "work is running": once the job is
-    // done the count in the sheet above is the truth, and a frozen leftover
-    // bar labelled "caching" would claim the opposite. Failures stay visible
-    // either way - they are the reason to start another run
-    if (progress.downloading || progress.awaitingConfirmation) {
+  val scheme = MaterialTheme.colorScheme
+  Column(
+    modifier = modifier,
+    verticalArrangement = Arrangement.spacedBy(6.dp),
+  ) {
+    Text(
+      text = progress.statusText(),
+      style = MaterialTheme.typography.labelLarge,
+      color = progress.statusColor(scheme),
+    )
+    if (progress.total > 0) {
+      val fraction = (progress.done.toFloat() / progress.total).coerceIn(0f, 1f)
       LinearProgressIndicator(
         progress = { fraction },
         modifier = Modifier.fillMaxWidth(),
       )
       Text(
-        modifier = Modifier.padding(top = 6.dp),
-        text = stringResource(StringsR.string.online_cache_downloading, progress.done, progress.total, percent),
+        text = stringResource(
+          StringsR.string.online_cache_progress_count,
+          progress.done,
+          progress.total,
+          (fraction * 100).toInt(),
+        ),
         style = MaterialTheme.typography.bodySmall,
       )
     }
-    if (progress.failed > 0) {
+    if (progress.downloading && progress.currentTitle.isNotBlank()) {
       Text(
-        modifier = Modifier.padding(top = 6.dp),
-        text = stringResource(StringsR.string.online_cache_failed_count, progress.failed),
+        text = stringResource(StringsR.string.online_cache_current_chapter, progress.currentTitle),
         style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.error,
+        maxLines = 2,
+        overflow = TextOverflow.Ellipsis,
+      )
+      // the episode size is what separates "the source is slow" from "this
+      // episode is just huge", so it gets its own bar
+      val chapterTotal = progress.currentTotalBytes
+      if (chapterTotal > 0) {
+        LinearProgressIndicator(
+          progress = { (progress.currentBytes.toFloat() / chapterTotal).coerceIn(0f, 1f) },
+          modifier = Modifier.fillMaxWidth(),
+        )
+      } else {
+        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+      }
+      Text(
+        text = progress.chapterLine(),
+        style = MaterialTheme.typography.bodySmall,
       )
     }
-    when {
-      progress.awaitingConfirmation -> {
-        Text(
-          modifier = Modifier.padding(top = 6.dp),
-          text = stringResource(StringsR.string.online_cache_awaiting_confirmation),
-          style = MaterialTheme.typography.bodySmall,
-          color = MaterialTheme.colorScheme.error,
+  }
+}
+
+/** The chapter map and the failure list: the "where is it stuck" part. */
+@Composable
+private fun CacheDetails(progress: OnlineCacheState) {
+  Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    if (progress.marks.isNotEmpty()) {
+      ChapterMap(progress)
+    }
+    if (progress.failures.isNotEmpty()) {
+      FailureList(progress)
+    }
+  }
+}
+
+/**
+ * One square per episode of the window: green once cached, red when it failed,
+ * highlighted while it is in flight. A run that dies at episode 7 of 50 looks
+ * exactly like that here instead of looking like "nothing happened".
+ */
+@Composable
+private fun ChapterMap(progress: OnlineCacheState) {
+  val scheme = MaterialTheme.colorScheme
+  Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    FlowRow(
+      modifier = Modifier.fillMaxWidth(),
+      horizontalArrangement = Arrangement.spacedBy(3.dp),
+      verticalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+      progress.marks.forEach { mark ->
+        Box(
+          modifier = Modifier
+            .size(9.dp)
+            .clip(RoundedCornerShape(2.dp))
+            .background(mark.color(scheme)),
         )
       }
-      progress.downloading && progress.currentTitle.isNotBlank() -> {
+    }
+    FlowRow(
+      horizontalArrangement = Arrangement.spacedBy(12.dp),
+      verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+      LEGEND_ORDER.forEach { mark -> LegendItem(mark, scheme) }
+    }
+    if (progress.total > progress.marks.size) {
+      Text(
+        text = stringResource(
+          StringsR.string.online_cache_marks_capped,
+          progress.marks.size,
+          progress.total,
+        ),
+        style = MaterialTheme.typography.labelSmall,
+        color = scheme.onSurfaceVariant,
+      )
+    }
+  }
+}
+
+@Composable
+private fun LegendItem(
+  mark: OnlineCacheMark,
+  scheme: ColorScheme,
+) {
+  Row(
+    verticalAlignment = Alignment.CenterVertically,
+    horizontalArrangement = Arrangement.spacedBy(4.dp),
+  ) {
+    Box(
+      modifier = Modifier
+        .size(7.dp)
+        .clip(RoundedCornerShape(2.dp))
+        .background(mark.color(scheme)),
+    )
+    Text(
+      text = stringResource(mark.labelRes()),
+      style = MaterialTheme.typography.labelSmall,
+      color = scheme.onSurfaceVariant,
+    )
+  }
+}
+
+/**
+ * The failures with their reason: "3 episodes failed" is not actionable, "the
+ * server returned no audio, the link may have expired" is.
+ */
+@Composable
+private fun FailureList(progress: OnlineCacheState) {
+  val scheme = MaterialTheme.colorScheme
+  Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Text(
+      text = stringResource(StringsR.string.online_cache_failures_title, progress.failed),
+      style = MaterialTheme.typography.labelMedium,
+      color = scheme.error,
+    )
+    progress.failures.forEach { failure ->
+      Column {
         Text(
-          modifier = Modifier.padding(top = 6.dp),
-          text = progress.currentTitle,
+          text = failure.title,
           style = MaterialTheme.typography.bodySmall,
           maxLines = 1,
           overflow = TextOverflow.Ellipsis,
         )
+        Text(
+          text = stringResource(failure.reason.labelRes()),
+          style = MaterialTheme.typography.bodySmall,
+          color = scheme.error,
+        )
       }
+    }
+    val hidden = progress.failed - progress.failures.size
+    if (hidden > 0) {
+      Text(
+        text = stringResource(StringsR.string.online_cache_failures_more, hidden),
+        style = MaterialTheme.typography.labelSmall,
+        color = scheme.onSurfaceVariant,
+      )
     }
   }
 }
+
+@Composable
+private fun OnlineCacheState.statusText(): String = when {
+  awaitingConfirmation -> stringResource(StringsR.string.online_cache_awaiting_confirmation)
+  downloading -> stringResource(StringsR.string.online_cache_status_running)
+  else -> when (stopReason) {
+    OnlineCacheStopReason.COMPLETED -> stringResource(StringsR.string.online_cache_status_completed)
+    OnlineCacheStopReason.TOO_MANY_FAILURES ->
+      stringResource(StringsR.string.online_cache_status_too_many_failures)
+    OnlineCacheStopReason.NO_CHAPTER_LIST -> stringResource(StringsR.string.online_cache_status_no_chapters)
+    OnlineCacheStopReason.METERED_DECLINED ->
+      stringResource(StringsR.string.online_cache_status_metered_declined)
+    OnlineCacheStopReason.GAVE_UP -> stringResource(StringsR.string.online_cache_status_gave_up)
+    OnlineCacheStopReason.ERROR -> stringResource(StringsR.string.online_cache_status_error)
+    null -> stringResource(StringsR.string.online_cache_status_stopped)
+  }
+}
+
+private fun OnlineCacheState.statusColor(scheme: ColorScheme): Color = when {
+  awaitingConfirmation -> scheme.tertiary
+  downloading -> scheme.primary
+  stopReason == OnlineCacheStopReason.COMPLETED -> scheme.primary
+  stopReason == null -> scheme.onSurfaceVariant
+  else -> scheme.error
+}
+
+/** "本集 12.3 MB / 45.6 MB · 1.2 MB/s", dropping the parts still unknown. */
+@Composable
+private fun OnlineCacheState.chapterLine(): String {
+  val chapterTotal = currentTotalBytes
+  val head = when {
+    chapterTotal > 0 -> stringResource(
+      StringsR.string.online_cache_chapter_progress,
+      formatBytes(currentBytes),
+      formatBytes(chapterTotal),
+    )
+    currentBytes > 0 -> stringResource(
+      StringsR.string.online_cache_chapter_progress_open,
+      formatBytes(currentBytes),
+    )
+    else -> stringResource(StringsR.string.online_cache_chapter_progress_starting)
+  }
+  if (bytesPerSecond <= 0L) return head
+  return "$head · ${stringResource(StringsR.string.online_cache_speed, formatBytes(bytesPerSecond))}"
+}
+
+private fun OnlineCacheMark.color(scheme: ColorScheme): Color = when (this) {
+  OnlineCacheMark.PENDING -> scheme.outlineVariant
+  OnlineCacheMark.RUNNING -> scheme.tertiary
+  OnlineCacheMark.CACHED -> scheme.primary
+  OnlineCacheMark.FAILED -> scheme.error
+}
+
+private fun OnlineCacheMark.labelRes(): Int = when (this) {
+  OnlineCacheMark.CACHED -> StringsR.string.online_cache_legend_cached
+  OnlineCacheMark.RUNNING -> StringsR.string.online_cache_legend_running
+  OnlineCacheMark.FAILED -> StringsR.string.online_cache_legend_failed
+  OnlineCacheMark.PENDING -> StringsR.string.online_cache_legend_pending
+}
+
+private fun OnlineCacheFailureReason.labelRes(): Int = when (this) {
+  OnlineCacheFailureReason.RESOLVE -> StringsR.string.online_cache_reason_resolve
+  OnlineCacheFailureReason.DOWNLOAD -> StringsR.string.online_cache_reason_download
+  OnlineCacheFailureReason.NOT_AUDIO -> StringsR.string.online_cache_reason_not_audio
+  OnlineCacheFailureReason.INCOMPLETE -> StringsR.string.online_cache_reason_incomplete
+}
+
+/** Cached first: that is the question the user opens this sheet with. */
+private val LEGEND_ORDER = listOf(
+  OnlineCacheMark.CACHED,
+  OnlineCacheMark.RUNNING,
+  OnlineCacheMark.FAILED,
+  OnlineCacheMark.PENDING,
+)

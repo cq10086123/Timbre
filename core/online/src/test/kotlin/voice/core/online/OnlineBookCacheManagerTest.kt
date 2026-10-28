@@ -77,7 +77,7 @@ class OnlineBookCacheManagerTest {
     manager = createManager()
     stubBook()
     enqueueAudio()
-    coEvery { catalog.resolveStreamUrl(any()) } returns ResolvedStream(server.url("/audio.mp3").toString())
+    coEvery { catalog.resolveStreamUrl(any(), any()) } returns ResolvedStream(server.url("/audio.mp3").toString())
 
     manager.cacheUpcoming(bookId, 2)
     await("both chapters to be cached") { fileCache.cachedFileCount("A", "b1") == 2 }
@@ -94,7 +94,7 @@ class OnlineBookCacheManagerTest {
     manager = createManager()
     stubBook()
     enqueueAudio()
-    coEvery { catalog.resolveStreamUrl(any()) } returns ResolvedStream(server.url("/audio.mp3").toString())
+    coEvery { catalog.resolveStreamUrl(any(), any()) } returns ResolvedStream(server.url("/audio.mp3").toString())
 
     manager.cacheUpcoming(bookId, 2)
 
@@ -125,7 +125,7 @@ class OnlineBookCacheManagerTest {
     manager = createManager()
     stubBook()
     enqueueAudio()
-    coEvery { catalog.resolveStreamUrl(any()) } returns ResolvedStream(server.url("/audio.mp3").toString())
+    coEvery { catalog.resolveStreamUrl(any(), any()) } returns ResolvedStream(server.url("/audio.mp3").toString())
 
     manager.cacheUpcoming(bookId, 2)
 
@@ -134,7 +134,7 @@ class OnlineBookCacheManagerTest {
     assertEquals(2, confirmation.chapters)
     assertEquals(true, state()?.awaitingConfirmation)
     // nothing is resolved (and nothing downloaded) before the answer
-    coVerify(exactly = 0) { val _ = catalog.resolveStreamUrl(any()) }
+    coVerify(exactly = 0) { val _ = catalog.resolveStreamUrl(any(), any()) }
     assertEquals(0, fileCache.cachedFileCount("A", "b1"))
 
     manager.confirmMeteredCache()
@@ -149,16 +149,18 @@ class OnlineBookCacheManagerTest {
     metered = true
     manager = createManager()
     stubBook()
-    coEvery { catalog.resolveStreamUrl(any()) } returns ResolvedStream(server.url("/audio.mp3").toString())
+    coEvery { catalog.resolveStreamUrl(any(), any()) } returns ResolvedStream(server.url("/audio.mp3").toString())
 
     manager.cacheUpcoming(bookId, 2)
     val _ = awaitConfirmation()
     manager.declineMeteredCache()
-    await("the declined job to disappear") { state() == null && jobsStore.current.isEmpty() }
+    await("the declined job to end") { state()?.downloading == false && jobsStore.current.isEmpty() }
 
     assertNull(manager.meteredConfirmation.value)
     assertEquals(0, fileCache.cachedFileCount("A", "b1"))
-    coVerify(exactly = 0) { val _ = catalog.resolveStreamUrl(any()) }
+    // the job is gone but the sheet still explains why nothing happened
+    assertEquals(OnlineCacheStopReason.METERED_DECLINED, state()?.stopReason)
+    coVerify(exactly = 0) { val _ = catalog.resolveStreamUrl(any(), any()) }
     // a declined job must not come back on the next start
     assertTrue(jobsStore.current.isEmpty())
   }
@@ -168,7 +170,7 @@ class OnlineBookCacheManagerTest {
     manager = createManager(jobs = listOf(OnlineCacheJob(bookUri = bookId.value, count = 2)))
     stubBook()
     enqueueAudio()
-    coEvery { catalog.resolveStreamUrl(any()) } returns ResolvedStream(server.url("/audio.mp3").toString())
+    coEvery { catalog.resolveStreamUrl(any(), any()) } returns ResolvedStream(server.url("/audio.mp3").toString())
 
     manager.resumePending()
     await("the resumed chapters to be cached") { fileCache.cachedFileCount("A", "b1") == 2 }
@@ -186,14 +188,14 @@ class OnlineBookCacheManagerTest {
     )
     stubBook()
     enqueueAudio()
-    coEvery { catalog.resolveStreamUrl(any()) } returns ResolvedStream(server.url("/audio.mp3").toString())
+    coEvery { catalog.resolveStreamUrl(any(), any()) } returns ResolvedStream(server.url("/audio.mp3").toString())
 
     manager.resumePending()
 
     // a cache started on wifi must not continue on mobile data unasked
     val confirmation = awaitConfirmation()
     assertEquals(bookId.value, confirmation.bookUri)
-    coVerify(exactly = 0) { val _ = catalog.resolveStreamUrl(any()) }
+    coVerify(exactly = 0) { val _ = catalog.resolveStreamUrl(any(), any()) }
 
     manager.confirmMeteredCache()
     await("the chapter to be cached after the confirmation") {
@@ -207,7 +209,7 @@ class OnlineBookCacheManagerTest {
   fun `keeps an aborted job for the next start`() = runTest {
     manager = createManager()
     stubBook(chapters = 6, currentChapterId = "c1")
-    coEvery { catalog.resolveStreamUrl(any()) } returns null
+    coEvery { catalog.resolveStreamUrl(any(), any()) } returns null
 
     manager.cacheUpcoming(bookId, 6)
     await("the job to abort") { state()?.downloading == false }
@@ -215,7 +217,8 @@ class OnlineBookCacheManagerTest {
     // five chapters failed in a row: the job aborts but stays persisted, so
     // the next app start picks the work up again
     assertEquals(5, state()?.failed)
-    assertEquals(1, jobsStore.current.size)
+    // the store is written after the state, so wait for it instead of racing
+    await("the job to stay persisted") { jobsStore.current.size == 1 }
     assertEquals(1, jobsStore.current.first().attempts, "a run without progress counts as one attempt")
   }
 
@@ -227,7 +230,7 @@ class OnlineBookCacheManagerTest {
     stubBook(chapters = 7, currentChapterId = "c1")
     server.enqueue(MockResponse.Builder().code(200).body("fake-audio-bytes".repeat(64)).build())
     repeat(5) { server.enqueue(MockResponse.Builder().code(404).body("").build()) }
-    coEvery { catalog.resolveStreamUrl(any()) } returns ResolvedStream(server.url("/audio.mp3").toString())
+    coEvery { catalog.resolveStreamUrl(any(), any()) } returns ResolvedStream(server.url("/audio.mp3").toString())
 
     manager.resumePending()
     await("the job to abort after the failures") { state()?.downloading == false }
@@ -238,8 +241,9 @@ class OnlineBookCacheManagerTest {
     assertEquals(1, fileCache.cachedFileCount("A", "b1"))
     // progress resets the attempt counter: the job must not be given up on,
     // the next start continues where this run stopped
-    assertEquals(1, jobsStore.current.size)
-    assertEquals(0, jobsStore.current.first().attempts)
+    await("the attempt counter to be reset") {
+      jobsStore.current.size == 1 && jobsStore.current.first().attempts == 0
+    }
   }
 
   @Test
@@ -247,7 +251,7 @@ class OnlineBookCacheManagerTest {
     metered = true
     manager = createManager()
     stubBook()
-    coEvery { catalog.resolveStreamUrl(any()) } returns ResolvedStream(server.url("/audio.mp3").toString())
+    coEvery { catalog.resolveStreamUrl(any(), any()) } returns ResolvedStream(server.url("/audio.mp3").toString())
 
     manager.cacheUpcoming(bookId, 2)
     val _ = awaitConfirmation()
@@ -259,8 +263,55 @@ class OnlineBookCacheManagerTest {
     await("the cleared job to stay gone") { state() == null && jobsStore.current.isEmpty() }
 
     // neither the clear nor a later confirmation may start a download
-    coVerify(exactly = 0) { val _ = catalog.resolveStreamUrl(any()) }
+    coVerify(exactly = 0) { val _ = catalog.resolveStreamUrl(any(), any()) }
     assertEquals(0, fileCache.cachedFileCount("A", "b1"))
+  }
+
+  @Test
+  fun `an error page is never stored as a chapter`() = runTest {
+    manager = createManager()
+    stubBook()
+    // the classic case: the link expired, the server answers 200 with a page
+    server.enqueue(
+      MockResponse.Builder()
+        .code(200)
+        .addHeader("Content-Type", "text/html")
+        .body("<!doctype html><html><body>link expired</body></html>")
+        .build(),
+    )
+    coEvery { catalog.resolveStreamUrl(any(), any()) } returns ResolvedStream(server.url("/audio.mp3").toString())
+
+    manager.cacheUpcoming(bookId, 1)
+    await("the failed chapter to be reported") { state()?.downloading == false }
+
+    // nothing was published, so the chapter is retried next time instead of
+    // being skipped forever by isCached()
+    assertEquals(0, fileCache.cachedFileCount("A", "b1"))
+    assertEquals(1, state()?.failed)
+    assertEquals(
+      OnlineCacheFailureReason.NOT_AUDIO,
+      state()?.failures?.firstOrNull()?.reason,
+    )
+  }
+
+  @Test
+  fun `sends the headers the source asked for`() = runTest {
+    manager = createManager()
+    stubBook()
+    enqueueAudio()
+    coEvery { catalog.resolveStreamUrl(any(), any()) } returns ResolvedStream(
+      url = server.url("/audio.mp3").toString(),
+      headers = mapOf("Referer" to "https://source.example/", "User-Agent" to "TimbreTest"),
+    )
+
+    manager.cacheUpcoming(bookId, 1)
+    await("the chapter to be cached") { fileCache.cachedFileCount("A", "b1") == 1 }
+
+    // playback sends these headers; a download without them is refused by
+    // hotlink protected cdns, which looked like "caching never works"
+    val request = server.takeRequest()
+    assertEquals("https://source.example/", request.headers["Referer"])
+    assertEquals("TimbreTest", request.headers["User-Agent"])
   }
 
   private fun state(): OnlineCacheState? = manager.states.value[bookId.value]
