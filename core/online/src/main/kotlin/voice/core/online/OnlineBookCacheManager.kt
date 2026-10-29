@@ -72,10 +72,20 @@ public enum class OnlineCacheFailureReason {
   INCOMPLETE,
 }
 
-/** One failed chapter, with the reason worth showing to the user. */
+/** One failed chapter, with the reason and what the source actually said. */
 public data class OnlineCacheFailure(
   val title: String,
   val reason: OnlineCacheFailureReason,
+  /** 1-based chapter number in the book; 0 when the source did not number it. */
+  val chapterOrder: Int = 0,
+  /** Offset inside the cached window, so the progress map can find it again. */
+  val index: Int = 0,
+  /**
+   * The raw text the source or the server answered with (a business message, an
+   * exception, an http status), null when it said nothing. Shown verbatim: a
+   * generic "resolve failed" is what made a broken source undiagnosable.
+   */
+  val detail: String? = null,
 )
 
 /** Why a cache run ended, so the dialog can say more than "it stopped". */
@@ -161,7 +171,7 @@ public data class OnlineCacheConfirmation(
  * Manual caching never fights automatic playback:
  * - automatic ahead work (the in-memory stream url cache, duration probing)
  *   never touches [OnlineChapterFileCache]; only this manager writes there,
- * - resolving a chapter reuses [OnlinePlaybackCatalog.resolveStreamUrl], whose
+ * - resolving a chapter reuses [OnlinePlaybackCatalog.resolveStreamDetail], whose
  *   single flight coalesces a manual resolve with a playback resolve of the
  *   same chapter instead of downloading twice,
  * - downloads run sequentially through one process wide slot, yield while the
@@ -571,11 +581,22 @@ public class OnlineBookCacheManager(
     fun fail(
       chapter: OnlineChapter,
       reason: OnlineCacheFailureReason,
+      detail: String?,
       index: Int,
     ) {
       failed++
       consecutiveFailures++
-      if (failures.size < MAX_LISTED_FAILURES) failures.add(OnlineCacheFailure(chapter.title, reason))
+      if (failures.size < MAX_LISTED_FAILURES) {
+        failures.add(
+          OnlineCacheFailure(
+            title = chapter.title,
+            reason = reason,
+            chapterOrder = chapter.order,
+            index = index,
+            detail = detail?.take(MAX_FAILURE_DETAIL_CHARS),
+          ),
+        )
+      }
       mark(index, OnlineCacheMark.FAILED)
       publish { it.copy(done = done, failed = failed, failures = failures.toList()) }
     }
@@ -624,10 +645,18 @@ public class OnlineBookCacheManager(
         }
         // resolving must stay silent here: a cache run failing to resolve a
         // chapter is not the player failing to play one, and the error flow
-        // would pop the playback dialog over a background download
-        val stream = catalog.resolveStreamUrl(ref, reportErrors = false)
+        // would pop the playback dialog over a background download. The
+        // reason is kept in the failure instead, so the sheet can show what
+        // the source actually said.
+        val resolution = catalog.resolveStreamDetail(ref)
+        val stream = (resolution as? StreamResolution.Success)?.stream
         if (stream == null || stream.url.isBlank()) {
-          fail(chapter, OnlineCacheFailureReason.RESOLVE, offset)
+          fail(
+            chapter,
+            OnlineCacheFailureReason.RESOLVE,
+            (resolution as? StreamResolution.Failure)?.detail,
+            offset,
+          )
           if (consecutiveFailures >= ABORT_AFTER_CONSECUTIVE_FAILURES) break
           continue
         }
@@ -655,7 +684,7 @@ public class OnlineBookCacheManager(
             mark(offset, OnlineCacheMark.CACHED)
             publish { it.copy(done = done) }
           }
-          is DownloadOutcome.Failed -> fail(chapter, outcome.reason, offset)
+          is DownloadOutcome.Failed -> fail(chapter, outcome.reason, outcome.detail, offset)
         }
         if (consecutiveFailures >= ABORT_AFTER_CONSECUTIVE_FAILURES) break
       }
@@ -810,7 +839,11 @@ public class OnlineBookCacheManager(
     /** The chapter is on the device. */
     data object Stored : DownloadOutcome
 
-    data class Failed(val reason: OnlineCacheFailureReason) : DownloadOutcome
+    /** [detail] is the raw answer (http status, content type, body head, bytes). */
+    data class Failed(
+      val reason: OnlineCacheFailureReason,
+      val detail: String? = null,
+    ) : DownloadOutcome
   }
 
   /**
@@ -834,17 +867,24 @@ public class OnlineBookCacheManager(
       download(requestUrl, stream.headers).use { response ->
         if (!response.isSuccessful) {
           Logger.w("Online chapter download for $ref answered ${response.code}")
-          return@withContext DownloadOutcome.Failed(OnlineCacheFailureReason.DOWNLOAD)
+          return@withContext DownloadOutcome.Failed(
+            OnlineCacheFailureReason.DOWNLOAD,
+            "HTTP ${response.code} ${response.message}".trim(),
+          )
         }
         if (isErrorContentType(response.body.contentType())) {
           Logger.w("Online chapter download for $ref answered ${response.body.contentType()} instead of audio")
-          return@withContext DownloadOutcome.Failed(OnlineCacheFailureReason.NOT_AUDIO)
+          return@withContext DownloadOutcome.Failed(
+            OnlineCacheFailureReason.NOT_AUDIO,
+            "Content-Type: ${response.body.contentType()}",
+          )
         }
         val expected = response.body.contentLength()
         val tmp = fileCache.tmpFileFor(ref)
         tmp.parentFile?.mkdirs()
         var written = 0L
         var rejected = false
+        var rejectedHead = ""
         var lastEmit = 0L
         response.body.byteStream().use { input ->
           FileOutputStream(tmp).use { output ->
@@ -857,6 +897,10 @@ public class OnlineBookCacheManager(
               // checking the first chunk keeps that out of the cache
               if (written == 0L && looksLikeText(buffer, read)) {
                 rejected = true
+                // a cut in the middle of a UTF-8 character would end the preview
+                // with a replacement char; the tail is not worth showing anyway
+                rejectedHead = String(buffer, 0, minOf(read, BODY_PREVIEW_BYTES), Charsets.UTF_8)
+                  .trimEnd('\uFFFD')
                 break
               }
               output.write(buffer, 0, read)
@@ -871,17 +915,26 @@ public class OnlineBookCacheManager(
         }
         if (rejected) {
           tmp.delete()
-          return@withContext DownloadOutcome.Failed(OnlineCacheFailureReason.NOT_AUDIO)
+          return@withContext DownloadOutcome.Failed(
+            OnlineCacheFailureReason.NOT_AUDIO,
+            rejectedHead.trim().ifEmpty { "Content-Type: ${response.body.contentType()}" },
+          )
         }
         onProgress(written, expected)
         if (written <= 0L) {
           tmp.delete()
-          return@withContext DownloadOutcome.Failed(OnlineCacheFailureReason.DOWNLOAD)
+          return@withContext DownloadOutcome.Failed(
+            OnlineCacheFailureReason.DOWNLOAD,
+            "HTTP ${response.code} ${response.message} · 0 bytes".trim(),
+          )
         }
         if (expected > 0L && written != expected) {
           Logger.w("Online chapter download for $ref stopped at $written of $expected bytes")
           tmp.delete()
-          return@withContext DownloadOutcome.Failed(OnlineCacheFailureReason.INCOMPLETE)
+          return@withContext DownloadOutcome.Failed(
+            OnlineCacheFailureReason.INCOMPLETE,
+            "$written / $expected bytes",
+          )
         }
         // a clear (or a newer job) may have raced this download: publishing
         // now would put a chapter back into a directory that was just emptied
@@ -905,7 +958,7 @@ public class OnlineBookCacheManager(
       // a call cancelled below surfaces as an IOException: rethrow it as a
       // cancellation instead of counting the chapter as failed
       coroutineContext.ensureActive()
-      DownloadOutcome.Failed(OnlineCacheFailureReason.DOWNLOAD)
+      DownloadOutcome.Failed(OnlineCacheFailureReason.DOWNLOAD, e.toString())
     }
   }
 
@@ -1037,43 +1090,53 @@ public class OnlineBookCacheManager(
     }
   }
 
-  private companion object {
+  public companion object {
     /** Upper bound of one manual cache job; the window is capped by the book anyway. */
-    const val MAX_MANUAL_CACHE = 10_000
+    private const val MAX_MANUAL_CACHE = 10_000
 
-    /** Upper bound of the per-episode delay (5 minutes): a typo must not stall a cache for hours. */
-    const val MAX_EPISODE_DELAY_SECONDS = 300
+    /**
+     * Upper bound of the per-episode delay (5 minutes): a typo must not stall a
+     * cache for hours. Public because the cache sheet clamps its input with the
+     * same number instead of inventing a second limit.
+     */
+    public const val MAX_EPISODE_DELAY_SECONDS: Int = 300
 
     /** A dead network fails fast instead of grinding through the whole window. */
-    const val ABORT_AFTER_CONSECUTIVE_FAILURES = 5
+    private const val ABORT_AFTER_CONSECUTIVE_FAILURES = 5
 
     /**
      * How many runs of the same job may end without downloading a single
      * chapter before the job is dropped. A crash or a kill is not counted, a
      * run that downloaded something resets the counter.
      */
-    const val MAX_RESUME_ATTEMPTS = 3
+    private const val MAX_RESUME_ATTEMPTS = 3
 
     /** How long a download waits for the player to finish buffering. */
-    const val PLAYBACK_GATE_WAIT_MS = 15_000L
+    private const val PLAYBACK_GATE_WAIT_MS = 15_000L
 
     /** How long a clear waits for the stopped job before deleting anyway. */
-    const val CLEAR_WAIT_MS = 2_000L
+    private const val CLEAR_WAIT_MS = 2_000L
 
     /** The progress map covers the first chapters of the window only. */
-    const val MAX_MARKS = 240
+    private const val MAX_MARKS = 240
 
     /** The failure list is a diagnosis, not a log: a dozen is plenty. */
-    const val MAX_LISTED_FAILURES = 12
+    private const val MAX_LISTED_FAILURES = 12
 
     /** Progress callbacks are throttled: five states a second is smooth. */
-    const val PROGRESS_INTERVAL_MS = 200L
+    private const val PROGRESS_INTERVAL_MS = 200L
 
     /** Minimum window between two speed samples. */
-    const val SPEED_SAMPLE_MS = 700L
+    private const val SPEED_SAMPLE_MS = 700L
 
-    const val DOWNLOAD_BUFFER_BYTES = 64 * 1024
+    private const val DOWNLOAD_BUFFER_BYTES = 64 * 1024
 
-    const val TEXT_SNIFF_BYTES = 8
+    private const val TEXT_SNIFF_BYTES = 8
+
+    /** How much of a wrong answer (html/json page) is kept as the reason. */
+    private const val BODY_PREVIEW_BYTES = 240
+
+    /** A failure reason is a diagnosis, not a log dump; keep it readable. */
+    private const val MAX_FAILURE_DETAIL_CHARS = 400
   }
 }

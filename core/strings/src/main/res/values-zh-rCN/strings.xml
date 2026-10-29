@@ -144,6 +144,9 @@
     <string name="online.cache.delay_none">不延时</string>
     <string name="online.cache.delay_seconds">%1$d 秒</string>
     <string name="online.cache.delay_seconds_custom">自定义间隔（秒）</string>
+    <plurals name="online.cache.delay_custom_hint">
+        <item quantity="other">最长 %1$d 秒，超出的按 %1$d 秒缓存</item>
+    </plurals>
     <string name="online.cache.status_running">正在缓存</string>
     <string name="online.cache.status_stopped">已停止</string>
     <string name="online.cache.status_completed">本次缓存已全部完成</string>
@@ -152,7 +155,8 @@
     <string name="online.cache.status_metered_declined">已取消：未允许使用移动数据</string>
     <string name="online.cache.status_gave_up">已放弃：多次启动都没有缓存成功，请检查书源</string>
     <string name="online.cache.status_error">已中断：出现意外错误，可重试</string>
-    <string name="online.cache.progress_count">本次 %1$d / %2$d 集（%3$d%%）</string>
+    <string name="online.cache.progress_count">本次 %1$d / %2$d 集</string>
+    <string name="online.cache.percent">%1$d%%</string>
     <string name="online.cache.current_chapter">正在下载：%1$s</string>
     <string name="online.cache.chapter_progress">本集 %1$s / %2$s</string>
     <string name="online.cache.chapter_progress_open">本集已下载 %1$s</string>
@@ -166,10 +170,23 @@
     <string name="online.cache.reason_incomplete">文件不完整，连接提前断开</string>
     <string name="online.cache.marks_capped">图中显示前 %1$d 集，本次共 %2$d 集</string>
     <string name="online.cache.legend_cached">已缓存</string>
-    <string name="online.cache.legend_running">进行中</string>
     <string name="online.cache.legend_failed">失败</string>
     <string name="online.cache.legend_pending">待缓存</string>
     <string name="online.cache.retry">重试</string>
+    <string name="online.cache.settings">缓存设置</string>
+    <string name="online.cache.custom_option">自定义…</string>
+    <string name="online.cache.custom_dialog_title">自定义集数</string>
+    <plurals name="online.cache.start_count">
+        <item quantity="other">缓存 %1$d 集</item>
+    </plurals>
+    <plurals name="online.cache.count_unit">
+        <item quantity="other">%1$d 集</item>
+    </plurals>
+    <string name="online.cache.failure_row">第 %1$d 集 · %2$s</string>
+    <string name="online.cache.failure_detail_action">查看</string>
+    <string name="online.cache.failure_dialog_title">缓存失败</string>
+    <string name="online.cache.failure_dialog_raw">原始返回</string>
+    <string name="online.cache.failure_dialog_empty">书源没有返回更多信息。</string>
     <string name="playback.online.error.network">无法连接在线书源，请检查网络与服务器地址</string>
     <string name="playback.online.error.offline">当前处于离线模式，在线音频暂不可用</string>
     <string name="playback.online.error.auth">在线书源密钥未通过验证，请在设置中更新</string>

@@ -177,7 +177,11 @@ internal const val DEFAULT_CACHE_COUNT = 100
 
 internal val CACHE_COUNT_PRESETS = listOf(50, 100, 200, 500)
 
-/** 0 = no delay (chapters back to back, the original behavior). */
-internal const val DEFAULT_CACHE_DELAY_SECONDS = 0
+/**
+ * Default gap between two episodes. Sources rate limit aggressive cache runs,
+ * and a run that gets throttled fails chapter after chapter: waiting a few
+ * seconds by default costs little and keeps the run alive.
+ */
+internal const val DEFAULT_CACHE_DELAY_SECONDS = 5
 
 internal val CACHE_DELAY_PRESETS = listOf(0, 2, 5, 10)

@@ -19,6 +19,7 @@ import kotlin.io.path.createTempDirectory
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -313,6 +314,51 @@ class OnlinePlaybackCatalogTest {
 
     assertNull(catalog.resolveStreamUrl(OnlineChapterRef(THIRD_PARTY_SOURCE, BOOK_ID, "c1")))
     assertTrue(catalog.resolvingBooks.value.isEmpty())
+  }
+
+  @Test
+  fun `a cache resolve keeps what the source said`() = runTest {
+    coEvery { service.resolveDirectUrl(THIRD_PARTY_SOURCE, BOOK_ID, "c1", null) } throws
+      OnlineSourceException("同一IP每 30 秒仅可请求 1 次音频，请 26 秒后再试")
+    coEvery { service.resolveDirectUrl(THIRD_PARTY_SOURCE, BOOK_ID, "c2", null) } returns null
+
+    // the sheet shows this verbatim, so the resolve must not collapse it to null
+    val resolution = catalog.resolveStreamDetail(OnlineChapterRef(THIRD_PARTY_SOURCE, BOOK_ID, "c1"))
+    assertIs<StreamResolution.Failure>(resolution)
+    assertEquals(OnlinePlaybackErrorKind.NETWORK, resolution.kind)
+    assertEquals("同一IP每 30 秒仅可请求 1 次音频，请 26 秒后再试", resolution.detail)
+
+    // a source that says nothing leaves no app-invented text behind
+    val silent = catalog.resolveStreamDetail(OnlineChapterRef(THIRD_PARTY_SOURCE, BOOK_ID, "c2"))
+    assertIs<StreamResolution.Failure>(silent)
+    assertEquals(OnlinePlaybackErrorKind.CONTENT, silent.kind)
+    assertNull(silent.detail)
+  }
+
+  @Test
+  fun `a cache resolve and a playback resolve share one flight`() = runTest {
+    val ref = OnlineChapterRef(THIRD_PARTY_SOURCE, BOOK_ID, "c1")
+    val started = kotlinx.coroutines.CompletableDeferred<Unit>()
+    val release = kotlinx.coroutines.CompletableDeferred<Unit>()
+    var calls = 0
+    coEvery { service.resolveDirectUrl(THIRD_PARTY_SOURCE, BOOK_ID, "c1", null) } coAnswers {
+      calls++
+      started.complete(Unit)
+      release.await()
+      ResolvedStream(STREAM_URL)
+    }
+
+    // playback asks first, the manual cache attaches to the same run: one
+    // round trip, not two downloads of the same chapter
+    val playback = async { catalog.resolveStreamUrl(ref) }
+    started.await()
+    val cache = async { catalog.resolveStreamDetail(ref) }
+    yield()
+    release.complete(Unit)
+
+    assertEquals(STREAM_URL, playback.await()?.url)
+    assertEquals(STREAM_URL, assertIs<StreamResolution.Success>(cache.await()).stream.url)
+    assertEquals(1, calls)
   }
 
   @Test

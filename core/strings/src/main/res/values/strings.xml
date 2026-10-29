@@ -307,6 +307,10 @@
     <string name="online.cache.delay_none">No delay</string>
     <string name="online.cache.delay_seconds">%1$d s</string>
     <string name="online.cache.delay_seconds_custom">Custom interval (s)</string>
+    <plurals name="online.cache.delay_custom_hint">
+        <item quantity="one">At most %1$d second; a longer input is capped.</item>
+        <item quantity="other">At most %1$d seconds; a longer input is capped.</item>
+    </plurals>
     <string name="online.cache.status_running">Caching</string>
     <string name="online.cache.status_stopped">Stopped</string>
     <string name="online.cache.status_completed">This run finished caching everything</string>
@@ -315,7 +319,8 @@
     <string name="online.cache.status_metered_declined">Cancelled: mobile data was not allowed</string>
     <string name="online.cache.status_gave_up">Gave up: several attempts cached nothing, check the source</string>
     <string name="online.cache.status_error">Interrupted: something unexpected failed, you can retry</string>
-    <string name="online.cache.progress_count">This run: %1$d / %2$d (%3$d%%)</string>
+    <string name="online.cache.progress_count">This run: %1$d / %2$d</string>
+    <string name="online.cache.percent">%1$d%%</string>
     <string name="online.cache.current_chapter">Downloading: %1$s</string>
     <string name="online.cache.chapter_progress">This episode %1$s / %2$s</string>
     <string name="online.cache.chapter_progress_open">This episode, %1$s downloaded</string>
@@ -329,10 +334,25 @@
     <string name="online.cache.reason_incomplete">Incomplete file, the connection closed early</string>
     <string name="online.cache.marks_capped">Map shows the first %1$d of %2$d</string>
     <string name="online.cache.legend_cached">Cached</string>
-    <string name="online.cache.legend_running">Current</string>
     <string name="online.cache.legend_failed">Failed</string>
     <string name="online.cache.legend_pending">Pending</string>
     <string name="online.cache.retry">Retry</string>
+    <string name="online.cache.settings">Cache settings</string>
+    <string name="online.cache.custom_option">Custom…</string>
+    <string name="online.cache.custom_dialog_title">Custom episode count</string>
+    <plurals name="online.cache.start_count">
+        <item quantity="one">Cache %1$d episode</item>
+        <item quantity="other">Cache %1$d episodes</item>
+    </plurals>
+    <plurals name="online.cache.count_unit">
+        <item quantity="one">%1$d ep</item>
+        <item quantity="other">%1$d eps</item>
+    </plurals>
+    <string name="online.cache.failure_row">Episode %1$d · %2$s</string>
+    <string name="online.cache.failure_detail_action">Details</string>
+    <string name="online.cache.failure_dialog_title">Cache failure</string>
+    <string name="online.cache.failure_dialog_raw">Raw response</string>
+    <string name="online.cache.failure_dialog_empty">The source returned no further details.</string>
     <string name="playback.online.error.network">Could not reach the online source. Check the connection and the server address.</string>
     <string name="playback.online.error.offline">You are currently offline. Online audio is unavailable.</string>
     <string name="playback.online.error.auth">The online source key was rejected. Update it in the settings.</string>
