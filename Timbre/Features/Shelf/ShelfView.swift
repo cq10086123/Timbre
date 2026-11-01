@@ -22,7 +22,7 @@ enum BookOverviewCategory: Int, CaseIterable, Identifiable {
 extension Book {
   var overviewCategory: BookOverviewCategory {
     let total = totalDuration
-    let played = position.chapterIndex * 0 + position.seconds
+    let played = position.seconds
     if position.chapterIndex == 0 && played < 1 { return .notStarted }
     if total > 0 {
       let overall = progress
@@ -147,8 +147,6 @@ struct ShelfView: View {
         }
       )
       .presentationDragIndicator(.visible)
-      .presentationCornerRadius(AppRadius.extraLarge)
-      .presentationBackground(AppColor.surfaceContainerLow)
     }
     .alert("编辑书名", isPresented: Binding(
       get: { renameTarget != nil },
