@@ -6,6 +6,9 @@ struct ChapterSheet: View {
   @ObservedObject var player: PlaybackEngine
   var onClose: () -> Void
 
+  /// 点击跳转后短暂高亮的块序号，2 秒后自动消失（对齐安卓 HIGHLIGHT_DURATION）
+  @State private var highlightedRange: Int?
+
   private var chapters: [Chapter] { player.currentBook?.chapters ?? [] }
 
   private var starts: [Double] {
@@ -14,6 +17,28 @@ struct ChapterSheet: View {
     for chapter in chapters {
       result.append(acc)
       acc += chapter.duration
+    }
+    return result
+  }
+
+  /// 分块跳转网格：集数太少时可以直接滚，不显示网格
+  private struct ChapterRange {
+    var first: Int
+    var last: Int
+    var startIndex: Int
+  }
+
+  /// 对齐安卓 ChapterRanges.kt：<30 不显示，>2000 每块 100，否则每块 50
+  private var ranges: [ChapterRange] {
+    let count = chapters.count
+    guard count >= 30 else { return [] }
+    let size = count > 2000 ? 100 : 50
+    var result: [ChapterRange] = []
+    var start = 0
+    while start < count {
+      let end = min(start + size, count)
+      result.append(ChapterRange(first: start + 1, last: end, startIndex: start))
+      start = end
     }
     return result
   }
@@ -29,46 +54,50 @@ struct ChapterSheet: View {
       .padding(.vertical, 12)
 
       ScrollViewReader { proxy in
-        ScrollView {
-          LazyVStack(spacing: 0) {
-            ForEach(chapters.indices, id: \.self) { index in
-              let chapter = chapters[index]
-              Button {
-                if let book = player.currentBook {
-                  player.open(book, chapterIndex: index, autoplay: true)
+        VStack(spacing: 0) {
+          if !ranges.isEmpty { rangeGrid(proxy) }
+
+          ScrollView {
+            LazyVStack(spacing: 0) {
+              ForEach(chapters.indices, id: \.self) { index in
+                let chapter = chapters[index]
+                Button {
+                  if let book = player.currentBook {
+                    player.open(book, chapterIndex: index, autoplay: true)
+                  }
+                  onClose()
+                } label: {
+                  HStack(spacing: 0) {
+                    Text("\(index + 1)")
+                      .font(AppFont.bodyMedium())
+                      .foregroundColor(AppColor.onSurfaceVariant)
+                      .frame(minWidth: 32, alignment: .leading)
+                    Text(chapter.title)
+                      .font(AppFont.bodyLarge())
+                      .foregroundColor(AppColor.onSurface)
+                      .lineLimit(1)
+                    Spacer(minLength: 12)
+                    Text(Format.clockString(starts[index] + chapter.duration))
+                      .font(AppFont.bodySmall())
+                      .foregroundColor(AppColor.onSurfaceVariant)
+                  }
+                  .padding(.horizontal, 16)
+                  .padding(.vertical, 12)
+                  .background(
+                    index == player.chapterIndex
+                      ? AppColor.primaryContainer : Color.clear
+                  )
+                  .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                  .padding(.horizontal, 3)
+                  .padding(.vertical, 3)
+                  .contentShape(Rectangle())
                 }
-                onClose()
-              } label: {
-                HStack(spacing: 0) {
-                  Text("\(index + 1)")
-                    .font(AppFont.bodyMedium())
-                    .foregroundColor(AppColor.onSurfaceVariant)
-                    .frame(minWidth: 32, alignment: .leading)
-                  Text(chapter.title)
-                    .font(AppFont.bodyLarge())
-                    .foregroundColor(AppColor.onSurface)
-                    .lineLimit(1)
-                  Spacer(minLength: 12)
-                  Text(Format.clockString(starts[index] + chapter.duration))
-                    .font(AppFont.bodySmall())
-                    .foregroundColor(AppColor.onSurfaceVariant)
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
-                .background(
-                  index == player.chapterIndex
-                    ? AppColor.primaryContainer : Color.clear
-                )
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .padding(.horizontal, 3)
-                .padding(.vertical, 3)
-                .contentShape(Rectangle())
+                .buttonStyle(.plain)
+                .id(index)
               }
-              .buttonStyle(.plain)
-              .id(index)
             }
+            .padding(.bottom, 24)
           }
-          .padding(.bottom, 24)
         }
         .onAppear {
           if player.chapterIndex > 0 {
@@ -78,6 +107,54 @@ struct ChapterSheet: View {
       }
     }
     .presentationDetents([.large])
+  }
+
+  /// 3 列网格，高度上限 300（对齐安卓 RANGE_GRID_MAX_HEIGHT）
+  private func rangeGrid(_ proxy: ScrollViewProxy) -> some View {
+    ScrollView {
+      LazyVGrid(
+        columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3),
+        spacing: 8
+      ) {
+        ForEach(ranges.indices, id: \.self) { index in
+          let range = ranges[index]
+          let isCurrent =
+            player.chapterIndex >= range.startIndex && player.chapterIndex <= range.last - 1
+          Button {
+            proxy.scrollTo(range.startIndex, anchor: .top)
+            highlightedRange = index
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+              if highlightedRange == index { highlightedRange = nil }
+            }
+          } label: {
+            Text("\(range.first) - \(range.last)")
+              .font(AppFont.bodyMedium())
+              .foregroundColor(
+                isCurrent ? AppColor.onPrimaryContainer : AppColor.onSurfaceVariant
+              )
+              .frame(maxWidth: .infinity)
+              .frame(height: 40)
+              .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                  .fill(
+                    highlightedRange == index
+                      ? AppColor.primary
+                      : (isCurrent ? AppColor.primaryContainer : AppColor.surfaceContainerHigh)
+                  )
+              )
+          }
+          .buttonStyle(.plain)
+        }
+      }
+      .padding(.horizontal, 16)
+      .padding(.vertical, 8)
+    }
+    .frame(maxHeight: 300)
+    .overlay(alignment: .bottom) {
+      Rectangle()
+        .fill(AppColor.outlineVariant.opacity(0.4))
+        .frame(height: 1)
+    }
   }
 }
 

@@ -21,22 +21,29 @@ struct PlayerView: View {
   private var displayPosition: Double { dragValue ?? player.position }
 
   var body: some View {
-    VStack(spacing: 0) {
-      topBar
-      titleRow
-      coverArea
-      if book != nil && (book?.chapters.count ?? 0) > 1 {
-        chapterRow
-        Spacer().frame(height: 20)
-      } else {
-        Spacer().frame(height: 20)
+    GeometryReader { geo in
+      let landscape = geo.size.width > geo.size.height
+      VStack(spacing: 0) {
+        topBar(landscape: landscape)
+        if landscape {
+          // 对齐安卓 BookPlayContent 的 useLandscapeLayout 分支：
+          // 左半封面撑满高度，右半章节/进度/控制垂直居中
+          HStack(spacing: 0) {
+            coverArea
+              .frame(maxWidth: .infinity, maxHeight: .infinity)
+            controlsColumn
+              .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+          }
+          .padding(.bottom, 8)
+        } else {
+          titleRow
+          coverArea
+          controlsColumn
+          Spacer().frame(height: 24)
+        }
       }
-      sliderRow
-      Spacer().frame(height: 16)
-      playbackRow
-      Spacer().frame(height: 24)
+      .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
-    .frame(maxWidth: .infinity, maxHeight: .infinity)
     .background(AppColor.background.ignoresSafeArea())
     .m3Sheet(isPresented: $showChapters) {
       ChapterSheet(player: player) { showChapters = false }
@@ -76,11 +83,33 @@ struct PlayerView: View {
 
   // MARK: 顶部栏
 
-  private var topBar: some View {
+  /// 章节 + 进度 + 控制，竖屏直接排在封面下，横屏放进右半栏
+  @ViewBuilder
+  private var controlsColumn: some View {
+    if book != nil && (book?.chapters.count ?? 0) > 1 {
+      chapterRow
+      Spacer().frame(height: 20)
+    } else {
+      Spacer().frame(height: 20)
+    }
+    sliderRow
+    Spacer().frame(height: 16)
+    playbackRow
+  }
+
+  private func topBar(landscape: Bool) -> some View {
     HStack(spacing: 0) {
       IconButton48(systemName: "xmark", label: "关闭") {
         player.flush()
         app.showPlayer = false
+      }
+      // 横屏走紧凑顶栏（安卓 TopAppBar），书名移到标题位；竖屏用下方大标题
+      if landscape {
+        Text(book?.title ?? "")
+          .font(AppFont.titleLarge())
+          .foregroundColor(AppColor.onSurface)
+          .lineLimit(1)
+          .padding(.leading, 8)
       }
       Spacer(minLength: 0)
       IconButton48(
@@ -124,7 +153,7 @@ struct PlayerView: View {
       }
     }
     .padding(.horizontal, 4)
-    .frame(height: 64)
+    .frame(height: landscape ? 56 : 64)
   }
 
   // MARK: 标题（LargeTopAppBar 展开态，左对齐单行）
