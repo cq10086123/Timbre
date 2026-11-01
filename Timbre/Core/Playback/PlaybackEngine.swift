@@ -50,6 +50,8 @@ final class PlaybackEngine: NSObject, ObservableObject {
   private var activeLoad: (book: Book, chapter: Chapter)?
   /// 音量提升 + 跳过空白，走 MTAudioProcessingTap
   private let audioProcessor = AudioProcessor()
+  /// 在线书源播放地址预加载（「播放器设置」里的那三个数值 + 开关）
+  private let preloader = OnlinePreloader()
 
   init(
     library: LibraryStore,
@@ -316,6 +318,8 @@ final class PlaybackEngine: NSObject, ObservableObject {
     loadToken += 1
     let token = loadToken
     activeLoad = (book, chapter)
+    // 切章/换书先拆掉正在跑的预加载链条，新章从零开始（对齐安卓）
+    preloader.cancelChain()
 
     if book.kind == .local {
       guard let path = chapter.localFile else {
@@ -370,6 +374,19 @@ final class PlaybackEngine: NSObject, ObservableObject {
       allowInsecure: installed.allowInsecure,
       remoteBookId: book.remoteBookId ?? book.id
     )
+
+    // 预加载命中：直接装，不用再等一次源接口（切章秒开的关键）
+    if let cached = preloader.take(chapterId: chapter.id) {
+      DLog("preload", "命中预加载 第\(chapter.title)")
+      install(
+        item: AVPlayerItem(
+          asset: makeAsset(url: cached.url, headers: cached.headers, tag: "接口源(预加载)")
+        ),
+        book: book,
+        chapter: chapter
+      )
+      return
+    }
 
     Task { [weak self] in
       guard let self else { return }
@@ -559,6 +576,39 @@ final class PlaybackEngine: NSObject, ObservableObject {
     return (url, resolved.headers)
   }
 
+  /// 播放中驱动一次在线预加载（挂在 0.5s 的时间观察者上，不另起计时器）。
+  /// 本地书与 WebDAV 的地址是现成的，不需要预解析。
+  private func drivePreload() {
+    guard let book = currentBook, book.sourceId != nil else {
+      preloader.cancelChain()
+      return
+    }
+    guard let sourceId = book.sourceId,
+      let installed = extensions.enabledSources.first(where: { $0.id == sourceId }),
+      let script = extensions.scriptText(for: installed)
+    else {
+      preloader.cancelChain()
+      return
+    }
+    let remote = RemoteContext(
+      script: script,
+      allowInsecure: installed.allowInsecure,
+      remoteBookId: book.remoteBookId ?? book.id
+    )
+    preloader.tick(
+      book: book,
+      chapterIndex: chapterIndex,
+      position: position,
+      duration: duration,
+      playing: isPlaying,
+      settings: settings.settings,
+      resolve: { [weak self] chapter in
+        guard let self else { return nil }
+        return try? await self.resolveRemote(chapter: chapter, context: remote)
+      }
+    )
+  }
+
   // MARK: - 进度保存
 
   func savePosition(force: Bool = false) {
@@ -597,6 +647,7 @@ final class PlaybackEngine: NSObject, ObservableObject {
       if self.saveTick % 20 == 0 { self.savePosition() }
       self.checkOutroSkip()
       if self.audioProcessor.consumeSilenceJump() { self.jumpOverSilence() }
+      self.drivePreload()
     }
 
     endObserver = NotificationCenter.default.addObserver(

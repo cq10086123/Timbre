@@ -41,17 +41,20 @@ struct PlayerSettingsView: View {
 
           valueRow(
             "预加载触发时间",
-            DurationText.afterPlayback(settings.settings.onlinePreloadTriggerSeconds)
+            DurationText.afterPlayback(settings.settings.onlinePreloadTriggerSeconds),
+            valueFont: AppFont.bodyLarge()
           ) { dialog = .preloadTrigger }
 
           valueRow(
             "预加载章节数",
-            DurationText.atMost(settings.settings.onlinePreloadChapterCount)
+            DurationText.atMost(settings.settings.onlinePreloadChapterCount),
+            valueFont: AppFont.bodyLarge()
           ) { dialog = .preloadCount }
 
           valueRow(
             "章节预加载间隔",
-            DurationText.interval(settings.settings.onlinePreloadIntervalSeconds)
+            DurationText.interval(settings.settings.onlinePreloadIntervalSeconds),
+            valueFont: AppFont.bodyLarge()
           ) { dialog = .preloadInterval }
 
           M3ListItem(
@@ -75,15 +78,31 @@ struct PlayerSettingsView: View {
       }
     }
     .background(AppColor.background.ignoresSafeArea())
-    .sheet(item: $dialog) { which in
-      sliderSheet(which)
+    // 安卓这几个都是居中的 AlertDialog（TimeSettingDialog / OnlinePreloadSliderDialog），
+    // 不是底部弹窗
+    .overlay {
+      if let which = dialog {
+        SliderSettingDialog(
+          title: title(for: which),
+          explanation: explanation(for: which),
+          range: range(for: which),
+          format: { value(for: which, $0) },
+          initialValue: Double(current(for: which)),
+          onConfirm: { newValue in
+            apply(which, Int(newValue.rounded()))
+          },
+          onDismiss: { dialog = nil }
+        )
+      }
     }
   }
 
-  /// 安卓 OnlinePreloadValueRow / SeekTimeRow / AutoRewindRow：标题 + 右侧取值，无图标
+  /// 安卓 SeekTimeRow / AutoRewindRow / OnlinePreloadValueRow：标题 + 副标题取值，无图标。
+  /// 前三者的取值是默认的 bodyMedium，预加载三项是 bodyLarge —— 安卓自己也不一致，照搬。
   private func valueRow(
     _ title: String,
     _ value: String,
+    valueFont: Font = AppFont.bodyMedium(),
     action: @escaping () -> Void
   ) -> some View {
     Button(action: action) {
@@ -93,7 +112,7 @@ struct PlayerSettingsView: View {
             .font(AppFont.bodyLarge())
             .foregroundColor(AppColor.onSurface)
           Text(value)
-            .font(AppFont.bodyMedium())
+            .font(valueFont)
             .foregroundColor(AppColor.onSurfaceVariant)
         }
         Spacer(minLength: 8)
@@ -108,20 +127,6 @@ struct PlayerSettingsView: View {
 
   // MARK: - 滑块对话框
 
-  private func sliderSheet(_ which: SliderDialog) -> some View {
-    SliderSettingSheet(
-      title: title(for: which),
-      explanation: explanation(for: which),
-      range: range(for: which),
-      format: { value(for: which, $0) },
-      initialValue: Double(current(for: which)),
-      onConfirm: { newValue in
-        apply(which, Int(newValue.rounded()))
-      },
-      onDismiss: { dialog = nil }
-    )
-  }
-
   private func title(for which: SliderDialog) -> String {
     switch which {
     case .seek: return "跳过时间"
@@ -132,10 +137,10 @@ struct PlayerSettingsView: View {
     }
   }
 
-  private func explanation(for which: SliderDialog) -> String {
+  /// 安卓只有 OnlinePreloadSliderDialog 带说明，TimeSettingDialog（跳过时间/自动回退）没有
+  private func explanation(for which: SliderDialog) -> String? {
     switch which {
-    case .seek: return "快进 / 快退按钮每次跳过的秒数。"
-    case .rewind: return "暂停后重新播放时，往回退多少秒以便接上前文。设为 0 关闭。"
+    case .seek, .rewind: return nil
     case .preloadTrigger: return "播放满该秒数后开始预加载。短于该时长的章节不触发预加载，切章后全部重置。"
     case .preloadCount: return "当前章之后最多预加载多少章的播放地址。"
     case .preloadInterval: return "同一次预加载中，两章之间的等待时间。"
@@ -185,11 +190,14 @@ struct PlayerSettingsView: View {
   }
 }
 
-// MARK: - 通用滑块设置对话框（安卓 OnlinePreloadSliderDialog / TimeSettingDialog）
+// MARK: - 通用滑块设置对话框（安卓 TimeSettingDialog / OnlinePreloadSliderDialog）
 
-struct SliderSettingSheet: View {
+/// 居中 AlertDialog：标题 →（可选）说明 bodySmall → 取值 bodyLarge → 滑块 → 取消/确定。
+/// 安卓这两个对话框都**没有**最小值/最大值标注，也没有把取值放大成主题色，
+/// 之前那套底部弹窗的排版是照搬别的页面来的，对不上。
+struct SliderSettingDialog: View {
   var title: String
-  var explanation: String
+  var explanation: String?
   var range: ClosedRange<Double>
   var format: (Double) -> String
   var initialValue: Double
@@ -200,63 +208,78 @@ struct SliderSettingSheet: View {
 
   private var current: Double { value ?? initialValue }
 
+  private var normalized: Double {
+    let span = max(range.upperBound - range.lowerBound, 0.0001)
+    return (min(max(current, range.lowerBound), range.upperBound) - range.lowerBound) / span
+  }
+
   var body: some View {
-    VStack(alignment: .leading, spacing: 0) {
-      Text(title)
-        .font(AppFont.headlineSmall())
-        .foregroundColor(AppColor.onSurface)
-        .padding(.bottom, 12)
+    ZStack {
+      AppColor.scrim
+        .ignoresSafeArea()
+        .onTapGesture { onDismiss() }
 
-      Text(explanation)
-        .font(AppFont.bodyMedium())
-        .foregroundColor(AppColor.onSurfaceVariant)
-        .fixedSize(horizontal: false, vertical: true)
+      VStack(alignment: .leading, spacing: 0) {
+        Text(title)
+          .font(AppFont.headlineSmall())
+          .foregroundColor(AppColor.onSurface)
+          .fixedSize(horizontal: false, vertical: true)
+        Color.clear.frame(height: 16)
 
-      Text(format(current))
-        .font(AppFont.titleMedium())
-        .foregroundColor(AppColor.primary)
-        .frame(maxWidth: .infinity, alignment: .center)
-        .padding(.top, 20)
+        if let explanation, !explanation.isEmpty {
+          Text(explanation)
+            .font(AppFont.bodySmall())
+            .foregroundColor(AppColor.onSurfaceVariant)
+            .fixedSize(horizontal: false, vertical: true)
+          Color.clear.frame(height: 8)
+        }
 
-      Slider(
-        value: Binding(
-          get: { current },
-          set: { value = $0.rounded() }
-        ),
-        in: range,
-        step: 1
+        Text(format(current))
+          .font(AppFont.bodyLarge())
+          .foregroundColor(AppColor.onSurfaceVariant)
+        ExpressiveSlider(
+          value: Binding(
+            get: { normalized },
+            set: { ratio in
+              let span = range.upperBound - range.lowerBound
+              value = (range.lowerBound + ratio * span).rounded()
+            }
+          ),
+          onEditingChanged: { _ in }
+        )
+
+        Color.clear.frame(height: 8)
+        HStack(spacing: 8) {
+          Spacer(minLength: 0)
+          Button(action: onDismiss) {
+            Text("取消")
+              .font(AppFont.labelLarge())
+              .foregroundColor(AppColor.primary)
+              .padding(.horizontal, 12)
+              .frame(height: 40)
+              .contentShape(Rectangle())
+          }
+          .buttonStyle(.plain)
+          Button {
+            onConfirm(current)
+          } label: {
+            Text("确定")
+              .font(AppFont.labelLarge())
+              .foregroundColor(AppColor.primary)
+              .padding(.horizontal, 12)
+              .frame(height: 40)
+              .contentShape(Rectangle())
+          }
+          .buttonStyle(.plain)
+        }
+      }
+      .padding(24)
+      .frame(maxWidth: 320, alignment: .leading)
+      .background(
+        RoundedRectangle(cornerRadius: 28, style: .continuous)
+          .fill(AppColor.surfaceContainerHigh)
       )
-      .tint(AppColor.primary)
-      .padding(.top, 4)
-
-      HStack {
-        Text(format(range.lowerBound))
-          .font(AppFont.bodySmall())
-          .foregroundColor(AppColor.onSurfaceVariant)
-        Spacer()
-        Text(format(range.upperBound))
-          .font(AppFont.bodySmall())
-          .foregroundColor(AppColor.onSurfaceVariant)
-      }
-
-      Spacer(minLength: 16)
-
-      HStack(spacing: 8) {
-        Spacer()
-        Button("取消") { onDismiss() }
-          .font(AppFont.labelLarge())
-          .foregroundColor(AppColor.onSurfaceVariant)
-          .padding(.horizontal, 12)
-          .frame(height: 44)
-        Button("确定") { onConfirm(current) }
-          .font(AppFont.labelLarge())
-          .foregroundColor(AppColor.primary)
-          .padding(.horizontal, 12)
-          .frame(height: 44)
-      }
+      .padding(.horizontal, 24)
     }
-    .padding(24)
-    .presentationDetents([.height(340)])
-    .background(AppColor.surfaceContainerHigh.ignoresSafeArea())
   }
 }
