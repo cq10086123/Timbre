@@ -179,12 +179,19 @@ struct PlayerView: View {
   // MARK: 标题（LargeTopAppBar 展开态，对齐安卓 AppBarTitle 的跑马灯）
 
   private var titleRow: some View {
-    MarqueeText(
-      text: book?.title ?? "",
-      font: AppFont.headlineMedium(),
-      color: AppColor.onSurface
-    )
-    .frame(height: 38)
+    // M3 LargeTopAppBar 展开态：标题区 88dp，文字压在底部。
+    // 但安卓那 88dp 里含着 24dp 状态栏，iOS 的 safeArea（刘海机约 47pt）
+    // 已经把这段占掉了，所以这里给 64pt，从屏幕顶算下来两边总高都在 175 左右。
+    VStack(spacing: 0) {
+      Spacer(minLength: 0)
+      MarqueeText(
+        text: book?.title ?? "",
+        font: AppFont.headlineMedium(),
+        color: AppColor.onSurface
+      )
+      .frame(height: 38)
+    }
+    .frame(height: 64, alignment: .bottom)
     .frame(maxWidth: .infinity, alignment: .leading)
     .padding(.horizontal, 16)
     .padding(.bottom, 8)
