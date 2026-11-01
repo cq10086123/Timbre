@@ -392,8 +392,13 @@ struct ShelfView: View {
                       width: gridItemWidth,
                       sourceLabel: sourceLabel(for: book)
                     )
-                      .onTapGesture { app.openBook(book) }
-                      .onLongPressGesture(minimumDuration: 0.5, perform: { sheetBook = book })
+                      .contentShape(Rectangle())
+                      .gesture(
+                        Self.bookGesture(
+                          onTap: { app.openBook(book) },
+                          onMenu: { sheetBook = book }
+                        )
+                      )
                   }
                 }
                 .padding(.horizontal, 8)
@@ -408,8 +413,13 @@ struct ShelfView: View {
                   ForEach(group.books) { book in
                     ListBookCard(book: book, sourceLabel: sourceLabel(for: book))
                       .padding(.horizontal, 8)
-                      .onTapGesture { app.openBook(book) }
-                      .onLongPressGesture(minimumDuration: 0.5, perform: { sheetBook = book })
+                      .contentShape(Rectangle())
+                      .gesture(
+                        Self.bookGesture(
+                          onTap: { app.openBook(book) },
+                          onMenu: { sheetBook = book }
+                        )
+                      )
                   }
                 } header: {
                   SectionHeader(title: group.category.title)
@@ -430,6 +440,26 @@ struct ShelfView: View {
 
   private var gridColumns: [GridItem] {
     Array(repeating: GridItem(.flexible(), spacing: 8), count: gridColumnCount)
+  }
+
+  /// 轻点开书、长按弹操作抽屉。
+  ///
+  /// 不能用 `.onTapGesture` 再叠一个 `.onLongPressGesture`：长按到 0.5s 抽屉已经弹了，
+  /// 松手时 tap 手势照样会触发一次，`openBook` 立刻把播放器盖上来，
+  /// 用户看到的就是「长按书架什么都没发生」。`exclusively(before:)` 让两者互斥：
+  /// 长按成立 → tap 被取消；短按松手 → 长按判定失败 → tap 生效。
+  private static func bookGesture(
+    onTap: @escaping () -> Void,
+    onMenu: @escaping () -> Void
+  ) -> some Gesture {
+    LongPressGesture(minimumDuration: 0.5)
+      .exclusively(before: TapGesture())
+      .onEnded { value in
+        switch value {
+        case .first: onMenu()
+        case .second: onTap()
+        }
+      }
   }
 
   private var gridColumnCount: Int {

@@ -43,6 +43,22 @@ final class HeaderProxyLoader: NSObject, AVAssetResourceLoaderDelegate {
   private var contentLength: Int64?
   private var requestCount = 0
 
+  /// 为了让系统认出容器，给代理 URL 补的后缀（真实地址里没有，取流前要摘掉）
+  private var appendedExtension: String?
+  /// 系统类型表里认得的音频后缀，已经是这些就不用补
+  private static let knownAudioExtensions: Set<String> = [
+    "m4a", "m4b", "mp4", "mp3", "flac", "aac", "wav", "aif", "aiff", "caf", "ogg", "opus", "m4r",
+  ]
+
+  /// 已经交还给播放器的字节数 —— 用来区分「网慢」和「容器解不开」
+  private let counterLock = NSLock()
+  private var deliveredTotal: Int64 = 0
+  var deliveredBytes: Int64 {
+    counterLock.lock()
+    defer { counterLock.unlock() }
+    return deliveredTotal
+  }
+
   /// 每一条仍在进行的字节流（taskIdentifier → 状态）
   private var streams: [Int: StreamState] = [:]
 
@@ -90,12 +106,23 @@ final class HeaderProxyLoader: NSObject, AVAssetResourceLoaderDelegate {
   func makeAsset() -> AVURLAsset {
     var components = URLComponents(url: origin, resolvingAgainstBaseURL: false)
     components?.scheme = Self.scheme
+    // 自定义 scheme 的 URL 必须带一个系统类型表里认得的后缀。
+    // `.m4s` 不在表里（它是 DASH 分片），播放器判不出容器就只会一直拉数据、迟迟不 ready——
+    // 表现就是「点了播放一直转圈」。补一个 .m4a，取流时再摘掉。
+    if components != nil, !Self.knownAudioExtensions.contains(origin.pathExtension.lowercased()) {
+      components?.path += ".m4a"
+      appendedExtension = ".m4a"
+    }
     guard let proxied = components?.url else {
       return AVURLAsset(url: origin)
     }
     let asset = AVURLAsset(url: proxied)
     asset.resourceLoader.setDelegate(self, queue: queue)
-    DLog("stream", "代理接管 \(origin.host ?? "-")\(origin.path) 头=\(headers.keys.sorted())")
+    DLog(
+      "stream",
+      "代理接管 \(origin.host ?? "-")\(origin.path) 头=\(headers.keys.sorted()) "
+        + "对外后缀=\(proxied.pathExtension)"
+    )
     return asset
   }
 
@@ -122,6 +149,10 @@ final class HeaderProxyLoader: NSObject, AVAssetResourceLoaderDelegate {
       return nil
     }
     components.scheme = origin.scheme
+    // 摘掉 makeAsset 为了「让系统认出容器」临时补上的后缀
+    if let appendedExtension, components.path.hasSuffix(appendedExtension) {
+      components.path = String(components.path.dropLast(appendedExtension.count))
+    }
     return components.url
   }
 
@@ -221,10 +252,7 @@ final class HeaderProxyLoader: NSObject, AVAssetResourceLoaderDelegate {
       requestCount += 1
       let ctype = http.value(forHTTPHeaderField: "Content-Type") ?? "-"
       let crange = http.value(forHTTPHeaderField: "Content-Range") ?? "-"
-      let declared = resolveContentType(
-        mime: ctype,
-        pathExtension: state.loadingRequest.request.url?.pathExtension ?? ""
-      )
+      let declared = resolveContentType(mime: ctype, pathExtension: originExtension)
       DLog("stream", "#\(requestCount) 状态=\(http.statusCode) 类型=\(ctype) 区间=\(crange) 声明=\(declared)")
     }
 
@@ -250,7 +278,7 @@ final class HeaderProxyLoader: NSObject, AVAssetResourceLoaderDelegate {
       information.isByteRangeAccessSupported = true
       information.contentType = resolveContentType(
         mime: http.value(forHTTPHeaderField: "Content-Type"),
-        pathExtension: state.loadingRequest.request.url?.pathExtension ?? ""
+        pathExtension: originExtension
       )
       if let length = contentLength {
         information.contentLength = length
@@ -309,6 +337,9 @@ final class HeaderProxyLoader: NSObject, AVAssetResourceLoaderDelegate {
     guard !chunk.isEmpty else { return }
     // 关键：一边收一边喂，播放器不用等整份文件
     state.loadingRequest.dataRequest?.respond(with: chunk)
+    counterLock.lock()
+    deliveredTotal += Int64(chunk.count)
+    counterLock.unlock()
   }
 
   func handleCompletion(_ task: URLSessionTask, error: Error?) {
@@ -366,12 +397,17 @@ final class HeaderProxyLoader: NSObject, AVAssetResourceLoaderDelegate {
     if ext == "mp3" || (lower.contains("mpeg") && lower.contains("audio")) {
       return AVFileType.mp3.rawValue
     }
-    // 音轨优先按 m4a 声明（com.apple.m4a-audio），AVFoundation 会走音频解析路径；
-    // variant 1 时退回 public.mpeg-4，两层里总有一个能过。
+    // 真正的 .mp4（WebDAV 里的有声书也常是它）保持「电影」声明，别动已经能播的路径
+    if ext == "mp4" || ext == "m4v" { return AVFileType.mp4.rawValue }
+    // 其余（含 DASH 的 .m4s）都是纯音轨：先按 com.apple.m4a-audio 声明。
+    // 注意不能因为 CDN 回了 `video/mp4` 就改成 public.mpeg-4 —— B 站音轨是单条 AAC，
+    // 按「电影」声明反而让播放器一直等视频轨。variant 1 才退回 mpeg-4 兜底。
     if contentTypeVariant == 1 { return AVFileType.mp4.rawValue }
-    if ext == "mp4" || lower.contains("video/mp4") { return AVFileType.mp4.rawValue }
     return AVFileType.m4a.rawValue
   }
+
+  /// 真实直链的后缀（不是代理 URL 上补出来的 .m4a）
+  private var originExtension: String { origin.pathExtension.lowercased() }
 }
 
 /// URLSession 的 delegate 弱转发：让 session 只强引用这个中间人，
