@@ -6,11 +6,13 @@ final class AppState: ObservableObject {
   let library = LibraryStore()
   let settings = SettingsStore()
   let extensions = ExtensionStore()
+  let webdav = WebDavStore()
 
   lazy var player = PlaybackEngine(
     library: library,
     settings: settings,
-    extensions: extensions
+    extensions: extensions,
+    webdav: webdav
   )
 
   @Published var showPlayer = false

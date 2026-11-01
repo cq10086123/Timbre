@@ -22,6 +22,7 @@ final class PlaybackEngine: NSObject, ObservableObject {
   private let library: LibraryStore
   private let settings: SettingsStore
   private let extensions: ExtensionStore
+  private let webdav: WebDavStore
 
   private var timeObserverToken: Any?
   private var endObserver: NSObjectProtocol?
@@ -38,10 +39,16 @@ final class PlaybackEngine: NSObject, ObservableObject {
   /// 每次加载递增，异步解析回来时校验，避免旧章节覆盖新章节
   private var loadToken = 0
 
-  init(library: LibraryStore, settings: SettingsStore, extensions: ExtensionStore) {
+  init(
+    library: LibraryStore,
+    settings: SettingsStore,
+    extensions: ExtensionStore,
+    webdav: WebDavStore
+  ) {
     self.library = library
     self.settings = settings
     self.extensions = extensions
+    self.webdav = webdav
     super.init()
     player.automaticallyWaitsToMinimizeStalling = true
     configureAudioSession()
@@ -304,6 +311,27 @@ final class PlaybackEngine: NSObject, ObservableObject {
         return
       }
       install(item: AVPlayerItem(url: url), book: book, chapter: chapter)
+      return
+    }
+
+    // WebDAV：直连 NAS 上的文件，靠 Authorization 头过认证
+    if book.kind == .webdav {
+      guard let serverId = book.webdavServerId, let server = webdav.server(withId: serverId) else {
+        fail("WebDAV 服务器已被删除，请重新添加后再播放")
+        return
+      }
+      guard let remote = chapter.remoteURL, let url = URL(string: remote) else {
+        fail("这本远程书缺少文件地址，请重新导入")
+        return
+      }
+      let headers = WebDavClient.authHeaders(
+        server: server,
+        password: webdav.password(for: serverId)
+      )
+      var options: [String: Any] = [:]
+      if !headers.isEmpty { options["AVURLAssetHTTPHeaderFieldsKey"] = headers }
+      let asset = AVURLAsset(url: url, options: options.isEmpty ? nil : options)
+      install(item: AVPlayerItem(asset: asset), book: book, chapter: chapter)
       return
     }
 

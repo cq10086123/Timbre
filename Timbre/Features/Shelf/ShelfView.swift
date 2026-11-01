@@ -137,6 +137,7 @@ struct ShelfView: View {
         .environmentObject(library)
         .environmentObject(settings)
         .environmentObject(app.extensions)
+        .environmentObject(app.webdav)
         .environmentObject(player)
     }
     .sheet(isPresented: $app.showImporter) {

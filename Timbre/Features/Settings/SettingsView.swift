@@ -9,6 +9,7 @@ struct SettingsView: View {
   @EnvironmentObject private var library: LibraryStore
   @EnvironmentObject private var settings: SettingsStore
   @EnvironmentObject private var extensions: ExtensionStore
+  @EnvironmentObject private var webdav: WebDavStore
   @EnvironmentObject private var player: PlaybackEngine
 
   @State private var showExtensions = false
@@ -38,7 +39,11 @@ struct SettingsView: View {
         .environmentObject(extensions)
     }
     .sheet(isPresented: $showFolderSheet) { folderSheet }
-    .sheet(isPresented: $showWebDavSheet) { webDavSheet }
+    .fullScreenCover(isPresented: $showWebDavSheet) {
+      WebDavServersView()
+        .environmentObject(webdav)
+        .environmentObject(library)
+    }
     .sheet(item: $sleepTimeTarget) { target in
       sleepTimePicker(target)
     }
@@ -297,13 +302,6 @@ struct SettingsView: View {
         app.showImporter = true
       },
       confirmTitle: "导入文件"
-    )
-  }
-
-  private var webDavSheet: some View {
-    infoSheet(
-      title: "WebDAV",
-      message: "iOS 版暂未接入 WebDAV。当前可通过「文件」App 挂载 NAS 后，把有声书直接复制进 Timbre 的 Books 目录，效果等价。"
     )
   }
 

@@ -1,9 +1,10 @@
 import Foundation
 
-/// 一本书的来源：本地导入 / 接口源（.jdr）
+/// 一本书的来源：本地导入 / 接口源（.jdr）/ WebDAV 远程目录
 enum BookSourceKind: String, Codable {
   case local
   case jdr
+  case webdav
 }
 
 /// 一集（章节）
@@ -76,6 +77,8 @@ struct Book: Codable, Identifiable, Hashable {
   var sourceExtraJSON: String?
   /// 已经为哪一章执行过片头跳过（0-based，-1 = 尚未）
   var introSkippedChapter: Int
+  /// WebDAV 书：对应的服务器 id（密码在钥匙串里）
+  var webdavServerId: String?
 
   init(
     id: String = UUID().uuidString,
@@ -95,7 +98,8 @@ struct Book: Codable, Identifiable, Hashable {
     sourceName: String? = nil,
     remoteBookId: String? = nil,
     sourceExtraJSON: String? = nil,
-    introSkippedChapter: Int = -1
+    introSkippedChapter: Int = -1,
+    webdavServerId: String? = nil
   ) {
     self.id = id
     self.title = title
@@ -115,12 +119,13 @@ struct Book: Codable, Identifiable, Hashable {
     self.remoteBookId = remoteBookId
     self.sourceExtraJSON = sourceExtraJSON
     self.introSkippedChapter = introSkippedChapter
+    self.webdavServerId = webdavServerId
   }
 
   private enum CodingKeys: String, CodingKey {
     case id, title, author, kind, folder, coverFile, chapters, addedAt, position
     case bookmarks, skipIntro, skipOutro, speed, sourceId, sourceName, remoteBookId, sourceExtraJSON
-    case introSkippedChapter
+    case introSkippedChapter, webdavServerId
   }
 
   init(from decoder: Decoder) throws {
@@ -143,6 +148,7 @@ struct Book: Codable, Identifiable, Hashable {
     remoteBookId = try c.decodeIfPresent(String.self, forKey: .remoteBookId)
     sourceExtraJSON = try c.decodeIfPresent(String.self, forKey: .sourceExtraJSON)
     introSkippedChapter = try c.decodeIfPresent(Int.self, forKey: .introSkippedChapter) ?? -1
+    webdavServerId = try c.decodeIfPresent(String.self, forKey: .webdavServerId)
   }
 
   /// 已听百分比（0...1），时长未知时按已播章节数估算

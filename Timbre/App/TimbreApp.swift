@@ -11,6 +11,7 @@ struct TimbreApp: App {
         .environmentObject(app.library)
         .environmentObject(app.settings)
         .environmentObject(app.extensions)
+        .environmentObject(app.webdav)
         .environmentObject(app.player)
         .tint(AppColor.primary)
         .preferredColorScheme(app.themeColorScheme)

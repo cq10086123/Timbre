@@ -78,6 +78,7 @@ struct SourceBadge: View {
     switch book.kind {
     case .local: return "本地"
     case .jdr: return book.sourceName ?? "接口源"
+    case .webdav: return book.sourceName ?? "WebDAV"
     }
   }
 }
