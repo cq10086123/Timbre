@@ -50,7 +50,29 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
             EXPANDED_CODE_SIGN_IDENTITY="" \
-            build
+            build 2>&1 | tee /tmp/build.log
+
+      # 编译失败时把关键报错转成 annotation，这样即使拿不到完整日志也能看到错误原文
+      - name: 汇总编译错误
+        if: failure()
+        run: |
+          python3 - <<'PY'
+          import re, os
+
+          path = '/tmp/build.log'
+          text = open(path, errors='replace').read() if os.path.exists(path) else ''
+          lines = text.splitlines()
+
+          errs = [l for l in lines if re.search(r'(error:|fatal error:)', l)]
+          if not errs:
+              errs = [l for l in lines if 'failed' in l.lower()][:40]
+          if not errs:
+              errs = lines[-60:]
+
+          body = '\n'.join(errs[:80])
+          body = body.replace('%', '%25').replace('\r', '').replace('\n', '%0A')
+          print('::error title=xcodebuild 报错（前 %d 行）::%s' % (min(len(errs), 80), body[:60000]))
+          PY
 
       - name: 打包未签名 IPA
         run: |
