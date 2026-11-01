@@ -107,3 +107,9 @@ jobs:
           generate_release_notes: true
           # iOS 包目前只是调试验证阶段，标成预发布，不抢安卓正式版的「Latest」位置
           prerelease: true
+          name: "${{ github.ref_name }} 验证版（未签名调试包，禁止下载分发）"
+          body: |
+            > **⚠️ 验证版：仅供开发过程中真机调试验证，禁止下载、转发与分发。**
+            > - 未签名 IPA，无法直接安装，需自行签名
+            > - 功能不完整、随时可能回退，不构成任何发布承诺
+            > - 正式版本请以安卓端 Release（v3.x）为准
