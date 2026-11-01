@@ -85,7 +85,12 @@ final class PlaybackEngine: NSObject, ObservableObject {
 
   // MARK: - 打开 / 播放
 
-  func open(_ book: Book, chapterIndex: Int = 0, autoplay: Bool = true) {
+  func open(
+    _ book: Book,
+    chapterIndex: Int = 0,
+    autoplay: Bool = true,
+    resumeAt: Double? = nil
+  ) {
     guard !book.chapters.isEmpty else {
       errorMessage = "这本书还没有章节"
       return
@@ -96,7 +101,8 @@ final class PlaybackEngine: NSObject, ObservableObject {
     self.speed = book.speed > 0 ? book.speed : 1.0
     self.outroHandled = false
     self.resumeAfterLoad = autoplay
-    let resume = book.position.chapterIndex == index ? max(0, book.position.seconds) : 0
+    let resume = resumeAt
+      ?? (book.position.chapterIndex == index ? max(0, book.position.seconds) : 0)
     load(book: book, chapter: book.chapters[index], resume: resume)
   }
 
@@ -246,6 +252,21 @@ final class PlaybackEngine: NSObject, ObservableObject {
       seconds: position,
       title: merged
     )
+  }
+
+  /// 跳到某个书签的位置
+  func seek(toBookmark bookmark: Bookmark) {
+    guard let book = currentBook else { return }
+    if bookmark.chapterIndex == chapterIndex {
+      seek(to: bookmark.seconds)
+    } else {
+      open(
+        book,
+        chapterIndex: bookmark.chapterIndex,
+        autoplay: isPlaying,
+        resumeAt: bookmark.seconds
+      )
+    }
   }
 
   // MARK: - 加载

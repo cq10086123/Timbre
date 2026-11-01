@@ -1,0 +1,205 @@
+import SwiftUI
+
+// MARK: - 播放键（Material3 FAB，播放中变圆角方块）
+
+struct M3PlayButton: View {
+  var playing: Bool
+  var size: CGFloat = 56
+  var iconSize: CGFloat = 24
+  var action: () -> Void
+
+  private var corner: CGFloat { playing ? 16 : size / 2 }
+
+  var body: some View {
+    Button(action: action) {
+      ZStack {
+        RoundedRectangle(cornerRadius: corner, style: .continuous)
+          .fill(AppColor.primaryContainer)
+        Image(systemName: playing ? "pause.fill" : "play.fill")
+          .font(.system(size: iconSize * 0.92, weight: .semibold))
+          .foregroundColor(AppColor.onPrimaryContainer)
+      }
+      .frame(width: size, height: size)
+      .animation(.easeInOut(duration: 0.25), value: corner)
+      .contentShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
+    }
+    .buttonStyle(.plain)
+    .accessibilityLabel(playing ? "暂停" : "播放")
+  }
+}
+
+// MARK: - 48dp 图标按钮
+
+struct IconButton48: View {
+  var systemName: String
+  var iconSize: CGFloat = 24
+  var label: String
+  var tint: Color = AppColor.onSurfaceVariant
+  var action: () -> Void
+
+  var body: some View {
+    Button(action: action) {
+      Image(systemName: systemName)
+        .font(.system(size: iconSize, weight: .regular))
+        .foregroundColor(tint)
+        .frame(width: 48, height: 48)
+        .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .accessibilityLabel(label)
+  }
+}
+
+// MARK: - 列表项（ListItem：左侧 24dp 图标 + 主副文案）
+
+struct M3ListItem<Trailing: View>: View {
+  var systemName: String?
+  var title: String
+  var subtitle: String?
+  var tint: Color = AppColor.onSurface
+  var trailing: Trailing
+  var action: (() -> Void)?
+
+  init(
+    systemName: String? = nil,
+    title: String,
+    subtitle: String? = nil,
+    tint: Color = AppColor.onSurface,
+    action: (() -> Void)? = nil,
+    @ViewBuilder trailing: () -> Trailing
+  ) {
+    self.systemName = systemName
+    self.title = title
+    self.subtitle = subtitle
+    self.tint = tint
+    self.action = action
+    self.trailing = trailing()
+  }
+
+  var body: some View {
+    let row = HStack(spacing: 0) {
+      if let systemName {
+        Image(systemName: systemName)
+          .font(.system(size: 24))
+          .foregroundColor(AppColor.onSurfaceVariant)
+          .frame(width: 24, height: 24)
+          .padding(.trailing, 16)
+      }
+      VStack(alignment: .leading, spacing: 0) {
+        Text(title)
+          .font(AppFont.bodyLarge())
+          .foregroundColor(tint)
+          .lineLimit(2)
+        if let subtitle {
+          Text(subtitle)
+            .font(AppFont.bodyMedium())
+            .foregroundColor(AppColor.onSurfaceVariant)
+            .lineLimit(3)
+        }
+      }
+      Spacer(minLength: 8)
+      trailing
+    }
+    .padding(.horizontal, 16)
+    .padding(.vertical, 14)
+    .frame(minHeight: 56)
+    .contentShape(Rectangle())
+
+    if let action {
+      Button(action: action) { row }.buttonStyle(.plain)
+    } else {
+      row
+    }
+  }
+}
+
+extension M3ListItem where Trailing == EmptyView {
+  init(
+    systemName: String? = nil,
+    title: String,
+    subtitle: String? = nil,
+    tint: Color = AppColor.onSurface,
+    action: (() -> Void)? = nil
+  ) {
+    self.init(
+      systemName: systemName,
+      title: title,
+      subtitle: subtitle,
+      tint: tint,
+      action: action
+    ) {
+      EmptyView()
+    }
+  }
+}
+
+// MARK: - 分组标题（headlineSmall 24sp）
+
+struct SectionHeader: View {
+  var title: String
+
+  var body: some View {
+    Text(title)
+      .font(AppFont.headlineSmall())
+      .foregroundColor(AppColor.onSurface)
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .padding(.horizontal, 8)
+      .padding(.vertical, 8)
+  }
+}
+
+// MARK: - 进度条（4dp）
+
+struct M3ProgressBar: View {
+  var fraction: Double
+  var track: Color = AppColor.surfaceVariant
+  var fill: Color = AppColor.primary
+  var height: CGFloat = 4
+  var rounded: Bool = true
+
+  var body: some View {
+    GeometryReader { geo in
+      ZStack(alignment: .leading) {
+        Rectangle().fill(track)
+        Rectangle()
+          .fill(fill)
+          .frame(width: max(0, min(1, fraction)) * geo.size.width)
+      }
+      .clipShape(
+        RoundedRectangle(cornerRadius: rounded ? height / 2 : 0, style: .continuous)
+      )
+    }
+    .frame(height: height)
+  }
+}
+
+// MARK: - 底部抽屉容器（原生 sheet，只有一个展开态）
+
+extension View {
+  func m3Sheet<C: View>(isPresented: Binding<Bool>, @ViewBuilder content: @escaping () -> C)
+    -> some View
+  {
+    sheet(isPresented: isPresented) {
+      content()
+        .presentationDragIndicator(.visible)
+    }
+  }
+}
+
+// MARK: - 时间胶囊（睡眠定时器角标）
+
+struct TimeBadge: View {
+  var text: String
+
+  var body: some View {
+    Text(text)
+      .font(AppFont.bodyLarge())
+      .foregroundColor(.white)
+      .padding(.horizontal, 20)
+      .padding(.vertical, 16)
+      .background(
+        RoundedRectangle(cornerRadius: 20, style: .continuous)
+          .fill(Color.black.opacity(0.49))
+      )
+  }
+}

@@ -1,494 +1,644 @@
 import SwiftUI
-import UniformTypeIdentifiers
+import UIKit
+
+// MARK: - 书籍分类（对齐安卓 BookOverviewCategory）
+
+enum BookOverviewCategory: Int, CaseIterable, Identifiable {
+  case current = 0
+  case notStarted = 1
+  case completed = 2
+
+  var id: Int { rawValue }
+
+  var title: String {
+    switch self {
+    case .current: return "正在播放中"
+    case .notStarted: return "尚未开始播放"
+    case .completed: return "已结束播放"
+    }
+  }
+}
+
+extension Book {
+  var overviewCategory: BookOverviewCategory {
+    let total = totalDuration
+    let played = position.chapterIndex * 0 + position.seconds
+    if position.chapterIndex == 0 && played < 1 { return .notStarted }
+    if total > 0 {
+      let overall = progress
+      if overall >= 1 - (5 / max(total, 1)) { return .completed }
+    }
+    return .current
+  }
+
+  /// 剩余时长（秒）
+  var remainingSeconds: Double {
+    let total = totalDuration
+    guard total > 0 else { return 0 }
+    return max(0, total * (1 - progress))
+  }
+}
+
+// MARK: - 书架主界面
 
 struct ShelfView: View {
   @EnvironmentObject private var app: AppState
   @EnvironmentObject private var library: LibraryStore
   @EnvironmentObject private var settings: SettingsStore
-  @EnvironmentObject private var extensions: ExtensionStore
   @EnvironmentObject private var player: PlaybackEngine
 
-  @State private var showJdrPicker = false
-  @State private var showSourceSearch = false
+  @State private var searchActive = false
+  @State private var query = ""
+  @State private var sheetBook: Book?
+  @State private var renameTarget: Book?
+  @State private var renameText = ""
+  @State private var deleteTarget: Book?
+  @State private var history: [String] = SearchHistory.load()
 
-  private var keywords: String {
-    app.searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+  private var isGrid: Bool { settings.settings.useGridLayout }
+
+  private var filteredBooks: [Book] {
+    let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return library.books }
+    return library.books.filter {
+      $0.title.localizedCaseInsensitiveContains(trimmed)
+        || $0.author.localizedCaseInsensitiveContains(trimmed)
+    }
+  }
+
+  private var grouped: [(category: BookOverviewCategory, books: [Book])] {
+    BookOverviewCategory.allCases.compactMap { category in
+      let items = filteredBooks.filter { $0.overviewCategory == category }
+      return items.isEmpty ? nil : (category, items)
+    }
+  }
+
+  /// 悬浮播放键：存在「正在播放中」的书才出现
+  private var playTarget: Book? {
+    if let id = player.bookId, let book = library.book(withId: id) { return book }
+    return library.books.first { $0.overviewCategory == .current }
   }
 
   var body: some View {
-    NavigationStack {
-      ZStack {
-        AppColor.background.ignoresSafeArea()
-        ScrollView {
-          VStack(alignment: .leading, spacing: 22) {
-            searchBar
-            if keywords.isEmpty {
-              nowPlayingSection
-              allBooksSection
-            } else {
-              searchResults
-            }
+    ZStack(alignment: .bottomTrailing) {
+      AppColor.background.ignoresSafeArea()
+
+      VStack(spacing: 0) {
+        searchBar
+        if searchActive {
+          searchContent
+        } else {
+          shelfContent
+        }
+      }
+
+      if let target = playTarget, !searchActive {
+        M3PlayButton(
+          playing: player.isPlaying && player.bookId == target.id,
+          size: 56,
+          iconSize: 24
+        ) {
+          if player.bookId == target.id {
+            player.togglePlayPause()
+          } else {
+            app.openBook(target)
           }
+        }
+        .padding(.trailing, 16)
+        .padding(.bottom, 16)
+      }
+    }
+    .fullScreenCover(isPresented: $app.showPlayer) {
+      PlayerView()
+        .environmentObject(app)
+        .environmentObject(library)
+        .environmentObject(settings)
+        .environmentObject(player)
+    }
+    .fullScreenCover(isPresented: $app.showSettings) {
+      SettingsView()
+        .environmentObject(app)
+        .environmentObject(library)
+        .environmentObject(settings)
+        .environmentObject(player)
+    }
+    .sheet(isPresented: $app.showImporter) {
+      DocumentPicker { urls in
+        app.showImporter = false
+        app.handleImport(urls: urls)
+      }
+      .ignoresSafeArea()
+    }
+    .sheet(item: $sheetBook) { book in
+      BookActionsSheet(
+        book: book,
+        onRename: {
+          sheetBook = nil
+          renameText = book.title
+          renameTarget = book
+        },
+        onDelete: {
+          sheetBook = nil
+          deleteTarget = book
+        },
+        onCategory: { category in
+          sheetBook = nil
+          apply(category: category, to: book)
+        }
+      )
+      .presentationDragIndicator(.visible)
+      .presentationCornerRadius(AppRadius.extraLarge)
+      .presentationBackground(AppColor.surfaceContainerLow)
+    }
+    .alert("编辑书名", isPresented: Binding(
+      get: { renameTarget != nil },
+      set: { if !$0 { renameTarget = nil } }
+    )) {
+      TextField("名称", text: $renameText)
+      Button("设置") {
+        if let book = renameTarget {
+          app.rename(book, title: renameText, author: book.author)
+        }
+        renameTarget = nil
+      }
+      Button("取消", role: .cancel) { renameTarget = nil }
+    }
+    .confirmationDialog(
+      "删除有声书",
+      isPresented: Binding(
+        get: { deleteTarget != nil },
+        set: { if !$0 { deleteTarget = nil } }
+      ),
+      titleVisibility: .visible
+    ) {
+      Button("删除", role: .destructive) {
+        if let book = deleteTarget { app.delete(book) }
+        deleteTarget = nil
+      }
+      Button("取消", role: .cancel) { deleteTarget = nil }
+    } message: {
+      Text("将从书架移除这本有声书，音频文件会保留在设备上。")
+    }
+    .overlay {
+      if app.isImporting {
+        HStack(spacing: 10) {
+          ProgressView().tint(AppColor.primary)
+          Text("导入中… 读取文件")
+            .font(AppFont.labelMedium())
+            .foregroundColor(AppColor.onSurface)
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+        .background(AppColor.surfaceContainerLow, in: Capsule())
+      }
+    }
+    .overlay(alignment: .bottom) {
+      if let toast = app.toast {
+        Text(toast)
+          .font(AppFont.bodyMedium())
+          .foregroundColor(AppColor.onSurface)
           .padding(.horizontal, 16)
-          .padding(.top, 8)
-          .padding(.bottom, player.currentBook == nil ? 40 : 110)
-        }
-        .scrollDismissesKeyboard(.interactively)
+          .padding(.vertical, 14)
+          .background(AppColor.surfaceContainerHigh, in: RoundedRectangle(cornerRadius: 4))
+          .padding(.bottom, 88)
+          .transition(.opacity)
       }
-      .safeAreaInset(edge: .bottom) { miniPlayer }
-      .navigationBarHidden(true)
-      .navigationDestination(for: String.self) { bookId in
-        BookDetailView(bookId: bookId)
-          .environmentObject(app)
-          .environmentObject(library)
-          .environmentObject(settings)
-          .environmentObject(player)
-      }
-      .sheet(isPresented: $showJdrPicker) {
-        DocumentPicker(contentTypes: [.data], allowsMultiple: false) { urls in
-          showJdrPicker = false
-          app.installExtension(urls: urls)
-        }
-      }
-      .sheet(isPresented: $showSourceSearch) {
-        SourceSearchView()
-          .environmentObject(app)
-          .environmentObject(library)
-          .environmentObject(settings)
-          .environmentObject(extensions)
-          .environmentObject(player)
-      }
+    }
+    .alert("出错了", isPresented: Binding(
+      get: { app.errorMessage != nil },
+      set: { if !$0 { app.errorMessage = nil } }
+    )) {
+      Button("知道了", role: .cancel) { app.errorMessage = nil }
+    } message: {
+      Text(app.errorMessage ?? "")
     }
   }
 
-  // MARK: - 搜索栏
+  private func apply(category: BookOverviewCategory, to book: Book) {
+    switch category {
+    case .notStarted:
+      library.resetPosition(bookId: book.id)
+    case .current:
+      library.setPosition(bookId: book.id, chapterIndex: 0, seconds: 0.001)
+    case .completed:
+      let last = max(0, book.chapters.count - 1)
+      library.setPosition(bookId: book.id, chapterIndex: last, seconds: 0.001)
+      library.markFinished(bookId: book.id)
+    }
+  }
+
+  // MARK: 顶部搜索栏（56dp 全圆角，surfaceContainerHigh）
 
   private var searchBar: some View {
-    HStack(spacing: 10) {
-      HStack(spacing: 8) {
+    HStack(spacing: 0) {
+      if searchActive {
+        IconButton48(systemName: "chevron.left", label: "关闭") {
+          searchActive = false
+          query = ""
+        }
+      } else {
         Image(systemName: "magnifyingglass")
-          .font(.system(size: 16, weight: .medium))
-          .foregroundColor(AppColor.textSecondary)
-        TextField("搜索书名、作者", text: $app.searchText)
-          .textInputAutocapitalization(.never)
-          .autocorrectionDisabled()
-          .foregroundColor(AppColor.textPrimary)
-          .submitLabel(.search)
-        if !app.searchText.isEmpty {
-          Button {
-            app.searchText = ""
-          } label: {
-            Image(systemName: "xmark.circle.fill")
-              .foregroundColor(AppColor.textSecondary)
+          .font(.system(size: 24))
+          .foregroundColor(AppColor.onSurfaceVariant)
+          .frame(width: 48, height: 48)
+          .contentShape(Rectangle())
+          .onTapGesture { searchActive = true }
+      }
+
+      TextField("", text: $query)
+        .font(AppFont.bodyLarge())
+        .foregroundColor(AppColor.onSurface)
+        .textFieldStyle(.plain)
+        .autocorrectionDisabled()
+        .textInputAutocapitalization(.never)
+        .submitLabel(.search)
+        .onSubmit { commitSearch() }
+        .focused($searchFocused)
+        .frame(maxWidth: .infinity)
+
+      if !searchActive {
+        IconButton48(systemName: "books.vertical", label: "有声书文件夹") {
+          app.showImporter = true
+        }
+        IconButton48(systemName: "gearshape", label: "偏好设置") {
+          app.showSettings = true
+        }
+        .padding(.trailing, 4)
+      }
+    }
+    .frame(height: 56)
+    .background(AppColor.surfaceContainerHigh, in: Capsule())
+    .padding(.horizontal, searchActive ? 0 : 16)
+    .padding(.top, 8)
+    .animation(.easeInOut(duration: 0.2), value: searchActive)
+  }
+
+  @FocusState private var searchFocused: Bool
+
+  // MARK: 书架
+
+  private var shelfContent: some View {
+    Group {
+      if grouped.isEmpty {
+        emptyShelf
+      } else {
+        ScrollView {
+          if isGrid {
+            LazyVStack(spacing: 0) {
+              ForEach(grouped, id: \.category) { group in
+                SectionHeader(title: group.category.title)
+                  .padding(.top, 8)
+                  .padding(.bottom, 4)
+                LazyVGrid(columns: gridColumns, spacing: 8) {
+                  ForEach(group.books) { book in
+                    GridBookCard(book: book, width: gridItemWidth)
+                      .onTapGesture { app.openBook(book) }
+                      .onLongPressGesture(minimumDuration: 0.5, perform: { sheetBook = book })
+                  }
+                }
+                .padding(.horizontal, 8)
+              }
+            }
+            .padding(.top, 16)
+            .padding(.bottom, 96)
+          } else {
+            LazyVStack(spacing: 8, pinnedViews: [.sectionHeaders]) {
+              ForEach(grouped, id: \.category) { group in
+                Section {
+                  ForEach(group.books) { book in
+                    ListBookCard(book: book)
+                      .padding(.horizontal, 8)
+                      .onTapGesture { app.openBook(book) }
+                      .onLongPressGesture(minimumDuration: 0.5, perform: { sheetBook = book })
+                  }
+                } header: {
+                  SectionHeader(title: group.category.title)
+                    .padding(.horizontal, 8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(AppColor.background)
+                }
+              }
+            }
+            .padding(.top, 16)
+            .padding(.bottom, 96)
           }
         }
-      }
-      .padding(.horizontal, 14)
-      .frame(height: 46)
-      .background(AppColor.surface, in: Capsule())
-
-      Button {
-        app.showSettings = true
-      } label: {
-        Image(systemName: "gearshape")
-          .font(.system(size: 18, weight: .medium))
-          .foregroundColor(AppColor.textPrimary)
-          .frame(width: 46, height: 46)
-          .background(AppColor.surface, in: Circle())
+        .scrollIndicators(.hidden)
       }
     }
   }
 
-  // MARK: - 正在播放中
+  private var gridColumns: [GridItem] {
+    Array(repeating: GridItem(.flexible(), spacing: 8), count: gridColumnCount)
+  }
 
-  @ViewBuilder
-  private var nowPlayingSection: some View {
-    let items = library.playingBooks
-    if !items.isEmpty {
-      VStack(alignment: .leading, spacing: 12) {
-        Text("正在播放中")
-          .font(.system(size: 22, weight: .semibold))
-          .foregroundColor(AppColor.textPrimary)
-        ScrollView(.horizontal, showsIndicators: false) {
-          HStack(spacing: 12) {
-            ForEach(items) { book in
+  private var gridColumnCount: Int {
+    let width = UIScreen.main.bounds.width - 16
+    return max(2, Int((width / 180).rounded()))
+  }
+
+  private var gridItemWidth: CGFloat {
+    let width = UIScreen.main.bounds.width - 16
+    return (width - 8 * CGFloat(gridColumnCount - 1)) / CGFloat(gridColumnCount)
+  }
+
+  private var emptyShelf: some View {
+    VStack(spacing: 0) {
+      Spacer()
+      Image(systemName: "books.vertical")
+        .font(.system(size: 96))
+        .foregroundColor(AppColor.primary.opacity(0.6))
+      Text("首先添加有声书文件夹，然后就可以开始听书啦！")
+        .font(AppFont.titleMedium())
+        .foregroundColor(AppColor.onSurfaceVariant)
+        .multilineTextAlignment(.center)
+        .padding(.top, 24)
+      Button {
+        app.showImporter = true
+      } label: {
+        HStack(spacing: 8) {
+          Image(systemName: "plus").font(.system(size: 18))
+          Text("添加").font(AppFont.labelLarge())
+        }
+        .foregroundColor(AppColor.onPrimary)
+        .padding(.horizontal, 20)
+        .frame(height: 40)
+        .background(AppColor.primary, in: Capsule())
+      }
+      .buttonStyle(.plain)
+      .padding(.top, 24)
+      Spacer()
+    }
+    .padding(32)
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
+  }
+
+  // MARK: 搜索
+
+  private var searchContent: some View {
+    Group {
+      if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        ScrollView {
+          VStack(spacing: 0) {
+            if !history.isEmpty {
+              HStack {
+                Spacer()
+                Button("清除搜索历史") {
+                  history = []
+                  SearchHistory.save([])
+                }
+                .font(AppFont.labelLarge())
+                .foregroundColor(AppColor.primary)
+                .padding(.horizontal, 16)
+                .frame(height: 48)
+              }
+            }
+            ForEach(history, id: \.self) { item in
               Button {
-                app.openBook(book)
+                query = item
+                searchFocused = true
               } label: {
-                NowPlayingCard(book: book)
+                HStack(spacing: 0) {
+                  Image(systemName: "clock.arrow.circlepath")
+                    .font(.system(size: 24))
+                    .foregroundColor(AppColor.onSurfaceVariant)
+                    .frame(width: 24, height: 24)
+                    .padding(.trailing, 16)
+                  Text(item)
+                    .font(AppFont.bodyLarge())
+                    .foregroundColor(AppColor.onSurface)
+                  Spacer()
+                }
+                .padding(.horizontal, 16)
+                .frame(height: 56)
+                .contentShape(Rectangle())
               }
               .buttonStyle(.plain)
             }
           }
-          .padding(.vertical, 2)
+          .padding(.top, 16)
         }
-      }
-    }
-  }
-
-  // MARK: - 全部书籍
-
-  private var allBooksSection: some View {
-    VStack(alignment: .leading, spacing: 14) {
-      HStack(alignment: .center) {
-        Text("全部书籍")
-          .font(.system(size: 22, weight: .semibold))
-          .foregroundColor(AppColor.textPrimary)
-        Text("\(library.books.count)")
-          .font(.system(size: 13, weight: .medium))
-          .foregroundColor(AppColor.textSecondary)
-        Spacer()
-        sortMenu
-        layoutToggle
-        addMenu
-      }
-
-      if library.books.isEmpty {
-        emptyState
-      } else if settings.settings.useGridLayout {
-        LazyVGrid(
-          columns: [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)],
-          spacing: 18
-        ) {
-          ForEach(library.sorted(settings.settings.sortOrder)) { book in
-            NavigationLink(value: book.id) {
-              GridBookCard(book: book)
-            }
-            .buttonStyle(.plain)
-            .contextMenu {
-              bookContextMenu(book)
-            }
-          }
-        }
+      } else if filteredBooks.isEmpty {
+        Text("没有找到匹配的有声书")
+          .font(AppFont.bodyMedium())
+          .foregroundColor(AppColor.onSurfaceVariant)
+          .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+          .padding(.top, 32)
       } else {
-        LazyVStack(spacing: 10) {
-          ForEach(library.sorted(settings.settings.sortOrder)) { book in
-            NavigationLink(value: book.id) {
-              ListBookRow(book: book)
-            }
-            .buttonStyle(.plain)
-            .contextMenu {
-              bookContextMenu(book)
+        ScrollView {
+          LazyVStack(spacing: 8) {
+            ForEach(filteredBooks) { book in
+              ListBookCard(book: book)
+                .padding(.horizontal, 8)
+                .onTapGesture {
+                  commitSearch()
+                  app.openBook(book)
+                }
             }
           }
+          .padding(.top, 16)
+          .padding(.bottom, 24)
         }
       }
     }
   }
 
-  private var sortMenu: some View {
-    Menu {
-      Picker("排序", selection: $settings.settings.sortOrder) {
-        ForEach(BookSortOrder.allCases) { order in
-          Text(order.title).tag(order)
-        }
-      }
-    } label: {
-      Image(systemName: "arrow.up.arrow.down")
-        .font(.system(size: 15, weight: .medium))
-        .foregroundColor(AppColor.textSecondary)
-        .frame(width: 34, height: 34)
-    }
-  }
-
-  private var layoutToggle: some View {
-    Button {
-      settings.settings.useGridLayout.toggle()
-    } label: {
-      Image(systemName: settings.settings.useGridLayout ? "list.bullet" : "square.grid.2x2")
-        .font(.system(size: 15, weight: .medium))
-        .foregroundColor(AppColor.textSecondary)
-        .frame(width: 34, height: 34)
-    }
-  }
-
-  private var addMenu: some View {
-    Menu {
-      Button {
-        app.showImporter = true
-      } label: {
-        Label("导入本地音频 / 文件夹", systemImage: "folder.badge.plus")
-      }
-      Button {
-        showJdrPicker = true
-      } label: {
-        Label("导入 .jdr 接口源", systemImage: "shippingbox")
-      }
-      Button {
-        showSourceSearch = true
-      } label: {
-        Label("在线书源搜索", systemImage: "globe.asia.australia")
-      }
-      Button {
-        app.showSettings = true
-      } label: {
-        Label("设置", systemImage: "gearshape")
-      }
-    } label: {
-      Image(systemName: "plus")
-        .font(.system(size: 16, weight: .semibold))
-        .foregroundColor(AppColor.accent)
-        .frame(width: 34, height: 34)
-        .background(AppColor.accentSoft, in: Circle())
-    }
-  }
-
-  @ViewBuilder
-  private func bookContextMenu(_ book: Book) -> some View {
-    Button {
-      app.openBook(book)
-    } label: {
-      Label("播放", systemImage: "play.fill")
-    }
-    Button(role: .destructive) {
-      app.delete(book)
-    } label: {
-      Label("删除", systemImage: "trash")
-    }
-  }
-
-  private var emptyState: some View {
-    VStack(spacing: 14) {
-      Image(systemName: "books.vertical")
-        .font(.system(size: 46, weight: .light))
-        .foregroundColor(AppColor.textSecondary)
-      Text("书架还是空的")
-        .font(.headline)
-        .foregroundColor(AppColor.textPrimary)
-      Text("把整本有声书文件夹或音频文件导入进来，\n也可以用接口源在线搜索")
-        .font(.footnote)
-        .multilineTextAlignment(.center)
-        .foregroundColor(AppColor.textSecondary)
-      Button {
-        app.showImporter = true
-      } label: {
-        Text("导入音频")
-          .font(.subheadline.weight(.semibold))
-          .foregroundColor(AppColor.background)
-          .padding(.horizontal, 22)
-          .padding(.vertical, 11)
-          .background(AppColor.accent, in: Capsule())
-      }
-      .padding(.top, 4)
-    }
-    .frame(maxWidth: .infinity)
-    .padding(.vertical, 40)
-  }
-
-  // MARK: - 搜索结果
-
-  private var searchResults: some View {
-    let results = library.search(keywords).sorted {
-      NaturalSort.compare($0.title, $1.title) == .orderedAscending
-    }
-    return VStack(alignment: .leading, spacing: 12) {
-      Text("找到 \(results.count) 本")
-        .font(.footnote)
-        .foregroundColor(AppColor.textSecondary)
-      LazyVStack(spacing: 10) {
-        ForEach(results) { book in
-          NavigationLink(value: book.id) {
-            ListBookRow(book: book)
-          }
-          .buttonStyle(.plain)
-        }
-      }
-      if results.isEmpty {
-        Text("没有匹配的书")
-          .font(.subheadline)
-          .foregroundColor(AppColor.textSecondary)
-          .frame(maxWidth: .infinity)
-          .padding(.top, 40)
-      }
-    }
-  }
-
-  // MARK: - 迷你播放条
-
-  @ViewBuilder
-  private var miniPlayer: some View {
-    if let book = player.currentBook, let chapter = player.currentChapter {
-      HStack(spacing: 8) {
-        Button {
-          app.showPlayer = true
-        } label: {
-          HStack(spacing: 12) {
-            BookCoverView(book: book, size: 42, cornerRadius: 8)
-            VStack(alignment: .leading, spacing: 2) {
-              Text(chapter.title)
-                .font(.system(size: 14, weight: .medium))
-                .foregroundColor(AppColor.textPrimary)
-                .lineLimit(1)
-              Text("\(book.title) · \(Format.percent(player.progressFraction))")
-                .font(.system(size: 11))
-                .foregroundColor(AppColor.textSecondary)
-                .lineLimit(1)
-            }
-            Spacer(minLength: 4)
-            ProgressRing(progress: player.progressFraction)
-              .frame(width: 22, height: 22)
-          }
-        }
-        .buttonStyle(.plain)
-
-        Button {
-          player.togglePlayPause()
-        } label: {
-          Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-            .font(.system(size: 17, weight: .semibold))
-            .foregroundColor(AppColor.accent)
-            .frame(width: 42, height: 42)
-        }
-        .buttonStyle(.plain)
-      }
-      .padding(.horizontal, 10)
-      .padding(.vertical, 6)
-      .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-      .overlay(
-        RoundedRectangle(cornerRadius: 18, style: .continuous)
-          .stroke(AppColor.divider.opacity(0.6), lineWidth: 0.5)
-      )
-      .padding(.horizontal, 12)
-      .padding(.bottom, 6)
-    }
+  private func commitSearch() {
+    let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return }
+    var list = history.filter { $0 != trimmed }
+    list.insert(trimmed, at: 0)
+    history = Array(list.prefix(12))
+    SearchHistory.save(history)
   }
 }
 
-// MARK: - 卡片
+// MARK: - 搜索历史存储
 
-private struct ProgressRing: View {
-  let progress: Double
+enum SearchHistory {
+  private static let key = "timbre.searchHistory"
 
-  var body: some View {
-    ZStack {
-      Circle()
-        .stroke(AppColor.divider, lineWidth: 2.5)
-      Circle()
-        .trim(from: 0, to: max(0.02, min(1, progress)))
-        .stroke(AppColor.accent, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
-        .rotationEffect(.degrees(-90))
-    }
+  static func load() -> [String] {
+    UserDefaults.standard.stringArray(forKey: key) ?? []
+  }
+
+  static func save(_ items: [String]) {
+    UserDefaults.standard.set(items, forKey: key)
   }
 }
 
-private struct NowPlayingCard: View {
-  let book: Book
+// MARK: - 列表卡片
+
+struct ListBookCard: View {
+  var book: Book
+
+  private var showProgress: Bool { book.progress > 0.05 }
 
   var body: some View {
-    HStack(alignment: .top, spacing: 10) {
-      BookCoverView(book: book, size: 62, cornerRadius: 10)
-        .overlay(alignment: .topTrailing) {
-          SourceBadge(book: book)
-            .offset(x: 4, y: -4)
-        }
-      VStack(alignment: .leading, spacing: 3) {
-        Text(book.title)
-          .font(.system(size: 13, weight: .medium))
-          .foregroundColor(AppColor.textPrimary)
-          .lineLimit(1)
-        Text(currentChapterTitle)
-          .font(.system(size: 11))
-          .foregroundColor(AppColor.textSecondary)
-          .lineLimit(1)
-        Spacer(minLength: 2)
-        HStack {
-          Text(Format.time(book.totalDuration))
-            .font(.system(size: 10))
-            .foregroundColor(AppColor.textSecondary)
-          Spacer()
-          Text(Format.percent(book.progress))
-            .font(.system(size: 10))
-            .foregroundColor(AppColor.textSecondary)
-        }
-      }
-    }
-    .padding(10)
-    .frame(width: 268, height: 84, alignment: .leading)
-    .background(AppColor.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-  }
+    VStack(spacing: 0) {
+      HStack(spacing: 0) {
+        BookCoverView(book: book, size: 76)
+          .frame(width: 76, height: 76)
+          .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+          .padding(EdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 0))
 
-  private var currentChapterTitle: String {
-    let index = min(max(0, book.position.chapterIndex), max(0, book.chapters.count - 1))
-    guard book.chapters.indices.contains(index) else { return book.chapterCountText }
-    return book.chapters[index].title
-  }
-}
-
-private struct GridBookCard: View {
-  let book: Book
-
-  var body: some View {
-    VStack(alignment: .leading, spacing: 7) {
-      GeometryReader { geometry in
-        BookCoverView(book: book, size: geometry.size.width)
-          .overlay(alignment: .topTrailing) {
-            SourceBadge(book: book)
-              .padding(5)
+        VStack(alignment: .leading, spacing: 0) {
+          Text(book.author.isEmpty ? "未知作者" : book.author.uppercased())
+            .font(AppFont.labelSmall())
+            .foregroundColor(AppColor.onSurfaceVariant)
+            .lineLimit(1)
+          Text(book.title)
+            .font(AppFont.titleSmall())
+            .foregroundColor(AppColor.onSurface)
+            .lineLimit(2)
+            .padding(.top, 1)
+          HStack(spacing: 0) {
+            Text(Format.humanDuration(book.remainingSeconds))
+              .font(AppFont.labelMedium())
+              .foregroundColor(AppColor.onSurfaceVariant)
+            Spacer(minLength: 8)
+            if book.progress > 0 {
+              Text(Format.percent(book.progress))
+                .font(AppFont.labelMedium())
+                .foregroundColor(AppColor.onSurfaceVariant)
+            }
           }
+          .padding(.top, 4)
+          .padding(.trailing, 12)
+        }
+        .padding(.leading, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
       }
-      .aspectRatio(1, contentMode: .fit)
+      .frame(height: 92)
+
+      if showProgress {
+        M3ProgressBar(fraction: book.progress)
+          .padding(.leading, 12)
+          .padding(.trailing, 12)
+          .padding(.bottom, 10)
+      }
+    }
+    .background(
+      RoundedRectangle(cornerRadius: AppRadius.extraLarge, style: .continuous)
+        .fill(AppColor.surfaceContainerLow)
+    )
+    .overlay(alignment: .topTrailing) {
+      if let badge = sourceBadge {
+        Text(badge)
+          .font(.system(size: 12, weight: .bold))
+          .foregroundColor(AppColor.onSecondaryContainer)
+          .padding(.horizontal, 10)
+          .padding(.vertical, 5)
+          .background(AppColor.secondaryContainer, in: Capsule())
+          .padding(8)
+      }
+    }
+    .contentShape(RoundedRectangle(cornerRadius: AppRadius.extraLarge, style: .continuous))
+  }
+
+  private var sourceBadge: String? {
+    guard book.kind == .jdr else { return nil }
+    let name = book.sourceName ?? "源"
+    return String(name.prefix(1)).uppercased()
+  }
+}
+
+// MARK: - 网格卡片
+
+struct GridBookCard: View {
+  var book: Book
+  var width: CGFloat
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      BookCoverView(book: book, size: width)
+        .frame(width: width, height: width * 3 / 4)
+        .clipShape(RoundedRectangle(cornerRadius: AppRadius.large, style: .continuous))
 
       Text(book.title)
-        .font(.system(size: 13, weight: .medium))
-        .foregroundColor(AppColor.textPrimary)
-        .lineLimit(2)
+        .font(AppFont.titleMedium())
+        .foregroundColor(AppColor.onSurface)
+        .lineLimit(3)
         .multilineTextAlignment(.leading)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.top, 4)
 
-      HStack(spacing: 6) {
-        Text(book.author.isEmpty ? book.chapterCountText : book.author)
-          .font(.system(size: 11))
-          .foregroundColor(AppColor.textSecondary)
-          .lineLimit(1)
-        Spacer(minLength: 0)
-        if book.position.isStarted {
+      HStack(spacing: 0) {
+        Text(Format.humanDuration(book.remainingSeconds))
+          .font(AppFont.labelMedium())
+          .foregroundColor(AppColor.onSurfaceVariant)
+        Spacer(minLength: 4)
+        if book.progress > 0 {
           Text(Format.percent(book.progress))
-            .font(.system(size: 11))
-            .foregroundColor(AppColor.accent)
+            .font(AppFont.labelMedium())
+            .foregroundColor(AppColor.onSurfaceVariant)
         }
       }
+      .padding(.top, 2)
+
+      if book.progress > 0.05 {
+        M3ProgressBar(fraction: book.progress, track: AppColor.secondaryContainer, rounded: false)
+          .padding(.top, 8)
+      }
     }
+    .padding(.horizontal, 12)
+    .padding(.top, 12)
+    .background(
+      RoundedRectangle(cornerRadius: AppRadius.extraLarge, style: .continuous)
+        .fill(AppColor.surfaceContainerLow)
+    )
+    .overlay(alignment: .topTrailing) {
+      if let badge = sourceBadge {
+        Text(badge)
+          .font(.system(size: 12, weight: .bold))
+          .foregroundColor(AppColor.onSecondaryContainer)
+          .padding(.horizontal, 10)
+          .padding(.vertical, 5)
+          .background(AppColor.secondaryContainer, in: Capsule())
+          .padding(8)
+      }
+    }
+    .contentShape(RoundedRectangle(cornerRadius: AppRadius.extraLarge, style: .continuous))
+  }
+
+  private var sourceBadge: String? {
+    guard book.kind == .jdr else { return nil }
+    let name = book.sourceName ?? "源"
+    return String(name.prefix(1)).uppercased()
   }
 }
 
-private struct ListBookRow: View {
-  let book: Book
+// MARK: - 长按底部抽屉
+
+struct BookActionsSheet: View {
+  var book: Book
+  var onRename: () -> Void
+  var onDelete: () -> Void
+  var onCategory: (BookOverviewCategory) -> Void
 
   var body: some View {
-    HStack(spacing: 12) {
-      BookCoverView(book: book, size: 56, cornerRadius: 10)
-      VStack(alignment: .leading, spacing: 4) {
-        Text(book.title)
-          .font(.system(size: 15, weight: .medium))
-          .foregroundColor(AppColor.textPrimary)
-          .lineLimit(2)
-        HStack(spacing: 6) {
-          SourceBadge(book: book)
-          Text(book.chapterCountText)
-            .font(.system(size: 11))
-            .foregroundColor(AppColor.textSecondary)
-          if !book.author.isEmpty {
-            Text("·")
-              .font(.system(size: 11))
-              .foregroundColor(AppColor.textSecondary)
-            Text(book.author)
-              .font(.system(size: 11))
-              .foregroundColor(AppColor.textSecondary)
-              .lineLimit(1)
-          }
-        }
+    VStack(spacing: 0) {
+      if book.kind == .local {
+        M3ListItem(systemName: "textformat", title: "名称", action: onRename)
       }
-      Spacer(minLength: 4)
-      VStack(alignment: .trailing, spacing: 4) {
-        Text(Format.percent(book.progress))
-          .font(.system(size: 12, weight: .medium))
-          .foregroundColor(book.position.isStarted ? AppColor.accent : AppColor.textSecondary)
-        Text(Format.time(book.totalDuration))
-          .font(.system(size: 10))
-          .foregroundColor(AppColor.textSecondary)
+      M3ListItem(systemName: "trash", title: "删除有声书", action: onDelete)
+      if book.overviewCategory != .notStarted {
+        M3ListItem(systemName: "hourglass", title: "标记为尚未开始播放", action: {
+          onCategory(.notStarted)
+        })
       }
+      if book.overviewCategory != .current {
+        M3ListItem(systemName: "play.circle", title: "标记为正在播放", action: {
+          onCategory(.current)
+        })
+      }
+      if book.overviewCategory != .completed {
+        M3ListItem(systemName: "checkmark", title: "标记为已结束播放", action: {
+          onCategory(.completed)
+        })
+      }
+      Spacer().frame(height: 24)
     }
-    .padding(10)
-    .background(AppColor.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    .padding(.top, 12)
+    .frame(maxWidth: .infinity)
   }
 }

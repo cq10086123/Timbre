@@ -164,6 +164,14 @@ final class LibraryStore: ObservableObject {
     save()
   }
 
+  func updateBookmark(bookId: String, bookmarkId: String, title: String) {
+    guard let index = index(of: bookId),
+      let bookmarkIndex = books[index].bookmarks.firstIndex(where: { $0.id == bookmarkId })
+    else { return }
+    books[index].bookmarks[bookmarkIndex].title = title
+    save()
+  }
+
   func deleteBookmark(bookId: String, bookmarkId: String) {
     guard let i = index(of: bookId) else { return }
     books[i].bookmarks.removeAll { $0.id == bookmarkId }
