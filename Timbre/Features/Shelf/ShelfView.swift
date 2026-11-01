@@ -357,9 +357,8 @@ struct ShelfView: View {
         .frame(maxWidth: .infinity)
 
       if !searchActive {
-        IconButton48(systemName: "books.vertical", label: "有声书文件夹") {
-          app.showImporter = true
-        }
+        // 安卓的 folder_picker_in_settings 开关默认把「有声书文件夹」入口收进设置页，
+        // 搜索栏只留设置齿轮 —— 这里对齐，导入走「设置 → 有声书文件夹」
         IconButton48(systemName: "gearshape", label: "偏好设置") {
           app.showSettings = true
         }

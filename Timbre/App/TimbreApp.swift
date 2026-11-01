@@ -31,6 +31,8 @@ struct RootView: View {
       .task {
         // 老库补齐：把 m4b 里的内嵌章节读成 markData
         await app.backfillChapterMarks()
+        // 没有 封面 的 WebDAV 书补封面（目录图片 / 内嵌 artwork）
+        await app.backfillWebDavCovers()
         await WebDavRefresher.refreshIfAllowed(
           library: app.library,
           webdav: app.webdav,

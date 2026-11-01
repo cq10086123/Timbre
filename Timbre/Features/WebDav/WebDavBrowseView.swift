@@ -25,11 +25,18 @@ struct WebDavBrowseView: View {
   @State private var loading = false
   @State private var errorText: String?
   @State private var started = false
+  /// 「子文件夹各作为一本书」的扫描进度；total > 0 = 正在扫
+  @State private var scanDone = 0
+  @State private var scanTotal = 0
 
   private var current: Crumb? { stack.last }
 
   private var audioFiles: [WebDavResource] {
     WebDavAudio.sorted(items.filter { !$0.isDirectory && WebDavAudio.isAudio($0.name) })
+  }
+
+  private var subdirectories: [WebDavResource] {
+    items.filter { $0.isDirectory }
   }
 
   var body: some View {
@@ -165,40 +172,62 @@ struct WebDavBrowseView: View {
     }
   }
 
-  // MARK: 底部导入
+  // MARK: 底部导入（对齐安卓双模式：「此文件夹作为一本书」「子文件夹各作为一本书」）
 
   private var bottomBar: some View {
     VStack(spacing: 0) {
       Rectangle()
         .fill(AppColor.outlineVariant.opacity(0.4))
         .frame(height: 1)
-      HStack(spacing: 12) {
-        if audioFiles.isEmpty {
+      if scanTotal > 0 {
+        HStack {
+          Spacer()
+          Text("正在扫描书籍 \(scanDone)/\(scanTotal) …")
+            .font(AppFont.bodyMedium())
+            .foregroundColor(AppColor.onSurfaceVariant)
+          Spacer()
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+      } else if audioFiles.isEmpty && subdirectories.isEmpty {
+        HStack {
           Text("这个目录里没有音频文件")
             .font(AppFont.bodyMedium())
             .foregroundColor(AppColor.onSurfaceVariant)
           Spacer()
-        } else {
-          Text("\(audioFiles.count) 个音频")
-            .font(AppFont.bodyMedium())
-            .foregroundColor(AppColor.onSurfaceVariant)
-          Spacer()
-          Button {
-            importHere()
-          } label: {
-            Text("导入到书架")
-              .font(AppFont.labelLarge())
-              .foregroundColor(AppColor.onPrimary)
-              .padding(.horizontal, 24)
-              .frame(height: 44)
-              .background(AppColor.primary, in: Capsule())
-          }
-          .buttonStyle(.plain)
         }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+      } else {
+        HStack(spacing: 10) {
+          importButton(title: "此文件夹作为一本书", enabled: !audioFiles.isEmpty) {
+            importSingleBook()
+          }
+          importButton(title: "子文件夹各作为一本书", enabled: !subdirectories.isEmpty || !audioFiles.isEmpty) {
+            importAsLibraryRoot()
+          }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
       }
-      .padding(.horizontal, 16)
-      .padding(.vertical, 10)
     }
+  }
+
+  private func importButton(title: String, enabled: Bool, action: @escaping () -> Void) -> some View {
+    Button(action: action) {
+      Text(title)
+        .font(AppFont.labelLarge())
+        .foregroundColor(enabled ? AppColor.primary : AppColor.onSurfaceVariant)
+        .lineLimit(1)
+        .minimumScaleFactor(0.7)
+        .padding(.horizontal, 14)
+        .frame(maxWidth: .infinity, minHeight: 44)
+        .background(
+          Capsule().fill(enabled ? AppColor.primary.opacity(0.12) : AppColor.outlineVariant.opacity(0.2))
+        )
+    }
+    .buttonStyle(.plain)
+    .disabled(!enabled)
   }
 
   // MARK: 行为
@@ -242,7 +271,8 @@ struct WebDavBrowseView: View {
     }
   }
 
-  private func importHere() {
+  /// 单本导入：当前目录里的音频 = 一本书的章节
+  private func importSingleBook() {
     guard let crumb = current else { return }
     let files = audioFiles
     guard !files.isEmpty else { return }
@@ -260,7 +290,7 @@ struct WebDavBrowseView: View {
       )
     }
 
-    var book = Book(
+    let book = Book(
       id: bookId,
       title: crumb.title,
       author: "",
@@ -269,21 +299,142 @@ struct WebDavBrowseView: View {
       sourceName: server.name,
       webdavServerId: server.id
     )
+    addOrUpdate(book)
 
-    // 重新导入同一目录时保留进度、书签与个性化设置
-    if let old = library.books.first(where: { $0.id == bookId }) {
-      book.position = old.position
-      book.bookmarks = old.bookmarks
-      book.skipIntro = old.skipIntro
-      book.skipOutro = old.skipOutro
-      book.speed = old.speed
-      book.addedAt = old.addedAt
-      book.coverFile = old.coverFile
-      library.update(book)
+    // 封面：目录图片文件优先，其次第一段音频的内嵌封面（不阻塞返回）
+    let password = webdav.password(for: server.id)
+    let library = self.library
+    let listing = items
+    let target = library.books.first(where: { $0.id == bookId }) ?? book
+    if target.coverFile == nil {
+      Task {
+        if let path = await WebDavCoverFetcher.fetch(
+          book: target,
+          server: server,
+          password: password,
+          listing: listing
+        ) {
+          await MainActor.run { library.setCover(bookId: bookId, coverFile: path) }
+        }
+      }
+    }
+    dismiss()
+  }
+
+  /// 批量导入：当前目录的每个子文件夹各作为一本书（子文件夹里的音频 = 章节），
+  /// 顶层散音频各作为一本单章书。对齐安卓 `WebDavBookSource.Mode.LibraryRoot` 的展开语义。
+  private func importAsLibraryRoot() {
+    guard let _ = current, scanTotal == 0 else { return }
+    let dirs = subdirectories
+    let files = audioFiles
+    guard !dirs.isEmpty || !files.isEmpty else { return }
+
+    var jobs: [(name: String, url: String, isDir: Bool)] = dirs.map { ($0.name, $0.url, true) }
+    jobs += files.map { ($0.name, $0.url, false) }
+    scanTotal = jobs.count
+    scanDone = 0
+
+    let password = webdav.password(for: server.id)
+    let library = self.library
+
+    Task {
+      var collected: [(book: Book, listing: [WebDavResource]?)] = []
+      for (index, job) in jobs.enumerated() {
+        defer {
+          let done = index + 1
+          Task { @MainActor in scanDone = done }
+        }
+
+        var chapters: [Chapter] = []
+        var listing: [WebDavResource]? = nil
+        let title = job.isDir ? job.name : ((job.name as NSString).deletingPathExtension)
+
+        if job.isDir, let url = URL(string: job.url) {
+          // 逐个 PROPFIND 子目录：NAS 一次大并发容易把服务打挂，串行最稳
+          if let list = try? await WebDavClient.list(url: url, server: server, password: password) {
+            listing = list
+            let audios = WebDavAudio.sorted(
+              list.filter { !$0.isDirectory && WebDavAudio.isAudio($0.name) }
+            )
+            let bookId = "webdav:\(server.id):\(url.path)"
+            chapters = audios.map { file in
+              Chapter(
+                id: "\(bookId)#\(file.url)",
+                title: file.name,
+                remoteURL: file.url,
+                duration: 0
+              )
+            }
+          } else {
+            DLog("webdav", "批量导入：子目录列举失败，跳过 \(job.name)")
+          }
+        } else if let url = URL(string: job.url) {
+          let bookId = "webdav:\(server.id):\(url.path)"
+          chapters = [
+            Chapter(
+              id: "\(bookId)#\(job.url)",
+              title: title,
+              remoteURL: job.url,
+              duration: 0
+            )
+          ]
+        }
+
+        guard !chapters.isEmpty, let bookURL = URL(string: job.url) else { continue }
+        let book = Book(
+          id: "webdav:\(server.id):\(bookURL.path)",
+          title: title,
+          author: "",
+          kind: .webdav,
+          chapters: chapters,
+          sourceName: server.name,
+          webdavServerId: server.id
+        )
+        collected.append((book, listing))
+      }
+
+      let finished = collected
+      await MainActor.run {
+        for entry in finished {
+          self.addOrUpdate(entry.book)
+        }
+        self.scanTotal = 0
+        self.dismiss()
+      }
+
+      // 封面：每本没有封面的书都试一次（目录图片优先，其次内嵌 artwork）
+      for entry in finished {
+        let target = await MainActor.run {
+          library.books.first(where: { $0.id == entry.book.id }) ?? entry.book
+        }
+        if let path = await WebDavCoverFetcher.fetch(
+          book: target,
+          server: server,
+          password: password,
+          listing: entry.listing
+        ) {
+          await MainActor.run { library.setCover(bookId: entry.book.id, coverFile: path) }
+        }
+      }
+    }
+  }
+
+  /// 重新导入同一目录/书时保留进度、书签与个性化设置
+  @MainActor
+  private func addOrUpdate(_ book: Book) {
+    if let old = library.books.first(where: { $0.id == book.id }) {
+      var updated = book
+      updated.position = old.position
+      updated.bookmarks = old.bookmarks
+      updated.skipIntro = old.skipIntro
+      updated.skipOutro = old.skipOutro
+      updated.speed = old.speed
+      updated.addedAt = old.addedAt
+      updated.coverFile = old.coverFile
+      library.update(updated)
     } else {
       library.add(book)
     }
-    dismiss()
   }
 
   private func byteText(_ bytes: Int64) -> String {

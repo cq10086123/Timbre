@@ -300,4 +300,32 @@ final class AppState: ObservableObject {
   }
 
   var themeColorScheme: ColorScheme? { settings.settings.themeMode.colorScheme }
+
+  // MARK: - WebDAV 书补封面
+
+  /// 冷启动给没有封面的 WebDAV 书补封面：目录图片优先，其次第一段音频的内嵌 artwork。
+  /// 一本一本串行来，别把 NAS 打挂；这本拿不到就跳过（下次启动再试）。
+  @MainActor
+  func backfillWebDavCovers() async {
+    let pending = library.books.filter { book in
+      book.kind == .webdav && (book.coverFile == nil || book.coverFile?.isEmpty == true)
+    }
+    guard !pending.isEmpty else { return }
+    DLog("webdav", "补封面开始：\(pending.count) 本缺封面")
+    for book in pending {
+      guard let serverId = book.webdavServerId,
+        let server = webdav.server(withId: serverId)
+      else { continue }
+      let password = webdav.password(for: serverId)
+      if let path = await WebDavCoverFetcher.fetch(
+        book: book,
+        server: server,
+        password: password,
+        listing: nil
+      ) {
+        library.setCover(bookId: book.id, coverFile: path)
+        DLog("webdav", "补封面成功 书=\(book.title)")
+      }
+    }
+  }
 }

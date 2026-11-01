@@ -125,6 +125,54 @@ enum WebDavClient {
     return data
   }
 
+  /// 取文件开头若干字节（内嵌封面探测用）。
+  /// 请求带 Range，但服务器不理会 Range 时就在客户端侧截断，保证不会整文件拉回来。
+  static func getHead(
+    url: URL,
+    server: WebDavServer,
+    password: String,
+    maxBytes: Int
+  ) async throws -> (data: Data, contentType: String?) {
+    guard url.scheme != nil, url.host != nil else { throw WebDavError.badURL }
+
+    var request = URLRequest(url: url)
+    request.timeoutInterval = timeout
+    request.setValue("bytes=0-\(maxBytes - 1)", forHTTPHeaderField: "Range")
+    if let auth = basicAuth(user: server.username, password: password) {
+      request.setValue(auth, forHTTPHeaderField: "Authorization")
+    }
+
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.timeoutIntervalForRequest = timeout
+    configuration.timeoutIntervalForResource = timeout * 2
+    let delegate = server.trustAllCertificates ? TrustAllDelegate() : nil
+    let session = URLSession(configuration: configuration, delegate: delegate, delegateQueue: nil)
+    defer { session.finishTasksAndInvalidate() }
+
+    let (bytes, response): (URLSession.AsyncBytes, URLResponse)
+    do {
+      (bytes, response) = try await session.bytes(for: request)
+    } catch {
+      throw WebDavError.transport(error.localizedDescription)
+    }
+    guard let http = response as? HTTPURLResponse else {
+      throw WebDavError.transport("响应不是 HTTP 响应")
+    }
+    if http.statusCode == 401 { throw WebDavError.auth }
+    guard (200..<300).contains(http.statusCode) else {
+      throw WebDavError.status(http.statusCode)
+    }
+
+    var data = Data()
+    data.reserveCapacity(maxBytes)
+    for try await byte in bytes {
+      data.append(byte)
+      if data.count >= maxBytes { break }
+    }
+    DLog("webdav", "GET(head) \(url.absoluteString) → \(http.statusCode) \(data.count)B")
+    return (data, http.value(forHTTPHeaderField: "Content-Type"))
+  }
+
   /// 建目录（MKCOL）。已经存在（405）不算失败。
   static func makeCollection(url: URL, server: WebDavServer, password: String) async throws {
     let (_, response) = try await send(
