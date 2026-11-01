@@ -1193,6 +1193,9 @@ final class PlaybackEngine: NSObject, ObservableObject {
         if total.isFinite, total > 0, abs(total - self.duration) > 0.2 {
           self.duration = total
           self.persistChapterDuration(total)
+          // item 就绪才知道真实时长（在线源尤其如此）：不重刷锁屏的话，
+          // 锁屏进度条会一直是 --:--，直到用户手动 seek 才出现
+          self.updateNowPlayingInfo()
         }
       }
       self.saveTick += 1

@@ -14,6 +14,11 @@ struct ExtensionsView: View {
   @State private var errorText: String?
   @State private var uninstallTarget: InstalledExtension?
 
+  /// 默认参考源：本仓库 samples/Timbre.jdr 的 GitHub 直链。
+  /// 「从链接导入」打开时预填这个地址，用户不需要可自行清空更换。
+  static let defaultSourceURL =
+    "https://raw.githubusercontent.com/cq10086123/Timbre/main/samples/Timbre.jdr"
+
   /// Android 打开文件选择器用的是 `*/*`，这里同理放宽：.jdr 是自定义扩展名，
   /// 只允许 .data 会让部分「文件」提供方把它置灰点不动。
   private var importTypes: [UTType] {
@@ -131,7 +136,9 @@ struct ExtensionsView: View {
         title: "从链接导入",
         subtitle: "下载并安装网络上的 .jdr 扩展包",
         action: {
-          linkText = ""
+          // 默认预填项目自带的参考源（仓库 samples/Timbre.jdr 的 GitHub 直链），
+          // 不需要的话清掉换成自己的链接就行
+          linkText = Self.defaultSourceURL
           showLinkDialog = true
         }
       )
@@ -140,7 +147,7 @@ struct ExtensionsView: View {
   }
 
   private var emptyText: some View {
-    Text("尚未安装接口源。导入 .jdr 扩展包即可在搜索中使用本地接口源。")
+    Text("尚未安装接口源。「从链接导入」已预填作者提供的参考源，点导入即可使用；不需要可换成自己的链接。")
       .font(AppFont.bodyMedium())
       .foregroundColor(AppColor.onSurfaceVariant)
       .frame(maxWidth: .infinity, alignment: .leading)
