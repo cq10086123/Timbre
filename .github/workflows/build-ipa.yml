@@ -2,9 +2,9 @@ name: Build unsigned IPA
 
 on:
   push:
-    branches: [main]
+    # iOS 代码在 Timbre_b 分支，main 是安卓工程，不要在那里触发
+    branches: [Timbre_b]
     tags: ["v*"]
-  pull_request:
   workflow_dispatch:
 
 permissions:

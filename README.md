@@ -26,10 +26,9 @@ Android 版 [Timbre 听书](https://github.com/cq10086123/Timbre) 的 **iOS 独�
 
 不需要 Mac，也不需要开发者账号：仓库自带 GitHub Actions 工作流，在 macOS runner 上编译并打包成**未签名 IPA**。
 
-1. 把本目录推到你的新仓库（默认分支 `main`）。
-2. 打开 **Actions → Build unsigned IPA → Run workflow**（手动触发）。
-3. 跑完后在该次运行的 **Artifacts** 里下载 `Timbre-unsigned-ipa`。
-4. 如果想直接发版：推一个 `v1.0.0` 这样的 tag，会自动把 IPA 挂到 Release 上。
+1. 代码放在 `cq10086123/Timbre` 的 **`Timbre_b`** 分支（`main` 是安卓工程，工作流只在 `Timbre_b` 上跑）。
+2. 推一个 `v1.0.0` 这样的 tag，或在 **Actions → Build unsigned IPA → Run workflow** 手动触发。
+3. 跑完后在 Release 里直接下 `Timbre-unsigned.ipa`，或在该次运行的 **Artifacts** 里下 `Timbre-unsigned-ipa`。
 
 工作流做的事：`xcodegen generate` → `xcodebuild … CODE_SIGNING_ALLOWED=NO` → 把 `.app` 塞进 `Payload/` 打成 `.ipa`。整个过程**不做任何签名**。
 
