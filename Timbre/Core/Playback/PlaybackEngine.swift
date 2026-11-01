@@ -119,10 +119,25 @@ final class PlaybackEngine: NSObject, ObservableObject {
       if let book = currentBook { open(book, chapterIndex: chapterIndex, autoplay: true) }
       return
     }
+    let wasPlaying = isPlaying
     activateAudioSession()
     player.playImmediately(atRate: Float(speed))
     isPlaying = true
     updateNowPlayingInfo()
+    if !wasPlaying { autoEnableSleepTimerIfNeeded() }
+  }
+
+  /// 对齐安卓 AutoEnableSleepTimer：开始播放时若处于时间窗口内，自动开启睡眠定时器（默认 20 分钟）
+  private func autoEnableSleepTimerIfNeeded() {
+    let prefs = settings.settings
+    guard prefs.autoSleepEnabled, !sleepActive else { return }
+    guard
+      AutoSleepWindow.contains(
+        startMinute: prefs.autoSleepStartMinute,
+        endMinute: prefs.autoSleepEndMinute
+      )
+    else { return }
+    startSleepTimer(minutes: 20)
   }
 
   func pause(autoRewind: Bool = true) {
@@ -615,20 +630,31 @@ final class PlaybackEngine: NSObject, ObservableObject {
       self?.togglePlayPause()
       return .success
     }
+    // 安卓「蓝牙上一集/下一集切换章节」：关闭时这两个键退化为快退/快进
     center.nextTrackCommand.addTarget { [weak self] _ in
-      self?.nextChapter()
+      guard let self else { return .commandFailed }
+      if self.settings.settings.btSkipChapter {
+        self.nextChapter()
+      } else {
+        self.skip(Double(self.settings.settings.seekSeconds))
+      }
       return .success
     }
     center.previousTrackCommand.addTarget { [weak self] _ in
-      self?.previousChapter()
+      guard let self else { return .commandFailed }
+      if self.settings.settings.btSkipChapter {
+        self.previousChapter()
+      } else {
+        self.skip(-Double(self.settings.settings.seekSeconds))
+      }
       return .success
     }
     center.skipForwardCommand.addTarget { [weak self] _ in
-      self?.skip(Double(self?.settings.settings.seekSeconds ?? 15))
+      self?.skip(Double(self?.settings.settings.seekSeconds ?? 20))
       return .success
     }
     center.skipBackwardCommand.addTarget { [weak self] _ in
-      self?.skip(-Double(self?.settings.settings.seekSeconds ?? 15))
+      self?.skip(-Double(self?.settings.settings.seekSeconds ?? 20))
       return .success
     }
     center.changePlaybackPositionCommand.addTarget { [weak self] event in

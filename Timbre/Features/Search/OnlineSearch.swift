@@ -27,8 +27,9 @@ struct OnlineSearchSection: View {
   @State private var selectedId = ""
   @State private var results: [SourceSearchItem] = []
   @State private var loading = false
-  @State private var failed = false
   @State private var offline = false
+  @State private var failureText: String?
+  @State private var reloadKey = 0
 
   private var sources: [InstalledSource] { extensions.enabledSources }
 
@@ -38,17 +39,13 @@ struct OnlineSearchSection: View {
   }
 
   var body: some View {
-    if sources.isEmpty {
-      EmptyView()
-    } else {
-      VStack(spacing: 0) {
-        chipRow
-        content
-      }
-      .onAppear { syncSelection() }
-      .onChange(of: sources.map(\.id)) { _ in syncSelection() }
-      .task(id: "\(query)|\(activeSource?.id ?? "")") { await runSearch() }
+    VStack(spacing: 0) {
+      chipRow
+      content
     }
+    .onAppear { syncSelection() }
+    .onChange(of: sources.map(\.id)) { _ in syncSelection() }
+    .task(id: "\(query)|\(activeSource?.id ?? "")|\(reloadKey)") { await runSearch() }
   }
 
   private func syncSelection() {
@@ -57,7 +54,8 @@ struct OnlineSearchSection: View {
     }
   }
 
-  // 源 chip 行：标题「在线」+ 横向滚动的 FilterChip
+  // 源 chip 行：标题「在线」+ 横向滚动的 FilterChip。
+  // 没有接口源时也要出这一行——否则界面只是一片空白，用户不知道是「没源」还是「没结果」。
   private var chipRow: some View {
     ScrollView(.horizontal, showsIndicators: false) {
       HStack(spacing: 8) {
@@ -65,8 +63,19 @@ struct OnlineSearchSection: View {
           .font(AppFont.bodyLarge())
           .foregroundColor(AppColor.onSurface)
           .padding(.trailing, 4)
-        ForEach(sources) { source in
-          chip(source)
+        if sources.isEmpty {
+          Text("未导入接口源")
+            .font(AppFont.labelLarge())
+            .foregroundColor(AppColor.onSurfaceVariant)
+            .padding(.horizontal, 14)
+            .frame(height: 32)
+            .overlay(
+              Capsule().strokeBorder(AppColor.outlineVariant, lineWidth: 1)
+            )
+        } else {
+          ForEach(sources) { source in
+            chip(source)
+          }
         }
       }
       .padding(.horizontal, 16)
@@ -107,20 +116,43 @@ struct OnlineSearchSection: View {
 
   @ViewBuilder
   private var content: some View {
-    if loading {
+    if sources.isEmpty {
+      Text("还没有可用的接口源。到「偏好设置 › 接口源」里导入 .jdr 扩展包后才能在线搜索。")
+        .font(AppFont.bodyMedium())
+        .foregroundColor(AppColor.onSurfaceVariant)
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+    } else if loading {
       HStack {
         Spacer()
         ProgressView().scaleEffect(0.9)
         Spacer()
       }
       .frame(height: 56)
-    } else if failed {
-      Text(offline ? "网络不可用，请检查连接" : "搜索失败，请稍后重试")
-        .font(AppFont.bodyMedium())
-        .foregroundColor(AppColor.onSurfaceVariant)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
+    } else if let failureText {
+      VStack(alignment: .leading, spacing: 6) {
+        Text(offline ? "网络不可用，请检查连接" : "搜索失败")
+          .font(AppFont.bodyMedium())
+          .foregroundColor(AppColor.onSurface)
+        Text(failureText)
+          .font(AppFont.bodySmall())
+          .foregroundColor(AppColor.onSurfaceVariant)
+          .fixedSize(horizontal: false, vertical: true)
+        Button("重试") { reloadKey += 1 }
+          .font(AppFont.labelLarge())
+          .foregroundColor(AppColor.primary)
+          .padding(.horizontal, 12)
+          .frame(height: 36)
+          .overlay(
+            Capsule().strokeBorder(AppColor.outlineVariant, lineWidth: 1)
+          )
+          .padding(.top, 2)
+      }
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .padding(.horizontal, 16)
+      .padding(.vertical, 12)
     } else if results.isEmpty {
       Text("这个源没有搜到结果")
         .font(AppFont.bodyMedium())
@@ -179,16 +211,33 @@ struct OnlineSearchSection: View {
 
   private func runSearch() async {
     let keyword = query.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !keyword.isEmpty, let source = activeSource,
-      let script = extensions.scriptText(for: source)
-    else {
+    guard !sources.isEmpty else {
       results = []
       loading = false
+      failureText = nil
+      return
+    }
+    guard !keyword.isEmpty else {
+      results = []
+      loading = false
+      failureText = nil
+      return
+    }
+    guard let source = activeSource else {
+      results = []
+      loading = false
+      failureText = "没有可用的接口源"
+      return
+    }
+    guard let script = extensions.scriptText(for: source) else {
+      results = []
+      loading = false
+      failureText = "读不到源脚本「\(source.meta.script)」，请在接口源里重新导入扩展包"
       return
     }
 
     loading = true
-    failed = false
+    failureText = nil
     offline = false
     try? await Task.sleep(nanoseconds: searchDebounce)
     // 防抖：查询词或源变了，旧任务会被取消，取消的搜索不算失败
@@ -206,7 +255,7 @@ struct OnlineSearchSection: View {
     } catch {
       if Task.isCancelled { return }
       offline = !NetworkStatus.isOnline
-      failed = true
+      failureText = error.localizedDescription
       results = []
       loading = false
     }

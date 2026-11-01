@@ -279,21 +279,24 @@ enum JavaScriptSourceEngine {
 
     _ = context.evaluateScript(prelude)
     if let text = exceptionText { throw SourceEngineError.runtime("运行环境初始化失败：\(text)") }
+    guard let start = context.objectForKeyedSubscript("__iosStart"), !start.isUndefined else {
+      throw SourceEngineError.runtime("运行环境初始化失败：缺少 __iosStart")
+    }
 
     _ = context.evaluateScript(script)
     if let text = exceptionText { throw SourceEngineError.source("脚本语法/初始化错误：\(text)") }
 
-    guard let start = context.objectForKeyedSubscript("__iosStart"), !start.isUndefined else {
-      throw SourceEngineError.source("源脚本未注册任何源")
-    }
+    // 关键：JSContext 的 Promise 微任务在每次 API 调用结束（栈空）时才排空，
+    // 而 http 桥是同步阻塞的，所以一次 call 就能把整条 await 链跑完。
+    // 这里仍然留出真实等待，兼容未来可能出现的分片异步实现。
     _ = start.call(withArguments: [stage, paramsJSON])
     if let text = exceptionText { throw SourceEngineError.source(text) }
 
     var state = "pending"
-    for _ in 0..<80 {
-      let value = context.evaluateScript("__iosState()")
-      state = value?.toString() ?? "pending"
+    for _ in 0..<150 {
+      state = context.evaluateScript("__iosState()")?.toString() ?? "pending"
       if state == "done" || state == "error" { break }
+      Thread.sleep(forTimeInterval: 0.02)
     }
 
     let resultText = context.evaluateScript("__iosValue()")?.toString() ?? ""
