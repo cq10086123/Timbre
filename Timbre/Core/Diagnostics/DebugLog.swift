@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 
 /// 环形诊断日志：只保留最近若干条，用于「在设置里导出 txt 发我」这条排查路径。
 /// 同时写 NSLog，接数据线时也能用控制台工具实时看到。
@@ -51,11 +52,18 @@ final class DebugLog {
     lines.append("生成时间：\(Self.stamp.string(from: Date()))")
     lines.append("条目数：\(snapshot.count)")
     lines.append("版本：\(Self.appVersion)")
+    lines.append("设备：\(Self.deviceInfo)")
     lines.append("")
     for entry in snapshot {
       lines.append("\(Self.clock.string(from: entry.time)) [\(entry.tag)] \(entry.message)")
     }
     return lines.joined(separator: "\n")
+  }
+
+  /// 机型 + 系统版本：有些播放问题是特定机型/系统才出的，导出时一起带上省一轮来回
+  static var deviceInfo: String {
+    let device = UIDevice.current
+    return "\(device.model) · \(device.systemName) \(device.systemVersion)"
   }
 
   func clear() {

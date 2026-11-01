@@ -203,3 +203,78 @@ struct TimeBadge: View {
       )
   }
 }
+
+// MARK: - 跑马灯文字（对齐安卓 AppBarTitle 的 basicMarquee）
+
+/// 单行文字，放得下就静止，放不下就左右来回滚动。
+/// 安卓播放页标题用的是 `Modifier.basicMarquee()`，直接截断会丢信息，
+/// 所以这里按同样的行为实现：停 1.5s → 滚到底 → 停 1.5s → 回到开头。
+struct MarqueeText: View {
+  var text: String
+  var font: Font = AppFont.headlineMedium()
+  var color: Color = AppColor.onSurface
+  var speed: CGFloat = 34  // pt / 秒
+
+  @State private var textWidth: CGFloat = 0
+  @State private var offset: CGFloat = 0
+
+  // 有 private 存储属性时自动生成的 memberwise init 也是 private，
+  // 跨文件就构造不出来 —— 这里显式给一个 internal init。
+  init(
+    text: String,
+    font: Font = AppFont.headlineMedium(),
+    color: Color = AppColor.onSurface,
+    speed: CGFloat = 34
+  ) {
+    self.text = text
+    self.font = font
+    self.color = color
+    self.speed = speed
+  }
+
+  var body: some View {
+    GeometryReader { geo in
+      let container = geo.size.width
+      let overflow = max(0, textWidth - container)
+
+      Text(text)
+        .font(font)
+        .foregroundColor(color)
+        .lineLimit(1)
+        .fixedSize(horizontal: true, vertical: false)
+        .background(
+          GeometryReader { proxy in
+            Color.clear.preference(key: MarqueeWidthKey.self, value: proxy.size.width)
+          }
+        )
+        .offset(x: overflow > 0 ? offset : 0)
+        .frame(width: container, alignment: .leading)
+        .onPreferenceChange(MarqueeWidthKey.self) { width in
+          if abs(width - textWidth) > 0.5 { textWidth = width }
+        }
+        .task(id: "\(text)|\(Int(container))|\(Int(textWidth))") {
+          // 内容或宽度变了就重来一遍，避免用旧的位移量
+          offset = 0
+          guard overflow > 0, container > 1 else { return }
+          try? await Task.sleep(nanoseconds: 1_500_000_000)
+          while !Task.isCancelled {
+            let duration = Double(overflow) / Double(max(speed, 1)) + 0.4
+            withAnimation(.linear(duration: duration)) { offset = -overflow }
+            try? await Task.sleep(nanoseconds: UInt64((duration + 1.6) * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut(duration: 0.25)) { offset = 0 }
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            guard !Task.isCancelled else { return }
+          }
+        }
+    }
+    .clipped()
+  }
+}
+
+private struct MarqueeWidthKey: PreferenceKey {
+  static var defaultValue: CGFloat { 0 }
+  static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+    value = max(value, nextValue())
+  }
+}

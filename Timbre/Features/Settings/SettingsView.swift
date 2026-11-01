@@ -155,7 +155,7 @@ struct SettingsView: View {
           M3ListItem(
             systemName: "doc.text.magnifyingglass",
             title: "调试日志",
-            subtitle: "搜索或播放出问题时，导出这里的内容发给开发者",
+            subtitle: "已记录 \(DebugLog.shared.count) 条 · 出问题时导出这里的内容发给开发者",
             action: { showDebugLog = true }
           )
 

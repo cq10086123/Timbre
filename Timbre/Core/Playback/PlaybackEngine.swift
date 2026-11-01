@@ -27,6 +27,8 @@ final class PlaybackEngine: NSObject, ObservableObject {
   private var timeObserverToken: Any?
   private var endObserver: NSObjectProtocol?
   private var failedObserver: NSObjectProtocol?
+  private var errorLogObserver: NSObjectProtocol?
+  private var statusObservation: NSKeyValueObservation?
   private var interruptionObserver: NSObjectProtocol?
   private var routeObserver: NSObjectProtocol?
   private var sleepTicker: Timer?
@@ -38,6 +40,8 @@ final class PlaybackEngine: NSObject, ObservableObject {
   private var pendingResume: Double = 0
   /// 每次加载递增，异步解析回来时校验，避免旧章节覆盖新章节
   private var loadToken = 0
+  /// resourceLoader.delegate 是 weak，必须由这里强引用住，否则代理立刻失效
+  private var proxyLoader: HeaderProxyLoader?
 
   init(
     library: LibraryStore,
@@ -58,9 +62,10 @@ final class PlaybackEngine: NSObject, ObservableObject {
 
   deinit {
     if let timeObserverToken { player.removeTimeObserver(timeObserverToken) }
-    for observer in [endObserver, failedObserver, interruptionObserver, routeObserver] {
+    for observer in [endObserver, failedObserver, errorLogObserver, interruptionObserver, routeObserver] {
       if let observer { NotificationCenter.default.removeObserver(observer) }
     }
+    statusObservation?.invalidate()
     sleepTicker?.invalidate()
     fadeTimer?.invalidate()
   }
@@ -328,10 +333,12 @@ final class PlaybackEngine: NSObject, ObservableObject {
         server: server,
         password: webdav.password(for: serverId)
       )
-      var options: [String: Any] = [:]
-      if !headers.isEmpty { options["AVURLAssetHTTPHeaderFieldsKey"] = headers }
-      let asset = AVURLAsset(url: url, options: options.isEmpty ? nil : options)
-      install(item: AVPlayerItem(asset: asset), book: book, chapter: chapter)
+      // Basic 认证头必须每个子请求都带，否则 Range 请求会被 401 —— 统一走流代理
+      install(
+        item: AVPlayerItem(asset: makeAsset(url: url, headers: headers, tag: "WebDAV")),
+        book: book,
+        chapter: chapter
+      )
       return
     }
 
@@ -358,13 +365,10 @@ final class PlaybackEngine: NSObject, ObservableObject {
         let resolved = try await self.resolveRemote(chapter: chapter, context: remote)
         await MainActor.run {
           guard self.loadToken == token else { return }
-          var options: [String: Any] = [:]
-          if !resolved.headers.isEmpty {
-            options["AVURLAssetHTTPHeaderFieldsKey"] = resolved.headers
-          }
-          let asset = AVURLAsset(
+          let asset = self.makeAsset(
             url: resolved.url,
-            options: options.isEmpty ? nil : options
+            headers: resolved.headers,
+            tag: "接口源"
           )
           self.install(item: AVPlayerItem(asset: asset), book: book, chapter: chapter)
         }
@@ -375,6 +379,24 @@ final class PlaybackEngine: NSObject, ObservableObject {
         }
       }
     }
+  }
+
+  /// 统一出口：决定这一条直链要不要套流代理。
+  ///
+  /// - 带请求头（接口源返回 `{url, headers}`、WebDAV 的 Authorization）→ 必须走代理，
+  ///   否则 AVFoundation 补发的 Range 子请求可能丢头，CDN 直接 403。
+  /// - 后缀是 DASH 分片（`.m4s`）→ 走代理，把 content-type 修成 mp4，
+  ///   否则 AVFoundation 判不出容器会静默 `status = .failed`。
+  /// - 其余普通直链（mp3/m4a 之类）→ 保持原生路径，不引入额外一层。
+  private func makeAsset(url: URL, headers: [String: String], tag: String) -> AVURLAsset {
+    let needsProxy = !headers.isEmpty || url.pathExtension.lowercased() == "m4s"
+    guard needsProxy else {
+      DLog("player", "\(tag) 直连 \(url.host ?? "-")\(url.path) (无头，原生路径)")
+      return AVURLAsset(url: url)
+    }
+    DLog("player", "\(tag) 代理 \(url.host ?? "-")\(url.path) 头=\(headers.keys.sorted())")
+    proxyLoader = HeaderProxyLoader(origin: url, headers: headers)
+    return proxyLoader?.makeAsset() ?? AVURLAsset(url: url)
   }
 
   private func install(item: AVPlayerItem, book: Book, chapter: Chapter) {
@@ -541,7 +563,70 @@ final class PlaybackEngine: NSObject, ObservableObject {
     ) { [weak self] notification in
       guard let self else { return }
       let error = notification.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? Error
+      DLog("player", "✗ 播放中断 \(error?.localizedDescription ?? "未知错误")")
       self.fail("播放失败：\(error?.localizedDescription ?? "未知错误")")
+    }
+
+    // item.status 变 .failed 时不会发任何通知，只能 KVO。
+    // 之前只监听 FailedToPlayToEndTime，导致「拉不到流」这类失败全程静默 ——
+    // 界面只是转圈不动，日志里一个字都没有。
+    statusObservation?.invalidate()
+    statusObservation = item.observe(\.status, options: [.initial, .new]) { [weak self] item, _ in
+      switch item.status {
+      case .readyToPlay:
+        let seconds = item.duration.seconds
+        DLog(
+          "player",
+          "item 就绪 时长=\(seconds.isFinite ? String(format: "%.1f", seconds) : "未知")s"
+        )
+      case .failed:
+        let error = item.error as NSError?
+        DLog(
+          "player",
+          "✗ item.status=failed domain=\(error?.domain ?? "-") code=\(error?.code ?? 0) "
+            + "\(error?.localizedDescription ?? "")"
+        )
+        DispatchQueue.main.async {
+          self?.fail(Self.describe(error))
+        }
+      case .unknown:
+        DLog("player", "item.status=unknown（开始加载）")
+      @unknown default:
+        break
+      }
+    }
+
+    // errorLog 里带 CDN 的真实 HTTP 状态码，是判断「防盗链拦了」还是「容器不认」的关键证据
+    if let errorLogObserver { NotificationCenter.default.removeObserver(errorLogObserver) }
+    errorLogObserver = NotificationCenter.default.addObserver(
+      forName: .AVPlayerItemNewErrorLogEntry,
+      object: item,
+      queue: .main
+    ) { _ in
+      guard let log = item.errorLog(), let event = log.events.last else { return }
+      DLog(
+        "player",
+        "✗ 访问日志 status=\(event.errorStatusCode) \(event.errorComment ?? "") "
+          + "host=\(event.serverAddress ?? "-") uri=\(event.uri ?? "-")"
+      )
+    }
+  }
+
+  /// 把 AVFoundation 的错误翻成听得懂的话
+  private static func describe(_ error: NSError?) -> String {
+    guard let error else { return "播放失败：未知错误" }
+    // -11828 文件类型不支持 / -1008 资源不可用 / -1100 文件不存在 / -1005 连接中断
+    switch error.code {
+    case -11828:
+      return "播放失败：这段音频的容器格式系统认不出来（常见于分片音轨），请换个源或换一集"
+    case -1008:
+      return "播放失败：音频地址被服务器拒绝，直链可能已过期，重新点一次这一集试试"
+    case -1100:
+      return "播放失败：音频文件不存在"
+    case -1005:
+      return "播放失败：网络连接中断"
+    default:
+      return "播放失败：\(error.localizedDescription)"
     }
   }
 

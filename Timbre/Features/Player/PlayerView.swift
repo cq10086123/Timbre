@@ -23,6 +23,9 @@ struct PlayerView: View {
   var body: some View {
     GeometryReader { geo in
       let landscape = geo.size.width > geo.size.height
+      // 宽度必须显式钉死：封面用 scaledToFill 时会把图片原始尺寸当理想宽度上报，
+      // VStack 会被撑到图片那么宽 —— 于是标题按超宽排版后被屏幕硬裁，
+      // 进度条与右侧总时长直接被挤出屏幕外。
       VStack(spacing: 0) {
         topBar(landscape: landscape)
         if landscape {
@@ -39,10 +42,10 @@ struct PlayerView: View {
           titleRow
           coverArea
           controlsColumn
-          Spacer().frame(height: 24)
+          Color.clear.frame(height: 24)
         }
       }
-      .frame(maxWidth: .infinity, maxHeight: .infinity)
+      .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
     }
     .background(AppColor.background.ignoresSafeArea())
     .m3Sheet(isPresented: $showChapters) {
@@ -86,14 +89,17 @@ struct PlayerView: View {
   /// 章节 + 进度 + 控制，竖屏直接排在封面下，横屏放进右半栏
   @ViewBuilder
   private var controlsColumn: some View {
+    // 用 Color.clear 而非 Spacer：Spacer 是弹性视图，会跟封面抢剩余高度，
+    // 结果封面被压扁、控件区反而留白。这里间距必须是死的。
     if book != nil && (book?.chapters.count ?? 0) > 1 {
+      Color.clear.frame(height: 16)
       chapterRow
-      Spacer().frame(height: 20)
+      Color.clear.frame(height: 20)
     } else {
-      Spacer().frame(height: 20)
+      Color.clear.frame(height: 20)
     }
     sliderRow
-    Spacer().frame(height: 16)
+    Color.clear.frame(height: 16)
     playbackRow
   }
 
@@ -105,13 +111,18 @@ struct PlayerView: View {
       }
       // 横屏走紧凑顶栏（安卓 TopAppBar），书名移到标题位；竖屏用下方大标题
       if landscape {
-        Text(book?.title ?? "")
-          .font(AppFont.titleLarge())
-          .foregroundColor(AppColor.onSurface)
-          .lineLimit(1)
-          .padding(.leading, 8)
+        MarqueeText(
+          text: book?.title ?? "",
+          font: AppFont.titleLarge(),
+          color: AppColor.onSurface
+        )
+        .frame(height: 28)
+        // 交给跑马灯占满剩余宽度（它自己是 GeometryReader，跟 Spacer 抢会只分到一半）
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.leading, 8)
+      } else {
+        Spacer(minLength: 0)
       }
-      Spacer(minLength: 0)
       IconButton48(
         systemName: player.sleepActive ? "moon.fill" : "moon",
         label: "睡眠定时器"
@@ -156,42 +167,45 @@ struct PlayerView: View {
     .frame(height: landscape ? 56 : 64)
   }
 
-  // MARK: 标题（LargeTopAppBar 展开态，左对齐单行）
+  // MARK: 标题（LargeTopAppBar 展开态，对齐安卓 AppBarTitle 的跑马灯）
 
   private var titleRow: some View {
-    Text(book?.title ?? "")
-      .font(AppFont.headlineMedium())
-      .foregroundColor(AppColor.onSurface)
-      .lineLimit(1)
-      .frame(maxWidth: .infinity, alignment: .leading)
-      .padding(.horizontal, 16)
-      .padding(.bottom, 8)
+    MarqueeText(
+      text: book?.title ?? "",
+      font: AppFont.headlineMedium(),
+      color: AppColor.onSurface
+    )
+    .frame(height: 38)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .padding(.horizontal, 16)
+    .padding(.bottom, 8)
   }
 
   // MARK: 封面（占满剩余高度，圆角 20）
 
   private var coverArea: some View {
     ZStack(alignment: .topTrailing) {
-      Group {
-        if let book, let image = player.coverImage(for: book) {
-          Image(uiImage: image)
-            .resizable()
-            .scaledToFill()
-        } else {
-          AppColor.surfaceVariant
-            .overlay {
-              Image(systemName: "opticaldisc")
-                .font(.system(size: 64))
-                .foregroundColor(AppColor.onSurfaceVariant.opacity(0.5))
-            }
+      // 同 OnlineCover：先给确定的框，再 overlay 图片，避免 scaledToFill 撑破容器
+      Color.clear
+        .overlay {
+          if let book, let image = player.coverImage(for: book) {
+            Image(uiImage: image)
+              .resizable()
+              .scaledToFill()
+          } else {
+            AppColor.surfaceVariant
+              .overlay {
+                Image(systemName: "opticaldisc")
+                  .font(.system(size: 64))
+                  .foregroundColor(AppColor.onSurfaceVariant.opacity(0.5))
+              }
+          }
         }
-      }
-      .frame(maxWidth: .infinity, maxHeight: .infinity)
-      .clipped()
-      .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-      .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-      .onTapGesture(count: 2) { player.togglePlayPause() }
-      .accessibilityLabel("封面")
+        .clipped()
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .onTapGesture(count: 2) { player.togglePlayPause() }
+        .accessibilityLabel("封面")
 
       if player.sleepActive {
         TimeBadge(text: sleepBadgeText)
@@ -225,6 +239,8 @@ struct PlayerView: View {
             .font(AppFont.bodyLarge())
             .foregroundColor(AppColor.onSurface)
             .multilineTextAlignment(.center)
+            .lineLimit(1)
+            .truncationMode(.middle)
             .padding(.horizontal, 4)
           Image(systemName: "chevron.down")
             .font(.system(size: 28))
@@ -247,10 +263,14 @@ struct PlayerView: View {
 
   private var sliderRow: some View {
     HStack(spacing: 0) {
+      // 两段时间固定宽度 + 等宽数字：否则 0:00:00 → 1:23:45 之间宽度变化会把滑块挤得左右跳
       Text(Format.clockString(displayPosition, duration: player.duration))
         .font(AppFont.bodyLarge())
+        .monospacedDigit()
         .foregroundColor(AppColor.onSurface)
         .lineLimit(1)
+        .fixedSize()
+        .frame(minWidth: 58, alignment: .leading)
       ExpressiveSlider(
         value: Binding(
           get: { dragValue ?? (player.duration > 0 ? player.position / player.duration : 0) },
@@ -266,8 +286,11 @@ struct PlayerView: View {
       .padding(.horizontal, 8)
       Text(Format.clockString(player.duration, duration: player.duration))
         .font(AppFont.bodyLarge())
+        .monospacedDigit()
         .foregroundColor(AppColor.onSurface)
         .lineLimit(1)
+        .fixedSize()
+        .frame(minWidth: 58, alignment: .trailing)
     }
     .padding(.horizontal, 16)
   }

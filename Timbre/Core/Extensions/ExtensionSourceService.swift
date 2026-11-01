@@ -69,7 +69,20 @@ final class ExtensionSourceService {
       stage: "audio",
       params: params
     )
-    return try SourceContract.audio(json)
+    do {
+      let resolved = try SourceContract.audio(json)
+      // 记下 host、后缀和头名：播放失败时这三项就能判断是「防盗链拒绝」还是「容器不认」
+      if let parsed = URL(string: resolved.url) {
+        DLog(
+          "audio",
+          "直链 host=\(parsed.host ?? "-") 后缀=\(parsed.pathExtension) 头=\(resolved.headers.keys.sorted())"
+        )
+      }
+      return resolved
+    } catch {
+      DLog("audio", "解析失败：\(error.localizedDescription) 原始=\(String(json.prefix(400)))")
+      throw error
+    }
   }
 
   // MARK: - 底层

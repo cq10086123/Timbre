@@ -195,16 +195,17 @@ struct OnlineSearchSection: View {
 
   /// 结果行：52×70 封面（无圆角，与安卓一致）+ 标题 + 「作者 · 集数」
   private func resultRow(_ item: SourceSearchItem) -> some View {
-    HStack(spacing: 0) {
+    HStack(alignment: .top, spacing: 12) {
       OnlineCover(url: item.cover)
         .frame(width: 52, height: 70)
 
-      VStack(alignment: .leading, spacing: 2) {
+      VStack(alignment: .leading, spacing: 4) {
         Text(item.title)
           .font(AppFont.bodyLarge())
           .foregroundColor(AppColor.onSurface)
           .lineLimit(2)
           .multilineTextAlignment(.leading)
+          .fixedSize(horizontal: false, vertical: true)
         let subtitle = [
           item.author, item.trackCount > 0 ? "\(item.trackCount)" : "",
         ]
@@ -215,11 +216,11 @@ struct OnlineSearchSection: View {
             .font(AppFont.bodyMedium())
             .foregroundColor(AppColor.onSurfaceVariant)
             .lineLimit(1)
+            .truncationMode(.tail)
         }
       }
-      .padding(.leading, 12)
-
-      Spacer(minLength: 0)
+      // 占满剩余宽度：靠 Spacer 推会算出 0 宽，标题就被压成一行一个字的竖条
+      .frame(maxWidth: .infinity, alignment: .leading)
     }
     .padding(.horizontal, 16)
     .padding(.vertical, 8)
@@ -288,20 +289,29 @@ private struct OnlineCover: View {
   var url: String
 
   var body: some View {
-    AsyncImage(url: URL(string: url)) { phase in
-      if let image = phase.image {
-        image.resizable().scaledToFill()
-      } else {
-        Rectangle()
-          .fill(AppColor.surfaceContainerHigh)
-          .overlay(
-            Image(systemName: "book.closed")
-              .font(.system(size: 16))
-              .foregroundColor(AppColor.onSurfaceVariant)
-          )
+    // 关键：先给一个确定尺寸的占位，再把图 overlay 上去裁掉。
+    // 直接把 resizable().scaledToFill() 丢给外层 frame 是无效的 ——
+    // scaledToFill 会把「图片原始尺寸」当成理想尺寸上报，父容器被撑大，
+    // 封面就溢出到文字区，行高也跟着乱。
+    Color.clear
+      .overlay {
+        AsyncImage(url: URL(string: url)) { phase in
+          if let image = phase.image {
+            image
+              .resizable()
+              .scaledToFill()
+          } else {
+            Rectangle()
+              .fill(AppColor.surfaceContainerHigh)
+              .overlay(
+                Image(systemName: "book.closed")
+                  .font(.system(size: 16))
+                  .foregroundColor(AppColor.onSurfaceVariant)
+              )
+          }
+        }
       }
-    }
-    .clipped()
+      .clipped()
   }
 }
 
