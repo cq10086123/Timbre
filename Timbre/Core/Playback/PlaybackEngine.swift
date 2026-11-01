@@ -48,6 +48,8 @@ final class PlaybackEngine: NSObject, ObservableObject {
   private var didRetryVariant = false
   /// 当前这一章解析出来的直链，重试时不用再跑一遍 JS
   private var activeLoad: (book: Book, chapter: Chapter)?
+  /// 音量提升 + 跳过空白，走 MTAudioProcessingTap
+  private let audioProcessor = AudioProcessor()
 
   init(
     library: LibraryStore,
@@ -430,6 +432,7 @@ final class PlaybackEngine: NSObject, ObservableObject {
   private func install(item: AVPlayerItem, book: Book, chapter: Chapter) {
     player.replaceCurrentItem(with: item)
     observePlaybackFailure(item: item)
+    applyAudioProcessing(to: item, book: book)
     duration = chapter.duration
     isLoading = false
 
@@ -463,6 +466,73 @@ final class PlaybackEngine: NSObject, ObservableObject {
     isLoading = false
     isPlaying = false
     errorMessage = message
+  }
+
+  // MARK: - 音频处理（音量提升 / 跳过空白）
+
+  /// 把当前书的增益与跳过空白设置同步给处理器，再决定要不要挂 audioMix。
+  /// 两个开关都关着时完全不碰播放链路。
+  private func applyAudioProcessing(to item: AVPlayerItem, book: Book) {
+    audioProcessor.setGain(decibels: book.loudnessGain)
+    audioProcessor.setSkipSilence(book.skipSilence)
+    guard audioProcessor.isActive else { return }
+    audioProcessor.attach(to: item, asset: item.asset)
+  }
+
+  /// 音量提升，0~9 dB（对齐安卓 VolumeGain.MAX_GAIN）
+  func setLoudnessGain(_ decibels: Double) {
+    let clamped = min(max(decibels, 0), 9)
+    guard let bookId, let index = library.index(of: bookId) else { return }
+    guard abs(library.books[index].loudnessGain - clamped) > 0.01 else { return }
+
+    let wasActive = audioProcessor.isActive
+    library.books[index].loudnessGain = clamped
+    // 拖动滑块会高频触发，用延迟落盘，别每次都全量写盘
+    library.save(delay: 0.4)
+    audioProcessor.setGain(decibels: clamped)
+    syncAudioMix(wasActive: wasActive)
+  }
+
+  /// 跳过空白部分
+  func setSkipSilence(_ enabled: Bool) {
+    guard let bookId, let index = library.index(of: bookId) else { return }
+    guard library.books[index].skipSilence != enabled else { return }
+
+    let wasActive = audioProcessor.isActive
+    library.books[index].skipSilence = enabled
+    library.save(delay: 0.4)
+    audioProcessor.setSkipSilence(enabled)
+    syncAudioMix(wasActive: wasActive)
+  }
+
+  /// tap 里的增益是每次回调现读的，所以只需要处理「整体是否启用」的翻转：
+  /// 从关到开才挂一次 audioMix，从开到关才摘掉。拖滑块不会反复重挂。
+  private func syncAudioMix(wasActive: Bool) {
+    guard let item = player.currentItem else { return }
+    if audioProcessor.isActive {
+      if !wasActive {
+        audioProcessor.attach(to: item, asset: item.asset)
+      }
+    } else {
+      item.audioMix = nil
+    }
+  }
+
+  /// 处理器报「连续静音够久」时向前跳一小段。
+  /// 不像 ExoPlayer 那样按 100ms 窗口无缝裁剪，但能把章节开头/段间的空白跳过。
+  private func jumpOverSilence() {
+    guard duration > 0, player.timeControlStatus == .playing else { return }
+    let target = min(duration - 0.5, position + 2.5)
+    guard target > position + 0.3 else { return }
+    DLog(
+      "audio",
+      "跳过空白 \(String(format: "%.1f", position))s → \(String(format: "%.1f", target))s"
+    )
+    player.seek(
+      to: CMTime(seconds: target, preferredTimescale: 600),
+      toleranceBefore: .zero,
+      toleranceAfter: .zero
+    )
   }
 
   /// 一次远程解析需要的、只能在主线程安全读取的上下文
@@ -526,6 +596,7 @@ final class PlaybackEngine: NSObject, ObservableObject {
       // 1000 集的 library.json 不小，别每 3 秒全量编码一次；暂停/切章会 force 落盘
       if self.saveTick % 20 == 0 { self.savePosition() }
       self.checkOutroSkip()
+      if self.audioProcessor.consumeSilenceJump() { self.jumpOverSilence() }
     }
 
     endObserver = NotificationCenter.default.addObserver(

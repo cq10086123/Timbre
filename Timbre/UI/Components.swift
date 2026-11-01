@@ -278,3 +278,39 @@ private struct MarqueeWidthKey: PreferenceKey {
     value = max(value, nextValue())
   }
 }
+
+// MARK: - M3 居中对话框（对齐安卓 AlertDialog）
+
+/// 安卓那边这三个都是 `AlertDialog`：屏幕居中、圆角 28dp、背景 surfaceContainerHigh。
+/// iOS 的 `.alert` 放不了滑块，`.sheet` 又是底部弹窗，形态对不上，所以自己搭一个。
+struct M3AlertDialog<Content: View>: View {
+  var title: String?
+  var onDismiss: () -> Void
+  @ViewBuilder var content: () -> Content
+
+  var body: some View {
+    ZStack {
+      AppColor.scrim
+        .ignoresSafeArea()
+        .onTapGesture { onDismiss() }
+
+      VStack(alignment: .leading, spacing: 0) {
+        if let title, !title.isEmpty {
+          Text(title)
+            .font(AppFont.headlineSmall())
+            .foregroundColor(AppColor.onSurface)
+            .fixedSize(horizontal: false, vertical: true)
+          Color.clear.frame(height: 16)
+        }
+        content()
+      }
+      .padding(24)
+      .frame(maxWidth: 320, alignment: .leading)
+      .background(
+        RoundedRectangle(cornerRadius: 28, style: .continuous)
+          .fill(AppColor.surfaceContainerHigh)
+      )
+      .padding(.horizontal, 24)
+    }
+  }
+}

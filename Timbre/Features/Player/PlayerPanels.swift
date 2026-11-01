@@ -263,45 +263,39 @@ struct SpeedSheet: View {
 
 // MARK: - 跳过片头片尾
 
+/// 跳过片头片尾 —— 安卓是 AlertDialog 里的两行「标签 + M3 滑块」
 struct SkipIntroOutroSheet: View {
   var book: Book?
   @ObservedObject var library: LibraryStore
 
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
-      Text("跳过片头片尾")
-        .font(AppFont.headlineSmall())
-        .foregroundColor(AppColor.onSurface)
-      Spacer().frame(height: 16)
       Text(rowTitle("跳过片头", value: intro))
         .font(AppFont.bodyMedium())
         .foregroundColor(AppColor.onSurfaceVariant)
-      Slider(
+      ExpressiveSlider(
         value: Binding(
-          get: { Double(intro) },
-          set: { setIntro(Int($0.rounded())) }
+          get: { Double(intro) / Self.maxSeconds },
+          set: { setIntro(Int(($0 * Self.maxSeconds).rounded())) }
         ),
-        in: 0...120
+        onEditingChanged: { _ in }
       )
-      .tint(AppColor.primary)
-      Spacer().frame(height: 16)
+      Color.clear.frame(height: 20)
       Text(rowTitle("跳过片尾", value: outro))
         .font(AppFont.bodyMedium())
         .foregroundColor(AppColor.onSurfaceVariant)
-      Slider(
+      ExpressiveSlider(
         value: Binding(
-          get: { Double(outro) },
-          set: { setOutro(Int($0.rounded())) }
+          get: { Double(outro) / Self.maxSeconds },
+          set: { setOutro(Int(($0 * Self.maxSeconds).rounded())) }
         ),
-        in: 0...120
+        onEditingChanged: { _ in }
       )
-      .tint(AppColor.primary)
-      Spacer().frame(height: 24)
     }
-    .padding(24)
-    .frame(maxWidth: .infinity, alignment: .leading)
-    .presentationDetents([.height(340)])
   }
+
+  /// 安卓 SKIP_TIME_MAX_SECONDS = 120
+  private static let maxSeconds: Double = 120
 
   private var intro: Int { book?.skipIntro ?? 0 }
   private var outro: Int { book?.skipOutro ?? 0 }
@@ -310,14 +304,42 @@ struct SkipIntroOutroSheet: View {
     value == 0 ? "\(label): 关闭" : "\(label): \(value) 秒"
   }
 
-  private func setIntro(_ value: Int) { update { $0.skipIntro = value } }
-  private func setOutro(_ value: Int) { update { $0.skipOutro = value } }
+  private func setIntro(_ value: Int) { update { $0.skipIntro = min(max(value, 0), 120) } }
+  private func setOutro(_ value: Int) { update { $0.skipOutro = min(max(value, 0), 120) } }
 
   private func update(_ mutate: (inout Book) -> Void) {
     guard let book, let index = library.index(of: book.id) else { return }
     mutate(&library.books[index])
     library.save(delay: 0.4)
   }
+}
+
+// MARK: - 音量提升对话框
+
+/// 安卓 VolumeGainDialog：标题行「音量提升: 3.0 dB」+ 滑块 0~9
+struct VolumeGainPanel: View {
+  @ObservedObject var player: PlaybackEngine
+  var book: Book?
+
+  private var gain: Double { book?.loudnessGain ?? 0 }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      Text("音量提升: \(String(format: "%.1f", gain)) dB")
+        .font(AppFont.bodyMedium())
+        .foregroundColor(AppColor.onSurfaceVariant)
+      ExpressiveSlider(
+        value: Binding(
+          get: { gain / Self.maxGain },
+          set: { player.setLoudnessGain($0 * Self.maxGain) }
+        ),
+        onEditingChanged: { _ in }
+      )
+    }
+  }
+
+  /// 对齐安卓 VolumeGain.MAX_GAIN = Decibel(9F)
+  private static let maxGain: Double = 9
 }
 
 // MARK: - 书签页

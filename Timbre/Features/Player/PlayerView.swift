@@ -12,6 +12,7 @@ struct PlayerView: View {
   @State private var showSleep = false
   @State private var showSpeed = false
   @State private var showSkip = false
+  @State private var showGain = false
   @State private var showBookmarks = false
   @State private var dragValue: Double?
 
@@ -56,11 +57,23 @@ struct PlayerView: View {
     .m3Sheet(isPresented: $showSpeed) {
       SpeedSheet(player: player)
     }
-    .m3Sheet(isPresented: $showSkip) {
-      SkipIntroOutroSheet(book: book, library: library)
-    }
     .fullScreenCover(isPresented: $showBookmarks) {
       BookmarksView(player: player, library: library) { showBookmarks = false }
+    }
+    // 这两个在安卓都是居中的 AlertDialog，不是底部弹窗
+    .overlay {
+      if showSkip {
+        M3AlertDialog(title: "跳过片头片尾", onDismiss: { showSkip = false }) {
+          SkipIntroOutroSheet(book: book, library: library)
+        }
+      }
+    }
+    .overlay {
+      if showGain {
+        M3AlertDialog(title: nil, onDismiss: { showGain = false }) {
+          VolumeGainPanel(player: player, book: book)
+        }
+      }
     }
     .alert("播放出错", isPresented: Binding(
       get: { player.errorMessage != nil },
@@ -154,12 +167,25 @@ struct PlayerView: View {
       IconButton48(systemName: "speedometer", label: "播放速度") {
         showSpeed = true
       }
-      // 安卓是 MoreVert（竖三点）+ DropdownMenu，注意不是底部弹窗
+      // 安卓是 MoreVert（竖三点）+ DropdownMenu，三项顺序：跳过空白、音量提升、跳过片头片尾
       Menu {
+        Toggle(
+          isOn: Binding(
+            get: { book?.skipSilence ?? false },
+            set: { player.setSkipSilence($0) }
+          )
+        ) {
+          Text("跳过空白部分")
+        }
+        Button {
+          showGain = true
+        } label: {
+          Text("音量提升")
+        }
         Button {
           showSkip = true
         } label: {
-          Label("跳过片头片尾", systemImage: "scissors")
+          Text("跳过片头片尾")
         }
       } label: {
         Image(systemName: "ellipsis")

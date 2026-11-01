@@ -70,6 +70,10 @@ struct Book: Codable, Identifiable, Hashable {
   var skipIntro: Int
   var skipOutro: Int
   var speed: Double
+  /// 音量提升，单位 dB，0 = 关闭（对齐安卓 VolumeGain.MAX_GAIN = 9 dB）
+  var loudnessGain: Double
+  /// 跳过空白部分（对齐安卓 ExoPlayer 的 skipSilenceEnabled）
+  var skipSilence: Bool
   /// 接口源
   var sourceId: String?
   var sourceName: String?
@@ -94,6 +98,8 @@ struct Book: Codable, Identifiable, Hashable {
     skipIntro: Int = 0,
     skipOutro: Int = 0,
     speed: Double = 1.0,
+    loudnessGain: Double = 0,
+    skipSilence: Bool = false,
     sourceId: String? = nil,
     sourceName: String? = nil,
     remoteBookId: String? = nil,
@@ -114,6 +120,8 @@ struct Book: Codable, Identifiable, Hashable {
     self.skipIntro = skipIntro
     self.skipOutro = skipOutro
     self.speed = speed
+    self.loudnessGain = loudnessGain
+    self.skipSilence = skipSilence
     self.sourceId = sourceId
     self.sourceName = sourceName
     self.remoteBookId = remoteBookId
@@ -126,6 +134,7 @@ struct Book: Codable, Identifiable, Hashable {
     case id, title, author, kind, folder, coverFile, chapters, addedAt, position
     case bookmarks, skipIntro, skipOutro, speed, sourceId, sourceName, remoteBookId, sourceExtraJSON
     case introSkippedChapter, webdavServerId
+    case loudnessGain, skipSilence
   }
 
   init(from decoder: Decoder) throws {
@@ -143,6 +152,8 @@ struct Book: Codable, Identifiable, Hashable {
     skipIntro = try c.decodeIfPresent(Int.self, forKey: .skipIntro) ?? 0
     skipOutro = try c.decodeIfPresent(Int.self, forKey: .skipOutro) ?? 0
     speed = try c.decodeIfPresent(Double.self, forKey: .speed) ?? 1.0
+    loudnessGain = try c.decodeIfPresent(Double.self, forKey: .loudnessGain) ?? 0
+    skipSilence = try c.decodeIfPresent(Bool.self, forKey: .skipSilence) ?? false
     sourceId = try c.decodeIfPresent(String.self, forKey: .sourceId)
     sourceName = try c.decodeIfPresent(String.self, forKey: .sourceName)
     remoteBookId = try c.decodeIfPresent(String.self, forKey: .remoteBookId)
