@@ -256,6 +256,7 @@ struct OnlineSearchSection: View {
     loading = true
     failureText = nil
     offline = false
+    DLog("ui", "在线搜索 源=\(source.displayName) 脚本 \(script.count) 字符 关键词「\(keyword)」")
     try? await Task.sleep(nanoseconds: searchDebounce)
     // 防抖：查询词或源变了，旧任务会被取消，取消的搜索不算失败
     if Task.isCancelled { return }
@@ -267,10 +268,12 @@ struct OnlineSearchSection: View {
         keyword: keyword
       )
       if Task.isCancelled { return }
+      DLog("ui", "在线搜索返回 \(items.count) 条")
       results = items
       loading = false
     } catch {
       if Task.isCancelled { return }
+      DLog("ui", "在线搜索失败：\(error.localizedDescription)")
       offline = !NetworkStatus.isOnline
       failureText = error.localizedDescription
       results = []

@@ -268,6 +268,7 @@ enum JavaScriptSourceEngine {
     allowInsecure: Bool
   ) throws -> String {
     guard let context = JSContext() else { throw SourceEngineError.environment }
+    DLog("engine", "stage=\(stage) 开始，脚本 \(script.count) 字符")
     var exceptionText: String?
     context.exceptionHandler = { _, exception in
       if let exception, !exception.isUndefined, !exception.isNull {
@@ -278,13 +279,20 @@ enum JavaScriptSourceEngine {
     JSHostBridge.install(into: context, allowInsecure: allowInsecure)
 
     _ = context.evaluateScript(prelude)
-    if let text = exceptionText { throw SourceEngineError.runtime("运行环境初始化失败：\(text)") }
+    if let text = exceptionText {
+      DLog("engine", "prelude 失败：\(text)")
+      throw SourceEngineError.runtime("运行环境初始化失败：\(text)")
+    }
     guard let start = context.objectForKeyedSubscript("__iosStart"), !start.isUndefined else {
+      DLog("engine", "prelude 缺少 __iosStart")
       throw SourceEngineError.runtime("运行环境初始化失败：缺少 __iosStart")
     }
 
     _ = context.evaluateScript(script)
-    if let text = exceptionText { throw SourceEngineError.source("脚本语法/初始化错误：\(text)") }
+    if let text = exceptionText {
+      DLog("engine", "脚本初始化失败：\(text)")
+      throw SourceEngineError.source("脚本语法/初始化错误：\(text)")
+    }
 
     // 关键：JSContext 的 Promise 微任务在每次 API 调用结束（栈空）时才排空，
     // 而 http 桥是同步阻塞的，所以一次 call 就能把整条 await 链跑完。
@@ -304,6 +312,13 @@ enum JavaScriptSourceEngine {
     let waited = Date().timeIntervalSince(began)
 
     let resultText = context.evaluateScript("__iosValue()")?.toString() ?? ""
+    DLog(
+      "engine",
+      "stage=\(stage) state=\(state) 耗时 \(Int(waited * 1000))ms 结果 \(resultText.count) 字符"
+    )
+    if state == "error" {
+      DLog("engine", "执行出错：\(String(resultText.prefix(400)))")
+    }
     if let text = exceptionText, state != "error" {
       throw SourceEngineError.source(text)
     }

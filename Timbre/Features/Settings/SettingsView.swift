@@ -18,6 +18,7 @@ struct SettingsView: View {
   @State private var showColorSchemeDialog = false
   @State private var showFolderSheet = false
   @State private var showWebDavSheet = false
+  @State private var showDebugLog = false
   @State private var sleepTimeTarget: SleepTimeField?
 
   var body: some View {
@@ -43,6 +44,9 @@ struct SettingsView: View {
       WebDavServersView()
         .environmentObject(webdav)
         .environmentObject(library)
+    }
+    .fullScreenCover(isPresented: $showDebugLog) {
+      DebugLogView()
     }
     .sheet(item: $sleepTimeTarget) { target in
       sleepTimePicker(target)
@@ -146,6 +150,13 @@ struct SettingsView: View {
             systemName: nil,
             title: "软件版本",
             subtitle: appVersion
+          )
+
+          M3ListItem(
+            systemName: "doc.text.magnifyingglass",
+            title: "调试日志",
+            subtitle: "搜索或播放出问题时，导出这里的内容发给开发者",
+            action: { showDebugLog = true }
           )
 
           Spacer().frame(height: 32)

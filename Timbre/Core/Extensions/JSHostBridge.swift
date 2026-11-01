@@ -10,14 +10,19 @@ enum JSHostBridge {
       context.setObject(object, forKeyedSubscript: name as NSString)
     }
 
-    let md5: @convention(block) (String) -> String = { CryptoSupport.md5Hex($0) }
+    // prelude 里的 hostValue 会对返回值做 JSON.parse，所以纯字符串必须包成 {"value": ...}。
+    // 之前这几个直接返回裸字符串，导致 md5Hex/urlEncode 一调用就抛「宿主返回了非法 JSON」，
+    // 而 l.js 的搜索签名正好要用 md5。
+    let md5: @convention(block) (String) -> String = { JSHostBridge.okJSON(CryptoSupport.md5Hex($0)) }
     put("__md5Hex", unsafeBitCast(md5, to: AnyObject.self))
 
-    let sha: @convention(block) (String) -> String = { CryptoSupport.sha256Hex($0) }
+    let sha: @convention(block) (String) -> String = {
+      JSHostBridge.okJSON(CryptoSupport.sha256Hex($0))
+    }
     put("__sha256Hex", unsafeBitCast(sha, to: AnyObject.self))
 
     let hmac: @convention(block) (String, String) -> String = { key, text in
-      CryptoSupport.hmacSha256Hex(key: key, text: text)
+      JSHostBridge.okJSON(CryptoSupport.hmacSha256Hex(key: key, text: text))
     }
     put("__hmacSha256Hex", unsafeBitCast(hmac, to: AnyObject.self))
 
@@ -134,10 +139,10 @@ enum JSHostBridge {
     let timestampMs: @convention(block) () -> Double = { (Date().timeIntervalSince1970 * 1000).rounded(.down) }
     put("__timestampMs", unsafeBitCast(timestampMs, to: AnyObject.self))
 
-    let urlEncode: @convention(block) (String) -> String = { CryptoSupport.urlEncode($0) }
+    let urlEncode: @convention(block) (String) -> String = { JSHostBridge.okJSON(CryptoSupport.urlEncode($0)) }
     put("__urlEncode", unsafeBitCast(urlEncode, to: AnyObject.self))
 
-    let urlDecode: @convention(block) (String) -> String = { CryptoSupport.urlDecode($0) }
+    let urlDecode: @convention(block) (String) -> String = { JSHostBridge.okJSON(CryptoSupport.urlDecode($0)) }
     put("__urlDecode", unsafeBitCast(urlDecode, to: AnyObject.self))
 
     let log: @convention(block) (String) -> Void = { message in
@@ -276,9 +281,11 @@ enum HTTPBridge {
 
     if semaphore.wait(timeout: .now() + request.timeoutInterval + 5) == .timedOut {
       task.cancel()
+      DLog("http", "超时 \(method.uppercased()) \(url)")
       return errorJSON("请求超时：\(url)")
     }
     if let failure {
+      DLog("http", "失败 \(method.uppercased()) \(url) — \(failure)")
       return errorJSON(failure)
     }
     guard let data = responseData else {
@@ -295,9 +302,26 @@ enum HTTPBridge {
       "headers": responseHeaders,
       "body": body,
     ]
+    // 文本类响应留一小段正文，排查「返回了非法 JSON / 空结果」时最有用
+    let contentType = responseHeaders["content-type"] ?? ""
+    let isText = contentType.contains("json") || contentType.contains("text") || contentType.isEmpty
+    let preview: String
+    if isText {
+      preview =
+        String(body.prefix(160))
+        .replacingOccurrences(of: "\n", with: " ")
+        .replacingOccurrences(of: "\r", with: " ")
+    } else {
+      preview = "<\(contentType)>"
+    }
+    DLog(
+      "http",
+      "\(method.uppercased()) \(finalURL.absoluteString) → \(statusCode) \(data.count)B 正文:\(preview)"
+    )
     guard let out = try? JSONSerialization.data(withJSONObject: payload),
       let text = String(data: out, encoding: .utf8)
     else {
+      DLog("http", "响应序列化失败 \(finalURL.absoluteString)")
       return errorJSON("响应序列化失败")
     }
     return text

@@ -110,6 +110,7 @@ enum WebDavClient {
       if challenge.lowercased().contains("digest") { throw WebDavError.digestUnsupported }
       throw WebDavError.auth
     }
+    DLog("webdav", "\(method) \(url.absoluteString) → \(http.statusCode) \(result.0.count)B")
     return (result.0, http)
   }
 

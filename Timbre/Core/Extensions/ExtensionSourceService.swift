@@ -15,13 +15,21 @@ final class ExtensionSourceService {
     page: Int = 1,
     limit: Int = 20
   ) async throws -> [SourceSearchItem] {
+    DLog("search", "开始 关键词「\(keyword)」page=\(page) limit=\(limit)")
     let json = try await run(
       script: script,
       allowInsecure: allowInsecure,
       stage: "search",
       params: ["keyword": keyword, "page": page, "limit": limit]
     )
-    return try SourceContract.searchItems(json)
+    do {
+      let items = try SourceContract.searchItems(json)
+      DLog("search", "完成，解析出 \(items.count) 条")
+      return items
+    } catch {
+      DLog("search", "解析失败：\(error.localizedDescription) 原始=\(String(json.prefix(300)))")
+      throw error
+    }
   }
 
   func chapters(
