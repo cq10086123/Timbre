@@ -151,11 +151,11 @@ struct AudioImporter {
     for item in items {
       guard let key = item.commonKey else { continue }
       switch key {
-      case .commonIdentifierTitle:
+      case .commonKeyTitle:
         if let text = await loadedString(item), !text.isEmpty { result.title = text }
-      case .commonIdentifierArtist:
+      case .commonKeyArtist:
         if let text = await loadedString(item), !text.isEmpty { result.artist = text }
-      case .commonIdentifierArtwork:
+      case .commonKeyArtwork:
         if let data = await loadedData(item), !data.isEmpty { result.artwork = data }
       default:
         continue

@@ -119,6 +119,7 @@ enum ZipArchive {
       input,
       input.count,
       nil,
+      0,
       COMPRESSION_ZLIB
     )
     guard written > 0 else { return nil }

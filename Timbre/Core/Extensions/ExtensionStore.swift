@@ -60,17 +60,17 @@ final class ExtensionStore: ObservableObject {
     }
   }
 
-  func extension(withId id: String) -> InstalledExtension? {
+  func installedExtension(withId id: String) -> InstalledExtension? {
     extensions.first { $0.id == id }
   }
 
   func source(for installed: InstalledSource) -> InstalledExtension? {
-    extension(withId: installed.extensionId)
+    installedExtension(withId: installed.extensionId)
   }
 
   /// 读取源码文本
   func scriptText(for installed: InstalledSource) -> String? {
-    guard let ext = extension(withId: installed.extensionId) else { return nil }
+    guard let ext = installedExtension(withId: installed.extensionId) else { return nil }
     let url = AppPaths.url(for: ext.folder).appendingPathComponent(installed.meta.script)
     guard let data = try? Data(contentsOf: url) else { return nil }
     return String(data: data, encoding: .utf8)
