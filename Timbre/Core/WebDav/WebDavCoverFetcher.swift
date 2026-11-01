@@ -33,7 +33,7 @@ enum WebDavCoverFetcher {
     if let listing, let image = pickImage(in: listing) {
       if let url = URL(string: image.url),
         let data = try? await WebDavClient.get(url: url, server: server, password: password),
-        let data, !data.isEmpty,
+        !data.isEmpty,
         let path = save(data, bookId: book.id, ext: ext(of: image.name))
       {
         DLog("webdav", "封面来自目录图片 \(image.name) 第\(book.title)")
