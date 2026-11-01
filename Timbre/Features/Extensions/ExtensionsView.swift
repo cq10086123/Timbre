@@ -39,8 +39,6 @@ struct ExtensionsView: View {
             Button("导入") { importLink() }
               .disabled(linkText.trimmingCharacters(in: .whitespaces).isEmpty)
             Button("取消", role: .cancel) { linkText = "" }
-          } message: {
-            Text("从 URL 下载并安装 .jdr 包")
           }
         ScrollView {
           LazyVStack(spacing: 0) {
@@ -86,7 +84,7 @@ struct ExtensionsView: View {
     }
     // 卸载确认走 confirmationDialog：和上面两个 alert 属于不同呈现类型，不会互相抢
     .confirmationDialog(
-      "卸载接口源",
+      "卸载扩展包",
       isPresented: Binding(
         get: { uninstallTarget != nil },
         set: { if !$0 { uninstallTarget = nil } }
@@ -94,14 +92,14 @@ struct ExtensionsView: View {
       titleVisibility: .visible,
       presenting: uninstallTarget
     ) { ext in
-      Button("卸载", role: .destructive) {
+      Button("卸载扩展包", role: .destructive) {
         extensions.remove(ext)
         uninstallTarget = nil
         showToast("已卸载 \(ext.name)")
       }
       Button("取消", role: .cancel) { uninstallTarget = nil }
     } message: { _ in
-      Text("卸载这个包？它下面的源会从搜索里消失；已加入书架的书不受影响，除非你手动删除。")
+      Text("确定卸载该扩展包吗？其源将从搜索中移除；已加入书架的书籍在删除前仍可播放。")
     }
   }
 
@@ -110,7 +108,7 @@ struct ExtensionsView: View {
   private var topBar: some View {
     HStack(spacing: 0) {
       IconButton48(systemName: "xmark", label: "关闭") { dismiss() }
-      Text("接口源")
+      Text("接口源管理")
         .font(AppFont.titleLarge())
         .foregroundColor(AppColor.onSurface)
       Spacer()
@@ -123,15 +121,15 @@ struct ExtensionsView: View {
   private var importRows: some View {
     VStack(spacing: 0) {
       M3ListItem(
-        title: "导入 .jdr 包",
-        subtitle: "选择本地的 .jdr 文件",
+        title: "导入 .jdr 文件",
+        subtitle: "从本机选择一个 .jdr 扩展包",
         action: { showImporter = true }
       ) {
         if busy { ProgressView().scaleEffect(0.85) }
       }
       M3ListItem(
         title: "从链接导入",
-        subtitle: "从 URL 下载并安装 .jdr 包",
+        subtitle: "下载并安装网络上的 .jdr 扩展包",
         action: {
           linkText = ""
           showLinkDialog = true
@@ -166,7 +164,7 @@ struct ExtensionsView: View {
           .contentShape(Rectangle())
       }
       .buttonStyle(.plain)
-      .accessibilityLabel("卸载包")
+      .accessibilityLabel("卸载扩展包")
     }
     .padding(.top, 8)
   }

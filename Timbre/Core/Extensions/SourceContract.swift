@@ -41,9 +41,7 @@ enum SourceContract {
         )
       )
     }
-    if items.isEmpty {
-      throw SourceContractError.shape("该源没有搜到结果")
-    }
+    // 空结果不是错误：安卓是「列表为空」的语义，界面显示「没搜到结果」
     return items
   }
 
@@ -74,7 +72,7 @@ enum SourceContract {
       )
     }
     if pairs.isEmpty {
-      throw SourceContractError.shape("该源没有返回这本书的章节")
+      return []
     }
     return pairs.sorted { $0.order < $1.order }.map { $0.chapter }
   }

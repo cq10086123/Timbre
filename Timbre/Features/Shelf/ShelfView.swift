@@ -46,6 +46,7 @@ struct ShelfView: View {
   @EnvironmentObject private var library: LibraryStore
   @EnvironmentObject private var settings: SettingsStore
   @EnvironmentObject private var player: PlaybackEngine
+  @EnvironmentObject private var extensions: ExtensionStore
 
   @State private var searchActive = false
   @State private var query = ""
@@ -54,11 +55,16 @@ struct ShelfView: View {
   @State private var renameText = ""
   @State private var deleteTarget: Book?
   @State private var history: [String] = SearchHistory.load()
+  @State private var onlineSelection: OnlineBookSelection?
 
   private var isGrid: Bool { settings.settings.useGridLayout }
 
+  private var trimmedQuery: String {
+    query.trimmingCharacters(in: .whitespacesAndNewlines)
+  }
+
   private var filteredBooks: [Book] {
-    let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+    let trimmed = trimmedQuery
     guard !trimmed.isEmpty else { return library.books }
     return library.books.filter {
       $0.title.localizedCaseInsensitiveContains(trimmed)
@@ -107,7 +113,14 @@ struct ShelfView: View {
         .padding(.trailing, 16)
         .padding(.bottom, 16)
       }
+
+      // 在线书源的章节弹窗：安卓是 AlertDialog，这里按同一层级居中浮在整页之上
+      if let selection = onlineSelection {
+        OnlineChaptersDialog(selection: selection, onClose: { onlineSelection = nil })
+          .transition(.opacity)
+      }
     }
+    .animation(.easeInOut(duration: 0.15), value: onlineSelection)
     .fullScreenCover(isPresented: $app.showPlayer) {
       PlayerView()
         .environmentObject(app)
@@ -416,22 +429,30 @@ struct ShelfView: View {
           }
           .padding(.top, 16)
         }
-      } else if filteredBooks.isEmpty {
-        Text("没有找到匹配的有声书")
-          .font(AppFont.bodyMedium())
-          .foregroundColor(AppColor.onSurfaceVariant)
-          .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-          .padding(.top, 32)
       } else {
         ScrollView {
           LazyVStack(spacing: 8) {
-            ForEach(filteredBooks) { book in
-              ListBookCard(book: book)
-                .padding(.horizontal, 8)
-                .onTapGesture {
-                  commitSearch()
-                  app.openBook(book)
-                }
+            if filteredBooks.isEmpty {
+              Text("没有找到匹配的有声书")
+                .font(AppFont.bodyMedium())
+                .foregroundColor(AppColor.onSurfaceVariant)
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.top, 32)
+                .padding(.bottom, 8)
+            } else {
+              ForEach(filteredBooks) { book in
+                ListBookCard(book: book)
+                  .padding(.horizontal, 8)
+                  .onTapGesture {
+                    commitSearch()
+                    app.openBook(book)
+                  }
+              }
+            }
+
+            // 安卓 BookSearchContent：本地结果之后接「在线」段落
+            OnlineSearchSection(query: trimmedQuery) { selection in
+              onlineSelection = selection
             }
           }
           .padding(.top, 16)
