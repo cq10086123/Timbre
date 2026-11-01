@@ -365,14 +365,28 @@ struct SettingsView: View {
         .font(AppFont.titleLarge())
         .foregroundColor(AppColor.onSurface)
       Spacer()
+      // 构建指纹：确认手里装的是哪一次构建，避免「装了新包看着还是旧界面」这类问题
+      Text(buildStamp)
+        .font(AppFont.labelSmall())
+        .foregroundColor(AppColor.onSurfaceVariant)
+        .lineLimit(1)
+        .padding(.trailing, 16)
     }
     .frame(height: 64)
+  }
+
+  /// CI 注入的 commit 与构建时间，本地编译显示 dev
+  private var buildStamp: String {
+    let info = Bundle.main.infoDictionary
+    let commit = info?["TimbreCommit"] as? String ?? "dev"
+    let date = info?["TimbreBuildDate"] as? String ?? "dev"
+    return "\(commit) · \(date)"
   }
 
   private var appVersion: String {
     let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0"
     let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
-    return "\(version) (\(build))"
+    return "\(version) (\(build)) · \(buildStamp)"
   }
 }
 

@@ -126,13 +126,17 @@ struct ShelfView: View {
         .environmentObject(app)
         .environmentObject(library)
         .environmentObject(settings)
+        .environmentObject(app.extensions)
         .environmentObject(player)
     }
     .fullScreenCover(isPresented: $app.showSettings) {
+      // SettingsView 声明了 @EnvironmentObject extensions（接口源入口），
+      // 少注入这一个运行时就会 fatalError，表现为「点设置直接闪退」。
       SettingsView()
         .environmentObject(app)
         .environmentObject(library)
         .environmentObject(settings)
+        .environmentObject(app.extensions)
         .environmentObject(player)
     }
     .sheet(isPresented: $app.showImporter) {

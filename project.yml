@@ -37,8 +37,8 @@ targets:
         PRODUCT_NAME: Timbre
         PRODUCT_BUNDLE_IDENTIFIER: com.timbre.ios
         INFOPLIST_FILE: Support/Info.plist
-        MARKETING_VERSION: "1.0.2"
-        CURRENT_PROJECT_VERSION: "3"
+        MARKETING_VERSION: "1.0.3"
+        CURRENT_PROJECT_VERSION: "4"
         TARGETED_DEVICE_FAMILY: "1,2"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
@@ -49,6 +49,9 @@ targets:
         CODE_SIGN_IDENTITY: ""
         GENERATE_INFOPLIST_FILE: "NO"
         LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks"
+        # 构建指纹：CI 会用真实 commit / 时间覆盖，本地编译显示 dev
+        TIMBRE_COMMIT: "dev"
+        TIMBRE_BUILD_DATE: "dev"
 
 schemes:
   Timbre:

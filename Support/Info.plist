@@ -56,6 +56,10 @@
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>TimbreCommit</key>
+	<string>$(TIMBRE_COMMIT)</string>
+	<key>TimbreBuildDate</key>
+	<string>$(TIMBRE_BUILD_DATE)</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>LSRequiresIPhoneOS</key>
