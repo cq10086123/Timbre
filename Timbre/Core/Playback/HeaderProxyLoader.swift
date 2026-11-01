@@ -130,7 +130,8 @@ final class HeaderProxyLoader: NSObject, AVAssetResourceLoaderDelegate {
     let toEnd: Bool
     if let dataRequest = loadingRequest.dataRequest {
       wantOffset = dataRequest.requestedOffset
-      wantLength = dataRequest.requestedLength
+      // requestedOffset 是 Int64，但 requestedLength 是 Int —— 别直接赋
+      wantLength = Int64(dataRequest.requestedLength)
       toEnd = dataRequest.requestsAllDataToEndOfResource
       if toEnd || wantLength <= 0 {
         sent["Range"] = "bytes=\(wantOffset)-"
