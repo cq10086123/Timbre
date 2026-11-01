@@ -167,7 +167,7 @@ struct PlayerView: View {
 
   private func topBar(landscape: Bool) -> some View {
     HStack(spacing: 0) {
-      IconButton48(systemName: "xmark", label: "关闭") {
+      GlyphButton(glyph: .close, label: "关闭") {
         player.flush()
         app.showPlayer = false
       }
@@ -186,24 +186,21 @@ struct PlayerView: View {
         Spacer(minLength: 0)
       }
       // 安卓 Bedtime（实心月牙）/ BedtimeOff（月牙带斜杠）
-      Button {
+      GlyphButton(
+        glyph: player.sleepActive ? .bedtimeOff : .bedtime,
+        label: "睡眠定时器"
+      ) {
         if player.sleepActive {
           player.cancelSleepTimer()
         } else {
           showSleep = true
         }
-      } label: {
-        SleepTimerIcon(active: player.sleepActive)
       }
-      .buttonStyle(.plain)
-      .accessibilityLabel("睡眠定时器")
       // 书签：单击打开列表，长按在当前位置加书签
       Button {
         showBookmarks = true
       } label: {
-        Image(systemName: "books.vertical")
-          .font(.system(size: 24))
-          .foregroundColor(AppColor.onSurfaceVariant)
+        AndroidIcon(glyph: .collectionsBookmark, size: 24, color: AppColor.onSurfaceVariant)
           .frame(width: 40, height: 40)
           .contentShape(Rectangle())
       }
@@ -216,22 +213,13 @@ struct PlayerView: View {
       )
       .accessibilityLabel("书签")
 
-      IconButton48(systemName: "speedometer", label: "播放速度") {
+      GlyphButton(glyph: .speed, label: "播放速度") {
         showSpeed = true
       }
       // 安卓是 MoreVert（竖三点）+ DropdownMenu，三项顺序：跳过空白、音量提升、跳过片头片尾
-      Button {
+      GlyphButton(glyph: .moreVert, label: "更多") {
         showOverflow = true
-      } label: {
-        Image(systemName: "ellipsis")
-          .font(.system(size: 24))
-          .foregroundColor(AppColor.onSurfaceVariant)
-          .rotationEffect(.degrees(90))
-          .frame(width: 48, height: 48)
-          .contentShape(Rectangle())
       }
-      .buttonStyle(.plain)
-      .accessibilityLabel("更多")
     }
     .padding(.horizontal, 4)
     .frame(height: landscape ? 56 : 64)
@@ -272,9 +260,8 @@ struct PlayerView: View {
           } else {
             AppColor.surfaceVariant
               .overlay {
-                Image(systemName: "opticaldisc")
-                  .font(.system(size: 64))
-                  .foregroundColor(AppColor.onSurfaceVariant.opacity(0.5))
+                // 安卓 Cover 的 placeholder 是 album_art.xml：一张黑胶唱片，不是系统图标
+                AlbumArtPlaceholder()
               }
           }
         }
@@ -307,7 +294,7 @@ struct PlayerView: View {
     let arrows = (book?.chapters.count ?? 0) > 1
     return HStack(spacing: 0) {
       if arrows {
-        IconButton48(systemName: "chevron.left", iconSize: 36, label: "上一节") {
+        GlyphButton(glyph: .chevronLeft, iconSize: 36, label: "上一节") {
           player.previousChapter()
         }
       }
@@ -325,9 +312,7 @@ struct PlayerView: View {
             .truncationMode(.middle)
             .padding(.horizontal, 4)
           if arrows {
-            Image(systemName: "chevron.down")
-              .font(.system(size: 28))
-              .foregroundColor(AppColor.onSurface)
+            AndroidIcon(glyph: .expandMore, size: 28, color: AppColor.onSurface)
               .frame(width: 28, height: 28)
           }
         }
@@ -337,7 +322,7 @@ struct PlayerView: View {
       }
       .buttonStyle(.plain)
       if arrows {
-        IconButton48(systemName: "chevron.right", iconSize: 36, label: "下一节") {
+        GlyphButton(glyph: .chevronRight, iconSize: 36, label: "下一节") {
           player.nextChapter()
         }
       }
@@ -385,17 +370,15 @@ struct PlayerView: View {
 
   private var playbackRow: some View {
     HStack(spacing: 0) {
-      Button {
+      // 安卓 SkipButton：同一个 Undo 图标，快进直接 scaleX = -1 镜像
+      GlyphButton(
+        glyph: .undo,
+        iconSize: 48,
+        label: "回退",
+        tint: AppColor.onSurface
+      ) {
         player.skip(-Double(settings.settings.seekSeconds))
-      } label: {
-        Image(systemName: "arrow.uturn.backward")
-          .font(.system(size: 40))
-          .foregroundColor(AppColor.onSurface)
-          .frame(width: 48, height: 48)
-          .contentShape(Rectangle())
       }
-      .buttonStyle(.plain)
-      .accessibilityLabel("回退")
 
       Spacer().frame(width: 16)
 
@@ -403,55 +386,27 @@ struct PlayerView: View {
         M3PlayButton(playing: player.isPlaying, size: 80, iconSize: 36) {
           player.togglePlayPause()
         }
+        // 安卓的 CircularProgressIndicator 不消费点击，SF 的 ProgressView 会 ——
+        // 之前它就是「第一次点击被加载圈吃掉、要点两次才能播」的元凶
         if player.isLoading {
-          ProgressView()
-            .progressViewStyle(.circular)
-            .tint(AppColor.primary)
-            .frame(width: 88, height: 88)
+          M3CircularProgress(size: 88, stroke: 3)
         }
       }
       .frame(width: 88, height: 88)
 
       Spacer().frame(width: 16)
 
-      Button {
+      GlyphButton(
+        glyph: .undo,
+        iconSize: 48,
+        label: "快进",
+        tint: AppColor.onSurface,
+        mirrored: true
+      ) {
         player.skip(Double(settings.settings.seekSeconds))
-      } label: {
-        Image(systemName: "arrow.uturn.forward")
-          .font(.system(size: 40))
-          .foregroundColor(AppColor.onSurface)
-          .frame(width: 48, height: 48)
-          .contentShape(Rectangle())
       }
-      .buttonStyle(.plain)
-      .accessibilityLabel("快进")
     }
     .frame(maxWidth: .infinity)
-  }
-}
-
-// MARK: - 睡眠定时器图标（对齐安卓 Bedtime / BedtimeOff）
-
-/// 安卓顶栏用 `Bedtime`（实心月牙）与 `BedtimeOff`（月牙加一道斜杠）区分开关状态。
-/// SF Symbols 没有 BedtimeOff，这里用 `moon.fill` 叠一条 45° 斜线来还原，
-/// 比 `moon.zzz`（带 z 的月亮）更接近安卓那个图形。
-private struct SleepTimerIcon: View {
-  var active: Bool
-
-  var body: some View {
-    ZStack {
-      Image(systemName: "moon.fill")
-        .font(.system(size: 24))
-        .foregroundColor(AppColor.onSurfaceVariant)
-      if active {
-        Rectangle()
-          .fill(AppColor.onSurfaceVariant)
-          .frame(width: 2, height: 30)
-          .rotationEffect(.degrees(45))
-      }
-    }
-    .frame(width: 48, height: 48)
-    .contentShape(Rectangle())
   }
 }
 

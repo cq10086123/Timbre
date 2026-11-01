@@ -95,9 +95,7 @@ struct ChapterSheet: View {
         Text("共\(chapters.count)集")
           .font(AppFont.titleMedium())
           .foregroundColor(AppColor.onSurface)
-        Image(systemName: "chevron.down")
-          .font(.system(size: 24))
-          .foregroundColor(AppColor.onSurface)
+        AndroidIcon(glyph: .expandMore, size: 24, color: AppColor.onSurface)
           .padding(.leading, 4)
           .rotationEffect(.degrees(rangesExpanded ? 180 : 0))
       }
@@ -236,10 +234,10 @@ struct SleepSheet: View {
           .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        ContinuousPressIcon(systemName: "minus", label: "更短") {
+        ContinuousPressIcon(glyph: .remove, label: "更短") {
           customMinutes = max(1, customMinutes - 1)
         }
-        ContinuousPressIcon(systemName: "plus", label: "更长") {
+        ContinuousPressIcon(glyph: .add, label: "更长") {
           customMinutes += 1
         }
       }
@@ -259,7 +257,7 @@ struct SleepSheet: View {
 
 /// 安卓 ContinuousPressIcon：单击一步，长按 500ms 后每 100ms 重复一步
 private struct ContinuousPressIcon: View {
-  var systemName: String
+  var glyph: AndroidGlyph
   var label: String
   var onTrigger: () -> Void
 
@@ -268,9 +266,7 @@ private struct ContinuousPressIcon: View {
   @State private var repeating = false
 
   var body: some View {
-    Image(systemName: systemName)
-      .font(.system(size: 24))
-      .foregroundColor(AppColor.onSurfaceVariant)
+    AndroidIcon(glyph: glyph, size: 24, color: AppColor.onSurfaceVariant)
       .frame(width: 48, height: 48)
       .contentShape(Rectangle())
       .gesture(
@@ -463,7 +459,7 @@ struct BookmarksView: View {
   var body: some View {
     VStack(spacing: 0) {
       HStack(spacing: 0) {
-        IconButton48(systemName: "xmark", label: "关闭") { onClose() }
+        GlyphButton(glyph: .close, label: "关闭") { onClose() }
         Text("书签")
           .font(AppFont.titleLarge())
           .foregroundColor(AppColor.onSurface)
@@ -523,9 +519,7 @@ struct BookmarksView: View {
         addTitle = ""
         showAdd = true
       } label: {
-        Image(systemName: "plus")
-          .font(.system(size: 24))
-          .foregroundColor(AppColor.onPrimaryContainer)
+        AndroidIcon(glyph: .add, size: 24, color: AppColor.onPrimaryContainer)
           .frame(width: 56, height: 56)
           .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
@@ -604,10 +598,7 @@ struct BookmarksView: View {
       Button {
         menuIndex = index
       } label: {
-        Image(systemName: "ellipsis")
-          .font(.system(size: 20))
-          .foregroundColor(AppColor.onSurfaceVariant)
-          .rotationEffect(.degrees(90))
+        AndroidIcon(glyph: .moreVert, size: 24, color: AppColor.onSurfaceVariant)
           .frame(width: 48, height: 48)
           .contentShape(Rectangle())
       }

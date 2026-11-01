@@ -132,6 +132,14 @@ final class PlaybackEngine: NSObject, ObservableObject {
   }
 
   func togglePlayPause() {
+    // 用户报过「有时候要点两次才播」：把点击当下的状态记下来，
+    // 下次看日志就能分辨是点击被吃掉（没有这一行）还是状态没生效（有但没播）
+    DLog(
+      "player",
+      "点击播放键 当前=\(player.timeControlStatus == .playing ? "播放" : "暂停")"
+        + " 期望=\(player.timeControlStatus == .playing ? "暂停" : "播放")"
+        + " isLoading=\(isLoading) item=\(player.currentItem == nil ? "无" : "有")"
+    )
     if player.timeControlStatus == .playing {
       pause()
     } else {
@@ -640,6 +648,7 @@ final class PlaybackEngine: NSObject, ObservableObject {
         let total = itemDuration.seconds
         if total.isFinite, total > 0, abs(total - self.duration) > 0.2 {
           self.duration = total
+          self.persistChapterDuration(total)
         }
       }
       self.saveTick += 1
@@ -810,6 +819,22 @@ final class PlaybackEngine: NSObject, ObservableObject {
       .filter { $0.range(of: #"^\s*at\s+\S"#, options: .regularExpression) == nil }
       .joined(separator: "\n")
       .trimmingCharacters(in: .whitespacesAndNewlines)
+  }
+
+  /// 把这一章的真实时长写回书架。
+  ///
+  /// 在线书的章节时长在源里通常没有（安卓也是靠预加载时顺手探一次补上的），
+  /// 结果是章节抽屉里每一集都显示 0:00、总时长也是空的。播到就记下来，
+  /// 下次打开章节列表就是准确的。
+  private func persistChapterDuration(_ seconds: Double) {
+    guard seconds > 1, let bookId, let index = library.index(of: bookId) else { return }
+    let chapters = library.books[index].chapters
+    guard chapters.indices.contains(chapterIndex) else { return }
+    // 差不到 1 秒就别写盘了，免得每次起播都整库编码一次
+    guard abs(chapters[chapterIndex].duration - seconds) > 1 else { return }
+    library.books[index].chapters[chapterIndex].duration = seconds
+    library.save(delay: 1)
+    DLog("player", "记录章节时长 \(Int(seconds))s 第\(chapterIndex + 1)集")
   }
 
   /// 把 AVFoundation 的错误翻成听得懂的话

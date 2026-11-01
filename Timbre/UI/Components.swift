@@ -15,9 +15,13 @@ struct M3PlayButton: View {
       ZStack {
         RoundedRectangle(cornerRadius: corner, style: .continuous)
           .fill(AppColor.primaryContainer)
-        Image(systemName: playing ? "pause.fill" : "play.fill")
-          .font(.system(size: iconSize * 0.92, weight: .semibold))
-          .foregroundColor(AppColor.onPrimaryContainer)
+        // 安卓用 avd_pause_to_play 把「两条横杠」旋转 270° 并变形为三角形，
+        // 静止的两端就是这两枚 Material Symbols 图形
+        AndroidIcon(
+          glyph: playing ? .pause : .playArrow,
+          size: iconSize,
+          color: AppColor.onPrimaryContainer
+        )
       }
       .frame(width: size, height: size)
       .animation(.easeInOut(duration: 0.25), value: corner)
@@ -25,6 +29,62 @@ struct M3PlayButton: View {
     }
     .buttonStyle(.plain)
     .accessibilityLabel(playing ? "暂停" : "播放")
+  }
+}
+
+// MARK: - 安卓矢量图标按钮（48dp 触摸区）
+
+/// 与 `IconButton48` 等价，但画的是安卓那套 `ImageVector`，
+/// 不用 SF Symbols —— 图形与安卓逐点一致。
+struct GlyphButton: View {
+  var glyph: AndroidGlyph
+  var iconSize: CGFloat = 24
+  var label: String
+  var tint: Color = AppColor.onSurfaceVariant
+  var mirrored: Bool = false
+  var touchSize: CGFloat = 48
+  var action: () -> Void
+
+  var body: some View {
+    Button(action: action) {
+      AndroidIcon(glyph: glyph, size: iconSize, color: tint, mirrored: mirrored)
+        .frame(width: touchSize, height: touchSize)
+        .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .accessibilityLabel(label)
+  }
+}
+
+// MARK: - Material3 不定进度圈（88dp / 描边 3dp）
+
+/// 安卓播放页的加载圈是 `CircularProgressIndicator(size = 88.dp, strokeWidth = 3.dp)`。
+/// 它只是一个画出来的弧，**不消费点击**；SF 的 `ProgressView` 会吃掉手势，
+/// 叠在播放键上就变成「要点两次才能播」。
+struct M3CircularProgress: View {
+  var size: CGFloat = 88
+  var stroke: CGFloat = 3
+
+  @State private var spin = false
+
+  var body: some View {
+    Circle()
+      .trim(from: 0, to: 0.78)
+      .stroke(
+        AppColor.primary,
+        style: StrokeStyle(lineWidth: stroke, lineCap: .round)
+      )
+      .frame(width: size - stroke, height: size - stroke)
+      .rotationEffect(.degrees(spin ? 360 : 0))
+      .frame(width: size, height: size)
+      .onAppear {
+        withAnimation(.linear(duration: 1.1).repeatForever(autoreverses: false)) {
+          spin = true
+        }
+      }
+      // 关键：装饰性加载圈绝不能挡在播放键上面抢手势
+      .allowsHitTesting(false)
+      .accessibilityHidden(true)
   }
 }
 
@@ -383,9 +443,7 @@ struct M3DropdownItem: View {
           .lineLimit(1)
         Spacer(minLength: 12)
         if let checked {
-          Image(systemName: checked ? "checkmark.square.fill" : "square")
-            .font(.system(size: 18))
-            .foregroundColor(checked ? AppColor.primary : AppColor.onSurfaceVariant)
+          M3Checkbox(checked: checked)
         }
       }
       .padding(.horizontal, 12)
@@ -393,6 +451,27 @@ struct M3DropdownItem: View {
       .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
+  }
+}
+
+// MARK: - M3 复选框（18dp 方框 / 2dp 圆角 / 勾选时 primary 实心）
+
+/// 安卓 DropdownMenuItem 行尾那个三态方框就是 Material3 的 `Checkbox`，
+/// SF 里没有对应物（`checkmark.square.fill` 是圆角更大的另一套视觉），所以自己画。
+struct M3Checkbox: View {
+  var checked: Bool
+
+  var body: some View {
+    ZStack {
+      RoundedRectangle(cornerRadius: 2, style: .continuous)
+        .fill(checked ? AppColor.primary : Color.clear)
+      RoundedRectangle(cornerRadius: 2, style: .continuous)
+        .stroke(checked ? Color.clear : AppColor.onSurfaceVariant, lineWidth: 2)
+      if checked {
+        AndroidIcon(glyph: .check, size: 14, color: AppColor.onPrimary)
+      }
+    }
+    .frame(width: 18, height: 18)
   }
 }
 
