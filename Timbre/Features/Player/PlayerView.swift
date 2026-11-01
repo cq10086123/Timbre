@@ -52,6 +52,18 @@ struct PlayerView: View {
       }
     }
     .background(AppColor.background.ignoresSafeArea())
+    // 安卓 BookPlayLoading：在线书还在组装时先给一个居中的加载圈 ——
+    // 空白页看起来像播放坏掉了，也会把取流失败的错误一起吞掉
+    .overlay {
+      if book == nil {
+        ZStack {
+          AppColor.background.ignoresSafeArea()
+          ProgressView()
+            .progressViewStyle(.circular)
+            .tint(AppColor.primary)
+        }
+      }
+    }
     .m3Sheet(isPresented: $showChapters) {
       ChapterSheet(player: player) { showChapters = false }
     }

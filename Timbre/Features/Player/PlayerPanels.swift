@@ -439,7 +439,7 @@ struct SourceErrorPanel: View {
   }
 }
 
-// MARK: - 书签页
+// MARK: - 书签页（对齐安卓 BookmarkScreen）
 
 struct BookmarksView: View {
   @ObservedObject var player: PlaybackEngine
@@ -450,9 +450,15 @@ struct BookmarksView: View {
   @State private var showAdd = false
   @State private var editing: Bookmark?
   @State private var editTitle = ""
+  /// 打开行尾 ⋮ 菜单的那一条（安卓是 DropdownMenu「编辑 / 删除」）
+  @State private var menuIndex: Int?
 
   private var book: Book? { player.currentBook }
   private var bookmarks: [Bookmark] { book?.bookmarks ?? [] }
+
+  /// 安卓 ListItem 两行高度固定，菜单按行号定位即可
+  private static let rowHeight: CGFloat = 72
+  private static let headerHeight: CGFloat = 64
 
   var body: some View {
     VStack(spacing: 0) {
@@ -463,7 +469,7 @@ struct BookmarksView: View {
           .foregroundColor(AppColor.onSurface)
         Spacer()
       }
-      .frame(height: 64)
+      .frame(height: Self.headerHeight)
 
       if bookmarks.isEmpty {
         Text("还没有书签。听书时长按书签按钮即可添加。")
@@ -473,59 +479,46 @@ struct BookmarksView: View {
           .padding(32)
           .frame(maxWidth: .infinity, maxHeight: .infinity)
       } else {
-        ScrollView {
-          LazyVStack(spacing: 0) {
-            ForEach(bookmarks) { bookmark in
-              HStack(spacing: 0) {
-                Button {
-                  player.seek(toBookmark: bookmark)
-                  onClose()
-                } label: {
-                  VStack(alignment: .leading, spacing: 2) {
-                    Text(bookmark.title.isEmpty
-                      ? titleForChapter(bookmark.chapterIndex)
-                      : bookmark.title)
-                      .font(AppFont.bodyLarge())
-                      .foregroundColor(AppColor.onSurface)
-                      .lineLimit(2)
-                    Text(Format.clockString(bookmark.seconds))
-                      .font(AppFont.bodyMedium())
-                      .foregroundColor(AppColor.onSurfaceVariant)
-                  }
-                  .frame(maxWidth: .infinity, alignment: .leading)
-                  .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-
-                Button {
-                  editing = bookmark
-                  editTitle = bookmark.title
-                } label: {
-                  Image(systemName: "ellipsis")
-                    .font(.system(size: 20))
-                    .foregroundColor(AppColor.onSurfaceVariant)
-                    .frame(width: 48, height: 48)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-              }
-              .padding(.horizontal, 16)
-              .padding(.vertical, 8)
-              .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                Button(role: .destructive) {
-                  delete(bookmark)
-                } label: {
-                  Image(systemName: "trash")
-                }
-              }
-            }
+        // 必须用 List：swipeActions 只在 List 的行上生效，放在 ScrollView 里等于没有。
+        // 去掉分隔线与行内边距，让它看起来仍是 M3 的 ListItem。
+        List {
+          ForEach(bookmarks.indices, id: \.self) { index in
+            row(index)
+              .listRowInsets(EdgeInsets())
+              .listRowSeparator(.hidden)
+              .listRowBackground(AppColor.background)
           }
-          .padding(.bottom, 96)
+          Color.clear
+            .frame(height: 88)
+            .listRowInsets(EdgeInsets())
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
         }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
       }
     }
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
     .background(AppColor.background.ignoresSafeArea())
+    .overlay(alignment: .topTrailing) {
+      if let index = menuIndex, bookmarks.indices.contains(index) {
+        M3DropdownMenu(onDismiss: { menuIndex = nil }) {
+          M3DropdownItem(title: "编辑") {
+            menuIndex = nil
+            editing = bookmarks[index]
+            editTitle = bookmarks[index].title
+          }
+          M3DropdownItem(title: "删除") {
+            menuIndex = nil
+            delete(bookmarks[index])
+          }
+        }
+        .padding(.top, Self.headerHeight + CGFloat(index) * Self.rowHeight + 40)
+        .padding(.trailing, 16)
+      }
+    }
     .overlay(alignment: .bottomTrailing) {
+      // 安卓 FloatingActionButton：56dp、圆角 16、primaryContainer 底
       Button {
         addTitle = ""
         showAdd = true
@@ -543,26 +536,92 @@ struct BookmarksView: View {
       .padding(16)
       .accessibilityLabel("添加")
     }
-    .alert("书签", isPresented: $showAdd) {
-      TextField("书签名", text: $addTitle)
-      Button("设置") {
-        player.addBookmark(title: addTitle)
-        addTitle = ""
+    .overlay {
+      if showAdd {
+        M3TextFieldDialog(
+          title: "书签",
+          label: "书签名",
+          text: $addTitle,
+          onConfirm: {
+            player.addBookmark(title: addTitle)
+            addTitle = ""
+            showAdd = false
+          },
+          onDismiss: {
+            addTitle = ""
+            showAdd = false
+          }
+        )
       }
-      Button("取消", role: .cancel) { addTitle = "" }
     }
-    .alert("编辑书签", isPresented: Binding(
-      get: { editing != nil },
-      set: { if !$0 { editing = nil } }
-    )) {
-      TextField("书签名", text: $editTitle)
-      Button("设置") {
-        if let bookmark = editing, let book {
-          library.updateBookmark(bookId: book.id, bookmarkId: bookmark.id, title: editTitle)
-        }
-        editing = nil
+    .overlay {
+      if editing != nil {
+        M3TextFieldDialog(
+          title: "编辑书签",
+          label: "书签名",
+          text: $editTitle,
+          onConfirm: {
+            if let bookmark = editing, let book {
+              library.updateBookmark(
+                bookId: book.id,
+                bookmarkId: bookmark.id,
+                title: editTitle
+              )
+            }
+            editing = nil
+          },
+          onDismiss: { editing = nil }
+        )
       }
-      Button("取消", role: .cancel) { editing = nil }
+    }
+  }
+
+  /// 安卓 ListItem：headline = 标题，supporting = 时间戳，trailing = MoreVert；
+  /// 左→右滑删除（SwipeToDismissBox 只开了 StartToEnd）。
+  private func row(_ index: Int) -> some View {
+    let bookmark = bookmarks[index]
+    return HStack(spacing: 0) {
+      Button {
+        player.seek(toBookmark: bookmark)
+        onClose()
+      } label: {
+        VStack(alignment: .leading, spacing: 2) {
+          Text(bookmark.title.isEmpty
+            ? titleForChapter(bookmark.chapterIndex)
+            : bookmark.title)
+            .font(AppFont.bodyLarge())
+            .foregroundColor(AppColor.onSurface)
+            .lineLimit(1)
+          Text(Format.clockString(bookmark.seconds))
+            .font(AppFont.bodyMedium())
+            .foregroundColor(AppColor.onSurfaceVariant)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+      }
+      .buttonStyle(.plain)
+
+      Button {
+        menuIndex = index
+      } label: {
+        Image(systemName: "ellipsis")
+          .font(.system(size: 20))
+          .foregroundColor(AppColor.onSurfaceVariant)
+          .rotationEffect(.degrees(90))
+          .frame(width: 48, height: 48)
+          .contentShape(Rectangle())
+      }
+      .buttonStyle(.plain)
+      .accessibilityLabel("编辑")
+    }
+    .padding(.horizontal, 16)
+    .frame(height: Self.rowHeight)
+    .swipeActions(edge: .leading, allowsFullSwipe: true) {
+      Button(role: .destructive) {
+        delete(bookmark)
+      } label: {
+        Label("删除", systemImage: "trash")
+      }
     }
   }
 

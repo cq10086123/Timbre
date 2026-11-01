@@ -395,3 +395,94 @@ struct M3DropdownItem: View {
     .buttonStyle(.plain)
   }
 }
+
+// MARK: - M3 输入对话框（对齐安卓 AddBookmarkDialog / EditBookmarkDialog）
+
+/// 标题 + OutlinedTextField + 右下「取消 / 设置」。
+/// 安卓这两个对话框一进来就 requestFocus，所以标签恒为浮动态。
+struct M3TextFieldDialog: View {
+  var title: String
+  var label: String
+  @Binding var text: String
+  var confirmTitle: String = "设置"
+  var dismissTitle: String = "取消"
+  var onConfirm: () -> Void
+  var onDismiss: () -> Void
+
+  @FocusState private var focused: Bool
+
+  var body: some View {
+    ZStack {
+      AppColor.scrim
+        .ignoresSafeArea()
+        .onTapGesture { onDismiss() }
+
+      VStack(alignment: .leading, spacing: 0) {
+        Text(title)
+          .font(AppFont.headlineSmall())
+          .foregroundColor(AppColor.onSurface)
+        Color.clear.frame(height: 20)
+
+        // OutlinedTextField：高 56、圆角 4、聚焦时描边变 primary
+        ZStack(alignment: .topLeading) {
+          RoundedRectangle(cornerRadius: 4, style: .continuous)
+            .stroke(
+              focused ? AppColor.primary : AppColor.outline,
+              lineWidth: focused ? 2 : 1
+            )
+
+          TextField("", text: $text)
+            .font(AppFont.bodyLarge())
+            .foregroundColor(AppColor.onSurface)
+            .focused($focused)
+            .padding(.horizontal, 16)
+            .frame(height: 56)
+
+          Text(label)
+            .font(AppFont.bodySmall())
+            .foregroundColor(focused ? AppColor.primary : AppColor.onSurfaceVariant)
+            .padding(.horizontal, 4)
+            .background(AppColor.surfaceContainerHigh)
+            .offset(x: 12, y: -8)
+        }
+        .frame(height: 56)
+
+        Color.clear.frame(height: 20)
+
+        HStack(spacing: 8) {
+          Spacer(minLength: 0)
+          Button(action: onDismiss) {
+            Text(dismissTitle)
+              .font(AppFont.labelLarge())
+              .foregroundColor(AppColor.primary)
+              .padding(.horizontal, 12)
+              .frame(height: 40)
+              .contentShape(Rectangle())
+          }
+          .buttonStyle(.plain)
+
+          Button(action: onConfirm) {
+            Text(confirmTitle)
+              .font(AppFont.labelLarge())
+              .foregroundColor(AppColor.onPrimary)
+              .padding(.horizontal, 20)
+              .frame(height: 40)
+              .background(
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                  .fill(AppColor.primary)
+              )
+          }
+          .buttonStyle(.plain)
+        }
+      }
+      .padding(24)
+      .frame(maxWidth: 320, alignment: .leading)
+      .background(
+        RoundedRectangle(cornerRadius: 28, style: .continuous)
+          .fill(AppColor.surfaceContainerHigh)
+      )
+      .padding(.horizontal, 24)
+      .onAppear { focused = true }
+    }
+  }
+}
