@@ -27,6 +27,17 @@ final class OnlinePreloader {
   private var cache: [String: Entry] = [:]
   private var chainTask: Task<Void, Never>?
   private var chainRunning = false
+  /// 旧链条的收尾不能把新链条的标记清掉，用代次区分
+  private var chainGeneration = 0
+  /// 上一次记过的判定，避免每 0.5s 刷一条同样的日志把日志冲爆
+  private var lastDecision: String?
+
+  /// 只在判定变化时记一条，方便从导出的日志里看出预加载为什么没开始
+  private func note(_ reason: String) {
+    guard lastDecision != reason else { return }
+    lastDecision = reason
+    DLog("preload", reason)
+  }
 
   // MARK: - 取用
 
@@ -59,6 +70,7 @@ final class OnlinePreloader {
     let task = chainTask
     chainTask = nil
     chainRunning = false
+    chainGeneration += 1
     lock.unlock()
     task?.cancel()
   }
@@ -77,31 +89,51 @@ final class OnlinePreloader {
   ) {
     guard settings.onlinePreloadEnabled, playing else {
       cancelChain()
+      note(settings.onlinePreloadEnabled ? "预加载待命：当前未在播放" : "预加载待命：开关已关闭")
       return
     }
 
     let trigger = Double(max(0, settings.onlinePreloadTriggerSeconds))
     // 时长未知（0）视为「太短，不预加载」，与安卓一致
-    guard duration >= trigger, position >= trigger else { return }
+    guard duration >= trigger else {
+      note("预加载不适用：本章时长 \(Int(duration))s 短于触发时间 \(Int(trigger))s")
+      return
+    }
+    guard position >= trigger else {
+      note("预加载等待：已播 \(Int(position))/\(Int(trigger))s")
+      return
+    }
 
     let count = max(1, settings.onlinePreloadChapterCount)
-    guard cachedAhead(book: book, chapterIndex: chapterIndex, limit: count) < count else {
+    let ahead = cachedAhead(book: book, chapterIndex: chapterIndex, limit: count)
+    guard ahead < count else {
+      note("预加载就绪：前方已缓存 \(ahead)/\(count) 章")
       return
     }
 
     lock.lock()
     let alreadyRunning = chainRunning
-    if !alreadyRunning { chainRunning = true }
+    if !alreadyRunning {
+      chainRunning = true
+      chainGeneration += 1
+    }
+    let generation = chainGeneration
     lock.unlock()
     guard !alreadyRunning else { return }
 
     let interval = UInt64(max(1, settings.onlinePreloadIntervalSeconds)) * 1_000_000_000
+    note(
+      "开始预加载：从第 \(chapterIndex + 2) 集起共 \(count) 章，间隔 \(settings.onlinePreloadIntervalSeconds)s"
+    )
 
     let task = Task { [weak self] in
+      guard let self else { return }
+      // 无论正常走完、解析失败还是被取消（切章/暂停），都要把链条标记清掉，
+      // 否则 chainRunning 会一直挂在 true，这一章就再也不会重启预加载
+      defer { self.finishChain(generation) }
       var index = chapterIndex + 1
       var loaded = 0
       while !Task.isCancelled, loaded < count {
-        guard let self else { return }
         guard book.chapters.indices.contains(index) else { break }
         let chapter = book.chapters[index]
         if let stream = await resolve(chapter) {
@@ -117,7 +149,6 @@ final class OnlinePreloader {
           try? await Task.sleep(nanoseconds: interval)
         }
       }
-      self?.finishChain()
     }
 
     lock.lock()
@@ -127,10 +158,12 @@ final class OnlinePreloader {
 
   // MARK: - 内部
 
-  private func finishChain() {
+  private func finishChain(_ generation: Int) {
     lock.lock()
-    chainTask = nil
-    chainRunning = false
+    if chainGeneration == generation {
+      chainTask = nil
+      chainRunning = false
+    }
     lock.unlock()
   }
 

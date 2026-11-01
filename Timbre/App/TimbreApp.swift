@@ -26,6 +26,14 @@ struct RootView: View {
 
   var body: some View {
     ShelfView()
+      // 冷启动的书架自动刷新：只刷 WebDAV 书，受「仅 Wi-Fi 下自动刷新」约束
+      .task {
+        await WebDavRefresher.refreshIfAllowed(
+          library: app.library,
+          webdav: app.webdav,
+          settings: app.settings.settings
+        )
+      }
       .onChange(of: scenePhase) { phase in
         if phase != .active { player.flush() }
       }
