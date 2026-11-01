@@ -34,6 +34,35 @@ enum BookSortOrder: String, Codable, CaseIterable, Identifiable {
   }
 }
 
+/// WebDAV 章节预取策略 —— 对齐安卓 `WebDavCacheSettings.PrefetchMode`
+enum WebDavPrefetchMode: String, Codable, CaseIterable, Identifiable {
+  case disabled
+  case chapters5
+  case chapters20
+  case fillBook
+
+  var id: String { rawValue }
+
+  var title: String {
+    switch self {
+    case .disabled: return "关闭"
+    case .chapters5: return "5 章"
+    case .chapters20: return "20 章"
+    case .fillBook: return "整本填满"
+    }
+  }
+
+  /// 往后预取多少章；`fillBook` 只受缓存上限约束
+  var chapterLimit: Int {
+    switch self {
+    case .disabled: return 0
+    case .chapters5: return 5
+    case .chapters20: return 20
+    case .fillBook: return Int.max
+    }
+  }
+}
+
 struct AppSettings: Codable, Equatable {
   var themeMode: ThemeMode = .dark
   var useGridLayout: Bool = true
@@ -77,6 +106,15 @@ struct AppSettings: Codable, Equatable {
   /// 360 = 06:00
   var autoSleepEndMinute: Int = 360
 
+  // MARK: WebDAV 缓存（安卓 WebDavCacheSettings）
+
+  /// 缓存上限，0 = 关闭缓存
+  var webdavCacheMaxBytes: Int64 = 1024 * 1024 * 1024
+  /// 预取未听章节的策略
+  var webdavPrefetchMode: WebDavPrefetchMode = .fillBook
+  /// 允许在移动网络下预取（在线播放本身的缓存不受这个开关限制）
+  var webdavPrefetchOnMetered: Bool = false
+
   init() {}
 
   private enum CodingKeys: String, CodingKey {
@@ -86,6 +124,7 @@ struct AppSettings: Codable, Equatable {
     case onlinePreloadEnabled, onlinePreloadTriggerSeconds, onlinePreloadChapterCount
     case onlinePreloadIntervalSeconds
     case autoSleepEnabled, autoSleepStartMinute, autoSleepEndMinute
+    case webdavCacheMaxBytes, webdavPrefetchMode, webdavPrefetchOnMetered
   }
 
   init(from decoder: Decoder) throws {
@@ -114,6 +153,12 @@ struct AppSettings: Codable, Equatable {
     autoSleepStartMinute =
       try c.decodeIfPresent(Int.self, forKey: .autoSleepStartMinute) ?? 1320
     autoSleepEndMinute = try c.decodeIfPresent(Int.self, forKey: .autoSleepEndMinute) ?? 360
+    webdavCacheMaxBytes =
+      try c.decodeIfPresent(Int64.self, forKey: .webdavCacheMaxBytes) ?? 1024 * 1024 * 1024
+    webdavPrefetchMode =
+      try c.decodeIfPresent(WebDavPrefetchMode.self, forKey: .webdavPrefetchMode) ?? .fillBook
+    webdavPrefetchOnMetered =
+      try c.decodeIfPresent(Bool.self, forKey: .webdavPrefetchOnMetered) ?? false
   }
 }
 

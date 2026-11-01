@@ -9,6 +9,8 @@ enum NetworkStatus {
   private static let lock = NSLock()
   private static var state: NWPath.Status = .requiresConnection
   private static var wifi = false
+  /// 走的是计量网络（蜂窝 / 热点）—— 对齐安卓 MeteredNetworkChecker
+  private static var expensive = false
   /// NWPathMonitor 第一次回报之前 `wifi` 只是默认值，不能拿来判断
   private static var settled = false
   private static var started = false
@@ -28,6 +30,15 @@ enum NetworkStatus {
     lock.lock()
     defer { lock.unlock() }
     return wifi
+  }
+
+  /// 当前是不是计量网络。首次回报之前按 false 处理 —— 宁可多下一次，也不想
+  /// 在 Wi-Fi 上凭空弹一个「要用流量吗」的对话框。
+  static var isExpensive: Bool {
+    ensureStarted()
+    lock.lock()
+    defer { lock.unlock() }
+    return settled && expensive && !wifi
   }
 
   /// 冷启动时 NWPathMonitor 要过一会儿才回报，直接读 `isWiFi` 会拿到默认的 false，
@@ -54,6 +65,7 @@ enum NetworkStatus {
       lock.lock()
       state = path.status
       wifi = path.usesInterfaceType(.wifi)
+      expensive = path.isExpensive
       settled = true
       lock.unlock()
     }

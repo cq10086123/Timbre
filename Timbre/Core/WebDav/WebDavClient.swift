@@ -61,6 +61,87 @@ enum WebDavClient {
     return ["Authorization": value]
   }
 
+  // MARK: - 写入与读取（备份/恢复）
+
+  /// 上传一段字节（PUT）。父目录不存在时先补一次 MKCOL 再重试 ——
+  /// 用户往往直接点「备份」，不会先去 NAS 上手动建目录。
+  static func put(
+    url: URL,
+    server: WebDavServer,
+    password: String,
+    data: Data,
+    contentType: String
+  ) async throws {
+    let (_, response) = try await send(
+      url: url,
+      server: server,
+      password: password,
+      method: "PUT",
+      depth: nil,
+      body: data,
+      headers: ["Content-Type": contentType]
+    )
+    if (200..<300).contains(response.statusCode) { return }
+
+    // 409 Conflict / 404 Not Found 基本都是「上一级目录不存在」
+    if response.statusCode == 409 || response.statusCode == 404 {
+      try await makeCollection(
+        url: url.deletingLastPathComponent(),
+        server: server,
+        password: password
+      )
+      let (_, retry) = try await send(
+        url: url,
+        server: server,
+        password: password,
+        method: "PUT",
+        depth: nil,
+        body: data,
+        headers: ["Content-Type": contentType]
+      )
+      guard (200..<300).contains(retry.statusCode) else {
+        throw WebDavError.status(retry.statusCode)
+      }
+      return
+    }
+    throw WebDavError.status(response.statusCode)
+  }
+
+  /// 读回一个文件。服务器上没有这个文件时返回 nil（不是错误）。
+  static func get(url: URL, server: WebDavServer, password: String) async throws -> Data? {
+    let (data, response) = try await send(
+      url: url,
+      server: server,
+      password: password,
+      method: "GET",
+      depth: nil,
+      body: nil,
+      headers: [:]
+    )
+    if response.statusCode == 404 { return nil }
+    guard (200..<300).contains(response.statusCode) else {
+      throw WebDavError.status(response.statusCode)
+    }
+    return data
+  }
+
+  /// 建目录（MKCOL）。已经存在（405）不算失败。
+  static func makeCollection(url: URL, server: WebDavServer, password: String) async throws {
+    let (_, response) = try await send(
+      url: url,
+      server: server,
+      password: password,
+      method: "MKCOL",
+      depth: nil,
+      body: nil,
+      headers: [:]
+    )
+    if (200..<300).contains(response.statusCode) { return }
+    // 405 Method Not Allowed = 这个目录本来就在
+    if response.statusCode == 405 { return }
+    throw WebDavError.status(response.statusCode)
+  }
+
   // MARK: - 底层请求
 
   private static func send(

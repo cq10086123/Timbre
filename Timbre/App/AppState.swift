@@ -15,6 +15,18 @@ final class AppState: ObservableObject {
     webdav: webdav
   )
 
+  /// 在线书「缓存整本」的任务与进度
+  lazy var cache = OnlineCacheManager(library: library, extensions: extensions)
+
+  /// WebDAV 备份目标（服务器 + 目录 + 上次用的标签）
+  let backupTargets = WebDavBackupStore()
+  /// 备份 / 恢复
+  lazy var backup = WebDavBackupService(
+    library: library,
+    servers: webdav,
+    targets: backupTargets
+  )
+
   @Published var showPlayer = false
   @Published var showImporter = false
   @Published var showSettings = false
@@ -96,6 +108,15 @@ final class AppState: ObservableObject {
 
   func delete(_ book: Book) {
     if player.currentBook?.id == book.id { player.stop() }
+    // 在线书删掉后，手动缓存下来的章节也一并清掉（对齐安卓 book.delete.dialog.message_online）
+    if book.kind == .jdr {
+      let bookId = book.id
+      let source = OnlineChapterFileCache.sourceSegment(sourceId: book.sourceId)
+      Task { @MainActor in cache.cancel(bookId: bookId) }
+      Task.detached(priority: .utility) {
+        OnlineChapterFileCache.clearBook(source: source, bookId: bookId)
+      }
+    }
     library.delete(book)
     showToast("已删除《\(book.title)》")
   }

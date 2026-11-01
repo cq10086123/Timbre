@@ -25,6 +25,8 @@ final class PlaybackEngine: NSObject, ObservableObject {
   private let settings: SettingsStore
   private let extensions: ExtensionStore
   private let webdav: WebDavStore
+  /// WebDAV 书的章节预取队列
+  private let webDavPrefetcher = WebDavPrefetcher()
 
   private var timeObserverToken: Any?
   private var endObserver: NSObjectProtocol?
@@ -547,10 +549,37 @@ final class PlaybackEngine: NSObject, ObservableObject {
       return
     }
 
+    // 手动缓存过这一集：直接播本地文件，断网也能听
+    if book.kind == .jdr, let cached = cachedChapterFile(book: book, chapter: chapter) {
+      DLog("player", "命中手动缓存 第\(chapter.title)")
+      install(item: AVPlayerItem(url: cached), book: book, chapter: chapter)
+      return
+    }
+
     // WebDAV：直连 NAS 上的文件，靠 Authorization 头过认证
     if book.kind == .webdav {
       guard let serverId = book.webdavServerId, let server = webdav.server(withId: serverId) else {
         fail("WebDAV 服务器已被删除，请重新添加后再播放")
+        return
+      }
+      // 预取过这一集：直接读本地，比再走一遍 NAS 快得多，断网也能听
+      if WebDavPrefetchCache.isCached(
+        serverId: serverId,
+        bookId: book.id,
+        chapterId: chapter.id
+      ) {
+        DLog("player", "命中 WebDAV 预取缓存 第\(chapter.title)")
+        install(
+          item: AVPlayerItem(
+            url: WebDavPrefetchCache.file(
+              serverId: serverId,
+              bookId: book.id,
+              chapterId: chapter.id
+            )
+          ),
+          book: book,
+          chapter: chapter
+        )
         return
       }
       guard let remote = chapter.remoteURL, let url = URL(string: remote) else {
@@ -691,6 +720,21 @@ final class PlaybackEngine: NSObject, ObservableObject {
     }
     saveTick = 0
     updateNowPlayingInfo()
+    driveWebDavPrefetch()
+  }
+
+  /// WebDAV 书的章节预取：按设置把后面的几集先拉到本地，断网/慢盘时不至于卡
+  private func driveWebDavPrefetch() {
+    guard let book = currentBook, book.kind == .webdav else {
+      webDavPrefetcher.cancel()
+      return
+    }
+    webDavPrefetcher.schedule(
+      book: book,
+      from: chapterIndex,
+      settings: settings.settings,
+      webdav: webdav
+    )
   }
 
   private func fail(_ message: String) {
@@ -771,6 +815,19 @@ final class PlaybackEngine: NSObject, ObservableObject {
     var script: String
     var allowInsecure: Bool
     var remoteBookId: String
+  }
+
+  /// 这一集手动缓存过就返回本地文件地址（离线也能听）
+  private func cachedChapterFile(book: Book, chapter: Chapter) -> URL? {
+    let source = OnlineChapterFileCache.sourceSegment(sourceId: book.sourceId)
+    guard
+      OnlineChapterFileCache.isCached(
+        source: source,
+        bookId: book.id,
+        chapterId: chapter.id
+      )
+    else { return nil }
+    return OnlineChapterFileCache.file(source: source, bookId: book.id, chapterId: chapter.id)
   }
 
   private func resolveRemote(

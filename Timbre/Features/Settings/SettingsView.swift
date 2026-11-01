@@ -41,7 +41,8 @@ struct SettingsView: View {
     }
     .sheet(isPresented: $showFolderSheet) { folderSheet }
     .fullScreenCover(isPresented: $showWebDavSheet) {
-      WebDavServersView()
+      WebDavSettingsView()
+        .environmentObject(app)
         .environmentObject(webdav)
         .environmentObject(library)
     }

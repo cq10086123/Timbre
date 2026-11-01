@@ -55,6 +55,8 @@ enum AppColor {
   static let onPrimaryContainer = Color.adaptive(light: 0x06131F, dark: 0xC9E6FF)
   static let secondaryContainer = Color.adaptive(light: 0xCBE0EB, dark: 0x2A3A42)
   static let onSecondaryContainer = Color.adaptive(light: 0x0F2833, dark: 0xCBE0EB)
+  /// 「需要用户注意但不报错」的第三色（缓存等流量确认）
+  static let tertiary = Color.adaptive(light: 0x3F6374, dark: 0xA5CCDE)
 
   // 描边 / 语义
   static let outline = Color.adaptive(light: 0x757A7F, dark: 0x757A7F)
@@ -142,6 +144,12 @@ enum Format {
 
   static func speed(_ value: Double) -> String { String(format: "%.2f x", value) }
   static func gain(_ value: Double) -> String { String(format: "%.1f dB", value) }
+
+  /// 字节数（对齐安卓 android.text.format.Formatter 的短格式）
+  static func bytes(_ value: Int64) -> String {
+    guard value > 0 else { return "0 MB" }
+    return ByteCountFormatter.string(fromByteCount: value, countStyle: .file)
+  }
 }
 
 // MARK: - 主题模式
