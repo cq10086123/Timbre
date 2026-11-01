@@ -124,7 +124,7 @@ enum JSHostBridge {
     put("__sm4EcbDecryptB64", unsafeBitCast(sm4Dec, to: AnyObject.self))
 
     let random: @convention(block) (Double) -> String = { count in
-      okJSON(CryptoSupport.randomBytes(Int(count)).base64EncodedString())
+      JSHostBridge.okJSON(CryptoSupport.randomBytes(Int(count)).base64EncodedString())
     }
     put("__randomBytesB64", unsafeBitCast(random, to: AnyObject.self))
 
