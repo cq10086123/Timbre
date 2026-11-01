@@ -96,43 +96,62 @@ final class AppState: ObservableObject {
 
   // MARK: - 接口源
 
-  func installExtension(urls: [URL]) {
-    guard let url = urls.first else { return }
+  /// 从「文件」里选中的 .jdr 安装。解析放到后台，成败都直接抛回给调用方显示，
+  /// 不再走全局 errorMessage —— 接口源页是 fullScreenCover，全局弹窗会被它盖住看不见。
+  func installExtension(url: URL) async throws -> InstalledExtension {
     let accessed = url.startAccessingSecurityScopedResource()
-    defer {
-      if accessed { url.stopAccessingSecurityScopedResource() }
-    }
+    defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+
+    let data: Data
     do {
-      let data = try Data(contentsOf: url)
-      let installed = try extensions.install(data: data)
-      showToast("已安装接口源：\(installed.name)")
+      data = try Data(contentsOf: url)
     } catch {
-      errorMessage = error.localizedDescription
+      throw ExtensionInstallError.readFailed(url.lastPathComponent, error.localizedDescription)
     }
+    return try await installExtension(data: data)
   }
 
-  func installExtension(fromLink link: String) {
-    guard let url = URL(string: link), link.hasPrefix("http") else {
-      errorMessage = "链接必须以 http:// 或 https:// 开头"
-      return
+  func installExtension(link: String) async throws -> InstalledExtension {
+    let trimmed = link.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard let url = URL(string: trimmed), let scheme = url.scheme?.lowercased(),
+      scheme == "http" || scheme == "https"
+    else {
+      throw ExtensionInstallError.badLink
     }
-    Task {
-      do {
-        let (data, _) = try await URLSession.shared.data(from: url)
-        await MainActor.run {
-          do {
-            let installed = try self.extensions.install(data: data)
-            self.showToast("已安装接口源：\(installed.name)")
-          } catch {
-            self.errorMessage = error.localizedDescription
-          }
-        }
-      } catch {
-        await MainActor.run {
-          self.errorMessage = "下载失败：\(error.localizedDescription)"
-        }
+    let data: Data
+    do {
+      var request = URLRequest(url: url)
+      request.timeoutInterval = 30
+      let (payload, response) = try await URLSession.shared.data(for: request)
+      if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+        throw ExtensionInstallError.downloadFailed("HTTP \(http.statusCode)")
       }
+      data = payload
+    } catch let error as ExtensionInstallError {
+      throw error
+    } catch {
+      throw ExtensionInstallError.downloadFailed(error.localizedDescription)
     }
+    return try await installExtension(data: data)
+  }
+
+  private func installExtension(data: Data) async throws -> InstalledExtension {
+    guard !data.isEmpty else { throw ExtensionInstallError.emptyFile }
+    // 解压 + 校验可能上百毫秒，离开主线程
+    let package: JdrPackage
+    do {
+      package = try await Task.detached(priority: .userInitiated) {
+        try JdrArchive.parse(data: data)
+      }.value
+    } catch let error as JdrError {
+      throw ExtensionInstallError.invalidPackage(error.errorDescription ?? "包格式错误")
+    } catch let error as ZipArchive.ZipError {
+      throw ExtensionInstallError.invalidPackage(error.errorDescription ?? "包格式错误")
+    } catch {
+      throw ExtensionInstallError.invalidPackage(error.localizedDescription)
+    }
+    let installed = extensions.install(package: package)
+    return installed
   }
 
   // MARK: - 封面

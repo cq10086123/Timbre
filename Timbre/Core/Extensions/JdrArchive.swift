@@ -68,6 +68,7 @@ struct ExtensionManifest: Codable, Identifiable, Hashable {
 
 struct JdrPackage {
   var manifest: ExtensionManifest
+  /// key 是包内路径（与 manifest 里 source.script 一致）
   var scripts: [String: String]
 
   func script(for source: ExtensionSourceMeta) -> String? {
@@ -80,27 +81,34 @@ enum JdrError: LocalizedError {
   case badManifest(String)
   case badSource(String)
   case missingScript(String)
-  case scriptTooLarge
+  case emptyScript(String)
 
   var errorDescription: String? {
     switch self {
     case .missingManifest: return "包内缺少 manifest.json"
     case .badManifest(let reason): return "manifest.json 无效：\(reason)"
     case .badSource(let reason): return "源声明无效：\(reason)"
-    case .missingScript(let name): return "包内缺少脚本文件 \(name)"
-    case .scriptTooLarge: return "源脚本过大"
+    case .missingScript(let name): return "manifest 引用的脚本不存在：\(name)"
+    case .emptyScript(let name): return "脚本文件为空：\(name)"
     }
   }
 }
 
 enum JdrArchive {
-  static let maxScriptBytes = 2 * 1024 * 1024
+  static let maxScriptBytes = 5 * 1024 * 1024
+  private static let knownCapabilities: Set<String> = ["search", "chapters", "audio"]
+
+  // 与安卓版 JdrArchive 的正则保持一致
+  private static let manifestIdPattern = "^[a-z0-9][a-z0-9._-]{1,63}$"
+  private static let sourceIdPattern = "^[a-z0-9][a-z0-9_-]{0,63}$"
 
   static func parse(data: Data) throws -> JdrPackage {
     let entries = try ZipArchive.entries(in: data)
-    guard let manifestEntry = entries.first(where: {
-      $0.name == "manifest.json" || $0.name.hasSuffix("/manifest.json")
-    }) else {
+    guard
+      let manifestEntry = entries.first(where: {
+        $0.name == "manifest.json" || $0.name.hasSuffix("/manifest.json")
+      })
+    else {
       throw JdrError.missingManifest
     }
     let manifestData = try ZipArchive.extract(manifestEntry, from: data)
@@ -110,11 +118,38 @@ enum JdrArchive {
     } catch {
       throw JdrError.badManifest(error.localizedDescription)
     }
-    guard isValidId(manifest.id) else {
-      throw JdrError.badManifest("id 只能是小写字母 / 数字 / . _ -")
+
+    guard matches(manifest.id, manifestIdPattern) else {
+      throw JdrError.badManifest("id 非法（需小写字母/数字/._-，2-64 位）：\(manifest.id)")
+    }
+    guard !manifest.name.trimmingCharacters(in: .whitespaces).isEmpty else {
+      throw JdrError.badManifest("name 不能为空")
+    }
+    guard !manifest.version.trimmingCharacters(in: .whitespaces).isEmpty else {
+      throw JdrError.badManifest("version 不能为空")
     }
     guard !manifest.sources.isEmpty else {
-      throw JdrError.badManifest("没有声明任何源")
+      throw JdrError.badManifest("sources 不能为空")
+    }
+
+    var seenIds = Set<String>()
+    for source in manifest.sources {
+      guard matches(source.id, sourceIdPattern) else {
+        throw JdrError.badSource("id 非法：\(source.id)")
+      }
+      guard seenIds.insert(source.id).inserted else {
+        throw JdrError.badSource("源 id 重复：\(source.id)")
+      }
+      guard !source.name.trimmingCharacters(in: .whitespaces).isEmpty else {
+        throw JdrError.badSource("源 \(source.id) 的 name 不能为空")
+      }
+      guard !source.script.trimmingCharacters(in: .whitespaces).isEmpty else {
+        throw JdrError.badSource("源 \(source.id) 的 script 不能为空")
+      }
+      let unknown = Set(source.capabilities).subtracting(knownCapabilities)
+      guard unknown.isEmpty else {
+        throw JdrError.badSource("源 \(source.id) 含未知能力：\(unknown.sorted().joined(separator: ","))")
+      }
     }
 
     let prefix = manifestEntry.name.hasSuffix("/manifest.json")
@@ -123,30 +158,40 @@ enum JdrArchive {
 
     var scripts: [String: String] = [:]
     for source in manifest.sources {
-      guard isValidId(source.id) else {
-        throw JdrError.badSource("源 id 只能是小写字母 / 数字 / . _ -")
-      }
-      guard !source.script.isEmpty else {
-        throw JdrError.badSource("源 \(source.id) 未声明 script")
-      }
-      let path = prefix + source.script
-      guard let entry = entries.first(where: { $0.name == path || $0.name == source.script })
+      let candidates = [prefix + source.script, source.script]
+      guard
+        let entry = candidates.compactMap({ path in entries.first { $0.name == path } }).first
       else {
         throw JdrError.missingScript(source.script)
       }
-      guard entry.uncompressedSize <= maxScriptBytes else { throw JdrError.scriptTooLarge }
+      guard entry.uncompressedSize <= maxScriptBytes else {
+        throw JdrError.badSource("脚本 \(source.script) 超过 5MB 上限")
+      }
       let raw = try ZipArchive.extract(entry, from: data)
-      guard let text = String(data: raw, encoding: .utf8) else {
+      guard let text = decodeText(raw) else {
         throw JdrError.missingScript(source.script)
+      }
+      guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        throw JdrError.emptyScript(source.script)
       }
       scripts[source.script] = text
     }
     return JdrPackage(manifest: manifest, scripts: scripts)
   }
 
-  static func isValidId(_ id: String) -> Bool {
-    guard !id.isEmpty, id.count <= 64 else { return false }
-    let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyz0123456789._-")
-    return id.unicodeScalars.allSatisfy { allowed.contains($0) }
+  private static func matches(_ text: String, _ pattern: String) -> Bool {
+    text.range(of: pattern, options: .regularExpression) != nil
+  }
+
+  /// 优先 UTF-8，其次带 BOM 的 UTF-8 / GB18030（部分源作者在 Windows 记事本里存盘）
+  private static func decodeText(_ data: Data) -> String? {
+    if let text = String(data: data, encoding: .utf8) {
+      return text.replacingOccurrences(of: "\u{FEFF}", with: "")
+    }
+    // 0x8000_0632 = CFStringConvertEncodingToNSStringEncoding(kCFStringEncodingGB_18030_2000)
+    // 直接写常量，省掉 CoreFoundation 的桥接调用
+    let gb18030 = String.Encoding(rawValue: 0x8000_0632)
+    if let text = String(data: data, encoding: gb18030) { return text }
+    return nil
   }
 }

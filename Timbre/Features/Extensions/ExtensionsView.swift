@@ -1,164 +1,257 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct ExtensionsView: View {
   @EnvironmentObject private var app: AppState
   @EnvironmentObject private var extensions: ExtensionStore
   @Environment(\.dismiss) private var dismiss
 
-  @State private var showPicker = false
-  @State private var showLinkAlert = false
+  @State private var showImporter = false
+  @State private var showLinkDialog = false
   @State private var linkText = ""
+  @State private var busy = false
+  @State private var toast: String?
+  @State private var errorText: String?
+  @State private var uninstallTarget: InstalledExtension?
+
+  /// Android 打开文件选择器用的是 `*/*`，这里同理放宽：.jdr 是自定义扩展名，
+  /// 只允许 .data 会让部分「文件」提供方把它置灰点不动。
+  private var importTypes: [UTType] {
+    var types: [UTType] = []
+    if let jdr = UTType(filenameExtension: "jdr") { types.append(jdr) }
+    if let zip = UTType(filenameExtension: "zip") { types.append(zip) }
+    types.append(.archive)
+    types.append(.data)
+    return types
+  }
 
   var body: some View {
-    ZStack {
+    ZStack(alignment: .bottom) {
       AppColor.background.ignoresSafeArea()
-      ScrollView {
-        VStack(alignment: .leading, spacing: 16) {
-          hint
 
-          if extensions.extensions.isEmpty {
-            emptyCard
-          } else {
-            VStack(spacing: 10) {
+      VStack(spacing: 0) {
+        topBar
+          .alert("从链接导入", isPresented: $showLinkDialog) {
+            TextField("https://example.com/source.jdr", text: $linkText)
+              .textInputAutocapitalization(.never)
+              .autocorrectionDisabled()
+              .keyboardType(.URL)
+            Button("导入") { importLink() }
+              .disabled(linkText.trimmingCharacters(in: .whitespaces).isEmpty)
+            Button("取消", role: .cancel) { linkText = "" }
+          } message: {
+            Text("从 URL 下载并安装 .jdr 包")
+          }
+        ScrollView {
+          LazyVStack(spacing: 0) {
+            importRows
+            if extensions.extensions.isEmpty {
+              emptyText
+            } else {
               ForEach(extensions.extensions) { ext in
-                extensionCard(ext)
+                packageHeader(ext)
+                ForEach(ext.sources) { source in
+                  sourceRow(ext: ext, source: source)
+                }
               }
             }
+            Spacer().frame(height: 40)
           }
-
-          VStack(spacing: 10) {
-            Button {
-              showPicker = true
-            } label: {
-              Label("从文件导入 .jdr", systemImage: "doc.badge.plus")
-                .font(.subheadline.weight(.medium))
-                .foregroundColor(AppColor.background)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 13)
-                .background(AppColor.accent, in: Capsule())
-            }
-            Button {
-              linkText = ""
-              showLinkAlert = true
-            } label: {
-              Label("从链接导入", systemImage: "link")
-                .font(.subheadline.weight(.medium))
-                .foregroundColor(AppColor.accent)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 13)
-                .background(AppColor.accentSoft, in: Capsule())
-            }
-          }
-          .padding(.top, 4)
         }
-        .padding(16)
+        .alert("导入失败", isPresented: errorBinding) {
+          Button("知道了", role: .cancel) { errorText = nil }
+        } message: {
+          Text(errorText ?? "")
+        }
+      }
+
+      if let toast {
+        snackbar(toast)
+          .padding(.bottom, 24)
+          .transition(.opacity.combined(with: .move(edge: .bottom)))
       }
     }
-    .navigationTitle("接口源")
-    .navigationBarTitleDisplayMode(.inline)
-    .sheet(isPresented: $showPicker) {
-      DocumentPicker(contentTypes: [.data], allowsMultiple: false) { urls in
-        showPicker = false
-        app.installExtension(urls: urls)
+    .animation(.easeInOut(duration: 0.2), value: toast)
+    .fileImporter(
+      isPresented: $showImporter,
+      allowedContentTypes: importTypes,
+      allowsMultipleSelection: false
+    ) { result in
+      switch result {
+      case .success(let urls):
+        if let url = urls.first { importFile(url) }
+      case .failure(let error):
+        showError("选择文件失败：\(error.localizedDescription)")
       }
     }
-    .alert("从链接导入", isPresented: $showLinkAlert) {
-      TextField("https://.../xxx.jdr", text: $linkText)
-        .textInputAutocapitalization(.never)
-        .autocorrectionDisabled()
-      Button("导入") {
-        app.installExtension(fromLink: linkText.trimmingCharacters(in: .whitespacesAndNewlines))
+    // 卸载确认走 confirmationDialog：和上面两个 alert 属于不同呈现类型，不会互相抢
+    .confirmationDialog(
+      "卸载接口源",
+      isPresented: Binding(
+        get: { uninstallTarget != nil },
+        set: { if !$0 { uninstallTarget = nil } }
+      ),
+      titleVisibility: .visible,
+      presenting: uninstallTarget
+    ) { ext in
+      Button("卸载", role: .destructive) {
+        extensions.remove(ext)
+        uninstallTarget = nil
+        showToast("已卸载 \(ext.name)")
       }
-      Button("取消", role: .cancel) {}
-    } message: {
-      Text("支持 .jdr 直链，例如 jsDelivr 上的源合集。")
+      Button("取消", role: .cancel) { uninstallTarget = nil }
+    } message: { _ in
+      Text("卸载这个包？它下面的源会从搜索里消失；已加入书架的书不受影响，除非你手动删除。")
     }
   }
 
-  private var hint: some View {
-    Text("接口源（.jdr）是一个压缩包，里面包含源脚本。搜索、章节、播放直链全部在手机本地由 JavaScriptCore 沙箱执行，请求从你自己的 IP 直连源站。")
-      .font(.footnote)
-      .foregroundColor(AppColor.textSecondary)
-      .padding(14)
+  // MARK: - 顶栏
+
+  private var topBar: some View {
+    HStack(spacing: 0) {
+      IconButton48(systemName: "xmark", label: "关闭") { dismiss() }
+      Text("接口源")
+        .font(AppFont.titleLarge())
+        .foregroundColor(AppColor.onSurface)
+      Spacer()
+    }
+    .frame(height: 64)
+  }
+
+  // MARK: - 导入入口
+
+  private var importRows: some View {
+    VStack(spacing: 0) {
+      M3ListItem(
+        title: "导入 .jdr 包",
+        subtitle: "选择本地的 .jdr 文件",
+        action: { showImporter = true }
+      ) {
+        if busy { ProgressView().scaleEffect(0.85) }
+      }
+      M3ListItem(
+        title: "从链接导入",
+        subtitle: "从 URL 下载并安装 .jdr 包",
+        action: {
+          linkText = ""
+          showLinkDialog = true
+        }
+      )
+      .disabled(busy)
+    }
+  }
+
+  private var emptyText: some View {
+    Text("尚未安装接口源。导入 .jdr 扩展包即可在搜索中使用本地接口源。")
+      .font(AppFont.bodyMedium())
+      .foregroundColor(AppColor.onSurfaceVariant)
       .frame(maxWidth: .infinity, alignment: .leading)
-      .background(AppColor.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+      .padding(24)
   }
 
-  private var emptyCard: some View {
-    VStack(spacing: 10) {
-      Image(systemName: "shippingbox")
-        .font(.system(size: 34, weight: .light))
-        .foregroundColor(AppColor.textSecondary)
-      Text("还没有安装任何接口源")
-        .font(.subheadline)
-        .foregroundColor(AppColor.textPrimary)
-      Text("导入现成的 .jdr 包，或在安卓版的 samples 目录里找示例")
-        .font(.caption)
-        .foregroundColor(AppColor.textSecondary)
-        .multilineTextAlignment(.center)
+  // MARK: - 包 / 源
+
+  private func packageHeader(_ ext: InstalledExtension) -> some View {
+    M3ListItem(
+      title: ext.name,
+      subtitle: ext.author.isEmpty ? "版本 \(ext.version)" : "版本 \(ext.version)\n作者：\(ext.author)"
+    ) {
+      Button {
+        uninstallTarget = ext
+      } label: {
+        Image(systemName: "trash")
+          .font(.system(size: 18))
+          .foregroundColor(AppColor.onSurfaceVariant)
+          .frame(width: 48, height: 48)
+          .contentShape(Rectangle())
+      }
+      .buttonStyle(.plain)
+      .accessibilityLabel("卸载包")
     }
-    .frame(maxWidth: .infinity)
-    .padding(.vertical, 30)
-    .background(AppColor.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    .padding(.top, 8)
   }
 
-  private func extensionCard(_ ext: InstalledExtension) -> some View {
-    VStack(alignment: .leading, spacing: 8) {
-      HStack(alignment: .top) {
-        VStack(alignment: .leading, spacing: 3) {
-          Text(ext.name)
-            .font(.system(size: 15, weight: .semibold))
-            .foregroundColor(AppColor.textPrimary)
-          Text("v\(ext.version)\(ext.author.isEmpty ? "" : " · \(ext.author)")")
-            .font(.system(size: 11))
-            .foregroundColor(AppColor.textSecondary)
-        }
-        Spacer()
-        Toggle(
-          "",
-          isOn: Binding(
-            get: { ext.enabled },
-            set: { extensions.setEnabled(ext, enabled: $0) }
-          )
+  private func sourceRow(ext: InstalledExtension, source: ExtensionSourceMeta) -> some View {
+    M3ListItem(
+      title: source.name,
+      subtitle: "jdr:\(source.id)"
+    ) {
+      Toggle(
+        "",
+        isOn: Binding(
+          get: { ext.isSourceEnabled(source.id) },
+          set: { extensions.setSourceEnabled(ext, sourceId: source.id, enabled: $0) }
         )
-        .labelsHidden()
-        .tint(AppColor.accent)
-      }
+      )
+      .labelsHidden()
+      .tint(AppColor.primary)
+    }
+  }
 
-      if !ext.summary.isEmpty {
-        Text(ext.summary)
-          .font(.system(size: 12))
-          .foregroundColor(AppColor.textSecondary)
-          .lineLimit(3)
-      }
+  // MARK: - 提示
 
-      HStack(spacing: 6) {
-        ForEach(ext.sources) { source in
-          Text(source.name)
-            .font(.system(size: 10, weight: .medium))
-            .foregroundColor(AppColor.accent)
-            .padding(.horizontal, 7)
-            .padding(.vertical, 3)
-            .background(AppColor.accentSoft, in: Capsule())
-        }
-      }
+  private func snackbar(_ text: String) -> some View {
+    Text(text)
+      .font(AppFont.bodyMedium())
+      .foregroundColor(AppColor.surfaceContainerLowest)
+      .padding(.horizontal, 16)
+      .padding(.vertical, 14)
+      .background(
+        RoundedRectangle(cornerRadius: 12, style: .continuous)
+          .fill(AppColor.onSurface.opacity(0.92))
+      )
+      .padding(.horizontal, 16)
+  }
 
-      HStack {
-        Text("来源 id：\(ext.id)")
-          .font(.system(size: 10))
-          .foregroundColor(AppColor.textSecondary)
-        Spacer()
-        Button {
-          extensions.remove(ext)
-          app.showToast("已删除 \(ext.name)")
-        } label: {
-          Text("删除")
-            .font(.system(size: 11, weight: .medium))
-            .foregroundColor(AppColor.danger)
-        }
+  private var errorBinding: Binding<Bool> {
+    Binding(
+      get: { errorText != nil },
+      set: { if !$0 { errorText = nil } }
+    )
+  }
+
+  private func showToast(_ text: String) {
+    toast = text
+    DispatchQueue.main.asyncAfter(deadline: .now() + 2.6) {
+      if toast == text { toast = nil }
+    }
+  }
+
+  private func showError(_ text: String) {
+    errorText = text
+  }
+
+  // MARK: - 动作
+
+  private func importFile(_ url: URL) {
+    runImport {
+      try await app.installExtension(url: url)
+    }
+  }
+
+  private func importLink() {
+    let link = linkText.trimmingCharacters(in: .whitespacesAndNewlines)
+    linkText = ""
+    runImport {
+      try await app.installExtension(link: link)
+    }
+  }
+
+  /// 解析在后台线程做，回写 @Published 与提示都在主线程，避免「后台线程发布变更」告警
+  private func runImport(_ work: @escaping () async throws -> InstalledExtension) {
+    guard !busy else { return }
+    busy = true
+    Task { @MainActor in
+      do {
+        let installed = try await work()
+        busy = false
+        showToast(
+          "已导入 \(installed.name) v\(installed.version)（\(installed.sources.count) 个源）"
+        )
+      } catch {
+        busy = false
+        showError(error.localizedDescription)
       }
     }
-    .padding(14)
-    .background(AppColor.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
   }
 }

@@ -1,6 +1,30 @@
 import Combine
 import Foundation
 
+/// 接口源导入失败的原因，直接作为提示文案展示
+enum ExtensionInstallError: LocalizedError {
+  case readFailed(String, String)
+  case emptyFile
+  case badLink
+  case downloadFailed(String)
+  case invalidPackage(String)
+
+  var errorDescription: String? {
+    switch self {
+    case .readFailed(let name, let reason):
+      return "读不到文件「\(name)」：\(reason)"
+    case .emptyFile:
+      return "文件是空的（0 字节）"
+    case .badLink:
+      return "链接必须以 http:// 或 https:// 开头"
+    case .downloadFailed(let reason):
+      return "下载失败：\(reason)"
+    case .invalidPackage(let reason):
+      return "不是有效的 .jdr 包：\(reason)"
+    }
+  }
+}
+
 /// 已安装的 .jdr 包
 struct InstalledExtension: Codable, Identifiable, Hashable {
   var id: String
@@ -11,10 +35,63 @@ struct InstalledExtension: Codable, Identifiable, Hashable {
   var homepage: String
   var allowInsecure: Bool
   var sources: [ExtensionSourceMeta]
-  var enabled: Bool
+  /// 被单独关掉的源 id（安卓版是每个源一个开关，不是整包开关）
+  var disabledSources: [String]
   var installedAt: Date
   /// 相对 Documents 的目录
   var folder: String
+
+  init(
+    id: String,
+    name: String,
+    version: String,
+    author: String,
+    summary: String,
+    homepage: String,
+    allowInsecure: Bool,
+    sources: [ExtensionSourceMeta],
+    disabledSources: [String] = [],
+    installedAt: Date,
+    folder: String
+  ) {
+    self.id = id
+    self.name = name
+    self.version = version
+    self.author = author
+    self.summary = summary
+    self.homepage = homepage
+    self.allowInsecure = allowInsecure
+    self.sources = sources
+    self.disabledSources = disabledSources
+    self.installedAt = installedAt
+    self.folder = folder
+  }
+
+  // 旧版本 extensions.json 没有 disabledSources / 部分字段，全部按缺省值兜底，
+  // 否则一次解码失败就会让整份列表变空（这正是上一版「装好了也看不到」的原因之一）
+  private enum CodingKeys: String, CodingKey {
+    case id, name, version, author, summary, homepage, allowInsecure, sources
+    case disabledSources, installedAt, folder
+  }
+
+  init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    id = try c.decodeIfPresent(String.self, forKey: .id) ?? ""
+    name = try c.decodeIfPresent(String.self, forKey: .name) ?? id
+    version = try c.decodeIfPresent(String.self, forKey: .version) ?? ""
+    author = try c.decodeIfPresent(String.self, forKey: .author) ?? ""
+    summary = try c.decodeIfPresent(String.self, forKey: .summary) ?? ""
+    homepage = try c.decodeIfPresent(String.self, forKey: .homepage) ?? ""
+    allowInsecure = try c.decodeIfPresent(Bool.self, forKey: .allowInsecure) ?? false
+    sources = try c.decodeIfPresent([ExtensionSourceMeta].self, forKey: .sources) ?? []
+    disabledSources = try c.decodeIfPresent([String].self, forKey: .disabledSources) ?? []
+    installedAt = try c.decodeIfPresent(Date.self, forKey: .installedAt) ?? Date()
+    folder = try c.decodeIfPresent(String.self, forKey: .folder) ?? "Extensions/\(id)"
+  }
+
+  func isSourceEnabled(_ sourceId: String) -> Bool {
+    !disabledSources.contains(sourceId)
+  }
 }
 
 /// 扁平化后的单个源，用于搜索时选择
@@ -24,7 +101,9 @@ struct InstalledSource: Identifiable, Hashable {
   var allowInsecure: Bool
   var meta: ExtensionSourceMeta
 
-  var id: String { "\(extensionId)/\(meta.id)" }
+  /// 与安卓路由一致：`jdr:<sourceId>`
+  var id: String { "jdr:\(meta.id)" }
+  var routeId: String { "jdr:\(meta.id)" }
   var displayName: String { meta.name }
 }
 
@@ -35,21 +114,29 @@ final class ExtensionStore: ObservableObject {
     load()
   }
 
+  // MARK: - 持久化
+
   private func load() {
-    guard let data = try? Data(contentsOf: AppPaths.extensionsFile),
-      let decoded = try? JSONCoding.decoder().decode([InstalledExtension].self, from: data)
-    else { return }
-    extensions = decoded
+    guard let data = try? Data(contentsOf: AppPaths.extensionsFile) else { return }
+    let decoded = (try? JSONCoding.decoder().decode([InstalledExtension].self, from: data)) ?? []
+    extensions = decoded.filter { !$0.id.isEmpty }.map { ext in
+      var fixed = ext
+      if fixed.folder.isEmpty { fixed.folder = "Extensions/\(fixed.id)" }
+      return fixed
+    }
   }
 
   private func persist() {
     guard let data = try? JSONCoding.encoder().encode(extensions) else { return }
+    AppPaths.ensure(AppPaths.extensionsDir)
     try? data.write(to: AppPaths.extensionsFile, options: .atomic)
   }
 
+  // MARK: - 查询
+
   var enabledSources: [InstalledSource] {
-    extensions.filter { $0.enabled }.flatMap { ext in
-      ext.sources.map {
+    extensions.flatMap { ext in
+      ext.sources.filter { ext.isSourceEnabled($0.id) }.map {
         InstalledSource(
           extensionId: ext.id,
           extensionName: ext.name,
@@ -60,6 +147,10 @@ final class ExtensionStore: ObservableObject {
     }
   }
 
+  var totalSourceCount: Int {
+    extensions.reduce(0) { $0 + $1.sources.count }
+  }
+
   func installedExtension(withId id: String) -> InstalledExtension? {
     extensions.first { $0.id == id }
   }
@@ -68,22 +159,25 @@ final class ExtensionStore: ObservableObject {
     installedExtension(withId: installed.extensionId)
   }
 
-  /// 读取源码文本
+  /// 读取源码文本（脚本可能带子目录，例如 `src/a.js`）
   func scriptText(for installed: InstalledSource) -> String? {
     guard let ext = installedExtension(withId: installed.extensionId) else { return nil }
-    let url = AppPaths.url(for: ext.folder).appendingPathComponent(installed.meta.script)
+    let url = AppPaths.url(for: ext.folder)
+      .appendingPathComponent(installed.meta.script)
     guard let data = try? Data(contentsOf: url) else { return nil }
     return String(data: data, encoding: .utf8)
   }
 
-  /// 安装 / 更新一个 .jdr 包
-  func install(data: Data) throws -> InstalledExtension {
-    let package = try JdrArchive.parse(data: data)
+  // MARK: - 安装 / 卸载
+
+  /// 写入磁盘并登记。纯主线程调用，重量级解析在外部先做完。
+  @discardableResult
+  func install(package: JdrPackage) -> InstalledExtension {
     let manifest = package.manifest
     let folder = "Extensions/\(manifest.id)"
     let dir = AppPaths.ensure(AppPaths.url(for: folder))
 
-    // 清理旧文件后重写
+    // 清空旧文件后重写，避免旧版本残留的多余脚本
     if let existing = try? FileManager.default.contentsOfDirectory(atPath: dir.path) {
       for name in existing {
         try? FileManager.default.removeItem(at: dir.appendingPathComponent(name))
@@ -111,14 +205,17 @@ final class ExtensionStore: ObservableObject {
       homepage: manifest.homepage,
       allowInsecure: manifest.allowInsecure,
       sources: manifest.sources,
-      enabled: true,
+      disabledSources: [],
       installedAt: Date(),
       folder: folder
     )
 
     if let index = extensions.firstIndex(where: { $0.id == record.id }) {
       var updated = record
-      updated.enabled = extensions[index].enabled
+      // 升级时保留用户已有的开关状态
+      updated.disabledSources = extensions[index].disabledSources.filter { id in
+        manifest.sources.contains { $0.id == id }
+      }
       extensions[index] = updated
     } else {
       extensions.append(record)
@@ -133,9 +230,15 @@ final class ExtensionStore: ObservableObject {
     persist()
   }
 
-  func setEnabled(_ ext: InstalledExtension, enabled: Bool) {
+  func setSourceEnabled(_ ext: InstalledExtension, sourceId: String, enabled: Bool) {
     guard let index = extensions.firstIndex(where: { $0.id == ext.id }) else { return }
-    extensions[index].enabled = enabled
+    var disabled = Set(extensions[index].disabledSources)
+    if enabled {
+      disabled.remove(sourceId)
+    } else {
+      disabled.insert(sourceId)
+    }
+    extensions[index].disabledSources = Array(disabled).sorted()
     persist()
   }
 }
