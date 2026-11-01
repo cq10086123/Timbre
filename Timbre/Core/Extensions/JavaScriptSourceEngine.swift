@@ -292,12 +292,16 @@ enum JavaScriptSourceEngine {
     _ = start.call(withArguments: [stage, paramsJSON])
     if let text = exceptionText { throw SourceEngineError.source(text) }
 
+    // JSC 的 Promise 微任务在每次 evaluateScript 返回前排空，所以轮询本身就能推进 await 链。
+    // 之前只给 3 秒，一次搜索要连多个源站，真机上很容易不够，扩到 8 秒。
+    let began = Date()
     var state = "pending"
-    for _ in 0..<150 {
+    for _ in 0..<400 {
       state = context.evaluateScript("__iosState()")?.toString() ?? "pending"
       if state == "done" || state == "error" { break }
       Thread.sleep(forTimeInterval: 0.02)
     }
+    let waited = Date().timeIntervalSince(began)
 
     let resultText = context.evaluateScript("__iosValue()")?.toString() ?? ""
     if let text = exceptionText, state != "error" {
@@ -309,7 +313,9 @@ enum JavaScriptSourceEngine {
     case "error":
       throw SourceEngineError.source(resultText.isEmpty ? "源脚本执行失败" : resultText)
     default:
-      throw SourceEngineError.source("源脚本执行超时（网络请求可能被阻塞）")
+      throw SourceEngineError.source(
+        "源脚本执行超时：等了 \(String(format: "%.1f", waited)) 秒仍未返回（网络可能不通）"
+      )
     }
   }
 }

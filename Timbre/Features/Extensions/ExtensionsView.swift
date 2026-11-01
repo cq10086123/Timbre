@@ -172,7 +172,7 @@ struct ExtensionsView: View {
   private func sourceRow(ext: InstalledExtension, source: ExtensionSourceMeta) -> some View {
     M3ListItem(
       title: source.name,
-      subtitle: "jdr:\(source.id)"
+      subtitle: "jdr:\(source.id) · \(scriptStatus(ext: ext, source: source))"
     ) {
       Toggle(
         "",
@@ -184,6 +184,19 @@ struct ExtensionsView: View {
       .labelsHidden()
       .tint(AppColor.primary)
     }
+  }
+
+  /// 直接读盘确认脚本在不在：在线搜索失败的常见原因就是脚本没落到沙盒里，
+  /// 与其让用户猜，不如把状态摆在源名下面。
+  private func scriptStatus(ext: InstalledExtension, source: ExtensionSourceMeta) -> String {
+    let url = AppPaths.url(for: ext.folder).appendingPathComponent(source.script)
+    guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+      let size = attrs[.size] as? NSNumber
+    else {
+      return "脚本缺失"
+    }
+    let kb = Double(size.intValue) / 1024
+    return String(format: "脚本 %.1f KB", kb)
   }
 
   // MARK: - 提示
