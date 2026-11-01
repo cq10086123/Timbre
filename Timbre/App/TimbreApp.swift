@@ -38,6 +38,36 @@ struct RootView: View {
           webdav: app.webdav,
           settings: app.settings.settings
         )
+        // 公告与更新：与安卓 main 同源（announcement.txt / update.json），
+        // 启动 10 秒后再查 —— 书架先出来，检查是最不重要的事（对齐安卓 CHECK_DELAY_MS）
+        try? await Task.sleep(nanoseconds: 10_000_000_000)
+        await app.checkRemoteNotices()
+      }
+      // 公告弹窗：main 的 announcement.txt 写啥就弹啥
+      .alert(
+        "公告",
+        isPresented: Binding(
+          get: { app.announcementText != nil },
+          set: { if !$0 { app.announcementText = nil } }
+        )
+      ) {
+        Button("知道了") { app.acknowledgeAnnouncement() }
+        Button("不再提示") { app.neverShowAnnouncement() }
+      } message: {
+        Text(app.announcementText ?? "")
+      }
+      // 更新弹窗：main 的 update.json 写啥就弹啥（版本号 + 发布说明）
+      .alert(
+        app.updateNotice.map { "发现新版本 \($0.versionName)" } ?? "发现新版本",
+        isPresented: Binding(
+          get: { app.updateNotice != nil },
+          set: { if !$0 { app.updateNotice = nil } }
+        )
+      ) {
+        Button("取消", role: .cancel) { app.dismissUpdateNotice() }
+        Button("去更新") { app.openUpdatePage() }
+      } message: {
+        Text(app.updateNotice?.releaseNotes ?? "打开发布页查看更新内容")
       }
       .onChange(of: scenePhase) { phase in
         if phase != .active { player.flush() }

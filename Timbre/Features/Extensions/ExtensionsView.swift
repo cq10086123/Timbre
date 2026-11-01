@@ -14,10 +14,11 @@ struct ExtensionsView: View {
   @State private var errorText: String?
   @State private var uninstallTarget: InstalledExtension?
 
-  /// 默认参考源：本仓库 samples/Timbre.jdr 的 GitHub 直链。
+  /// 默认参考源：本仓库 samples/Timbre.jdr 的 jsDelivr 直链。
+  /// raw.githubusercontent.com 部分用户无法访问，jsDelivr 国内可达；
   /// 「从链接导入」打开时预填这个地址，用户不需要可自行清空更换。
   static let defaultSourceURL =
-    "https://raw.githubusercontent.com/cq10086123/Timbre/main/samples/Timbre.jdr"
+    "https://cdn.jsdelivr.net/gh/cq10086123/Timbre@main/samples/Timbre.jdr"
 
   /// Android 打开文件选择器用的是 `*/*`，这里同理放宽：.jdr 是自定义扩展名，
   /// 只允许 .data 会让部分「文件」提供方把它置灰点不动。

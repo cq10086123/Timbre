@@ -1,6 +1,7 @@
 import Combine
 import Foundation
 import SwiftUI
+import UIKit
 
 final class AppState: ObservableObject {
   let library = LibraryStore()
@@ -34,6 +35,75 @@ final class AppState: ObservableObject {
   @Published var isImporting = false
   @Published var toast: String?
   @Published var errorMessage: String?
+
+  // MARK: - 公告与更新（与安卓 main 同源）
+
+  /// 公告弹窗正文；nil = 不显示
+  @Published var announcementText: String?
+  /// 更新弹窗；nil = 不显示
+  @Published var updateNotice: UpdateNotice?
+
+  struct UpdateNotice: Equatable {
+    var versionName: String
+    var releaseNotes: String?
+    var releaseUrl: String?
+  }
+
+  var currentAppVersion: String {
+    (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? ""
+  }
+
+  /// 启动后调用（调用方先 delay 10 秒，对齐安卓 CHECK_DELAY_MS）。
+  /// 公告每次启动都查；更新每天最多查一次。
+  func checkRemoteNotices() async {
+    if let text = await RemoteNotices.fetchAnnouncement(),
+      RemoteNotices.fingerprint(text) != RemoteNotices.dismissedAnnouncementFingerprint
+    {
+      announcementText = text
+    }
+
+    let today = RemoteNotices.today
+    guard today - RemoteNotices.lastCheckDay >= 1 else { return }
+    // 请求前先记日期：今天离线的设备不要每次启动都重试（对齐安卓）
+    RemoteNotices.lastCheckDay = today
+    guard let latest = await RemoteNotices.fetchLatestUpdate() else { return }
+    guard RemoteNotices.isNewer(current: currentAppVersion, latest: latest.versionName) else { return }
+    updateNotice = UpdateNotice(
+      versionName: latest.versionName,
+      releaseNotes: latest.releaseNotes,
+      releaseUrl: latest.releaseUrl ?? RemoteNotices.releasePageURL
+    )
+  }
+
+  /// 公告「知道了」：只关本次，下次启动还会弹（对齐安卓 onKnow）
+  func acknowledgeAnnouncement() {
+    announcementText = nil
+  }
+
+  /// 公告「不再提示」：记住这条文本的指纹；main 改了文本会再弹
+  func neverShowAnnouncement() {
+    if let text = announcementText {
+      RemoteNotices.dismissedAnnouncementFingerprint = RemoteNotices.fingerprint(text)
+    }
+    announcementText = nil
+  }
+
+  /// 更新「取消」：这个版本不再自动弹，main 发了更新的版本号才会再弹（对齐安卓 dismiss）
+  func dismissUpdateNotice() {
+    if let notice = updateNotice {
+      RemoteNotices.dismissedUpdateVersion = notice.versionName
+    }
+    updateNotice = nil
+  }
+
+  /// 更新「去更新」：打开发布页；弹窗关掉但不算已读（对齐安卓 onUpdatePageOpened）
+  func openUpdatePage() {
+    let urlString = updateNotice?.releaseUrl ?? RemoteNotices.releasePageURL
+    if let url = URL(string: urlString) {
+      UIApplication.shared.open(url)
+    }
+    updateNotice = nil
+  }
 
   // MARK: - 导入
 
