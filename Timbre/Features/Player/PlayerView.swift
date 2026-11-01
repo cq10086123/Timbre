@@ -13,7 +13,6 @@ struct PlayerView: View {
   @State private var showSpeed = false
   @State private var showSkip = false
   @State private var showBookmarks = false
-  @State private var showMore = false
   @State private var dragValue: Double?
 
   private var book: Book? { player.currentBook }
@@ -124,7 +123,7 @@ struct PlayerView: View {
         Spacer(minLength: 0)
       }
       IconButton48(
-        systemName: player.sleepActive ? "moon.fill" : "moon",
+        systemName: player.sleepActive ? "moon.zzz.fill" : "moon.zzz",
         label: "睡眠定时器"
       ) {
         if player.sleepActive {
@@ -155,13 +154,23 @@ struct PlayerView: View {
       IconButton48(systemName: "speedometer", label: "播放速度") {
         showSpeed = true
       }
-      IconButton48(systemName: "ellipsis", label: "更多") {
-        showMore = true
+      // 安卓是 MoreVert（竖三点）+ DropdownMenu，注意不是底部弹窗
+      Menu {
+        Button {
+          showSkip = true
+        } label: {
+          Label("跳过片头片尾", systemImage: "scissors")
+        }
+      } label: {
+        Image(systemName: "ellipsis")
+          .font(.system(size: 24))
+          .foregroundColor(AppColor.onSurfaceVariant)
+          .rotationEffect(.degrees(90))
+          .frame(width: 48, height: 48)
+          .contentShape(Rectangle())
       }
-      .confirmationDialog("更多", isPresented: $showMore, titleVisibility: .hidden) {
-        Button("跳过片头片尾") { showSkip = true }
-        Button("取消", role: .cancel) {}
-      }
+      .tint(AppColor.onSurfaceVariant)
+      .accessibilityLabel("更多")
     }
     .padding(.horizontal, 4)
     .frame(height: landscape ? 56 : 64)
