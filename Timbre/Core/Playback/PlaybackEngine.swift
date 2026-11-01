@@ -596,7 +596,12 @@ final class PlaybackEngine: NSObject, ObservableObject {
     // 手动缓存过这一集：直接播本地文件，断网也能听
     if book.kind == .jdr, let cached = cachedChapterFile(book: book, chapter: chapter) {
       DLog("player", "命中手动缓存 第\(chapter.title)")
-      install(item: AVPlayerItem(url: cached), book: book, chapter: chapter)
+      // `.audio` 后缀系统认不出（-11828），按文件头嗅探真实格式播硬链接别名
+      install(
+        item: AVPlayerItem(url: CachedAudioAlias.playableURL(for: cached)),
+        book: book,
+        chapter: chapter
+      )
       return
     }
 
@@ -613,12 +618,15 @@ final class PlaybackEngine: NSObject, ObservableObject {
         chapterId: chapter.id
       ) {
         DLog("player", "命中 WebDAV 预取缓存 第\(chapter.title)")
+        // `.audio` 后缀系统认不出（-11828），按文件头嗅探真实格式播硬链接别名
         install(
           item: AVPlayerItem(
-            url: WebDavPrefetchCache.file(
-              serverId: serverId,
-              bookId: book.id,
-              chapterId: chapter.id
+            url: CachedAudioAlias.playableURL(
+              for: WebDavPrefetchCache.file(
+                serverId: serverId,
+                bookId: book.id,
+                chapterId: chapter.id
+              )
             )
           ),
           book: book,
@@ -753,7 +761,12 @@ final class PlaybackEngine: NSObject, ObservableObject {
         switch outcome {
         case .stored:
           DLog("player", "整集下载完成，改播本地文件 第\(chapter.title)")
-          self.install(item: AVPlayerItem(url: fileURL), book: book, chapter: chapter)
+          // `.audio` 后缀系统认不出（-11828），按文件头嗅探真实格式播硬链接别名
+          self.install(
+            item: AVPlayerItem(url: CachedAudioAlias.playableURL(for: fileURL)),
+            book: book,
+            chapter: chapter
+          )
         case .failed(_, let detail):
           DLog("player", "✗ 整集下载失败 \(detail ?? "-")")
           // 下载失败还有最后一档（原生补头），别急着弹错误
@@ -936,6 +949,29 @@ final class PlaybackEngine: NSObject, ObservableObject {
     isLoading = false
     isPlaying = false
     errorMessage = message
+  }
+
+  /// 本地缓存文件解不开（-11828）：删掉这个坏缓存，回源重新解析取流。
+  private func discardCorruptCacheAndReload(assetURL: URL) {
+    let cached = CachedAudioAlias.cachedFile(for: assetURL)
+    try? FileManager.default.removeItem(at: cached)
+    if assetURL != cached {
+      try? FileManager.default.removeItem(at: assetURL)
+    }
+    DLog("player", "缓存文件解不开，已删除坏缓存 \(cached.lastPathComponent)，回源重取")
+    guard let context = activeLoad else {
+      fail("播放失败：缓存文件损坏")
+      return
+    }
+    // 取流阶梯归零，按网络路径重新走一遍
+    streamStage = 0
+    proxyVariant = 0
+    load(
+      book: context.book,
+      chapter: context.chapter,
+      resume: pendingResume,
+      isRetry: true
+    )
   }
 
   // MARK: - 音频处理（音量提升 / 跳过空白）
@@ -1210,8 +1246,16 @@ final class PlaybackEngine: NSObject, ObservableObject {
         DispatchQueue.main.async {
           self?.readyWatchdog?.invalidate()
           // 认不出容器时先换一种取流方式重试，别直接弹错误
-          if error?.code == -11828, self?.escalateStreamStage(reason: "容器认不出来(-11828)") == true {
-            return
+          if error?.code == -11828 {
+            // 本地缓存文件解不开：不是取流方式的问题，是缓存坏了。
+            // 删掉坏缓存回源重取，别在换档阶梯上空转（同一个文件炸三次毫无意义）
+            if let asset = item.asset as? AVURLAsset, asset.url.isFileURL {
+              self?.discardCorruptCacheAndReload(assetURL: asset.url)
+              return
+            }
+            if self?.escalateStreamStage(reason: "容器认不出来(-11828)") == true {
+              return
+            }
           }
           self?.fail(Self.describe(error))
         }
