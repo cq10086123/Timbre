@@ -688,6 +688,10 @@ final class PlaybackEngine: NSObject, ObservableObject {
   /// - 后缀是 DASH 分片（`.m4s`）→ 走代理，把 content-type 修成 mp4，
   ///   否则 AVFoundation 判不出容器会静默 `status = .failed`。
   /// - 其余普通直链（mp3/m4a 之类）→ 保持原生路径，不引入额外一层。
+  ///
+  /// `AVURLAssetHTTPHeaderFieldsKey` 在 iOS SDK 里没有导出成符号，只能按文档里的字符串键传。
+  private static let httpHeaderFieldsKey = "AVURLAssetHTTPHeaderFieldsKey"
+
   private func makeAsset(url: URL, headers: [String: String], tag: String) -> AVURLAsset {
     // 第 3 级：怀疑是我们这层代理喂字节的方式让播放器解不动，退回系统自带补头。
     // 缺点是 AVFoundation 补发的子请求不一定继承这些头，所以只放在最后一档试。
@@ -696,7 +700,11 @@ final class PlaybackEngine: NSObject, ObservableObject {
         "player",
         "\(tag) 原生补头 \(url.host ?? "-")\(url.path) 头=\(headers.keys.sorted())"
       )
-      return AVURLAsset(url: url, options: [AVURLAssetHTTPHeaderFieldsKey: headers])
+      // 这个常量在 iOS SDK 里没有公开，只能按文档里那个字符串键传
+      return AVURLAsset(
+        url: url,
+        options: [Self.httpHeaderFieldsKey: headers]
+      )
     }
 
     let needsProxy = !headers.isEmpty || url.pathExtension.lowercased() == "m4s"
