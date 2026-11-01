@@ -258,7 +258,10 @@ struct ShelfView: View {
           .foregroundColor(AppColor.onSurfaceVariant)
           .frame(width: 48, height: 48)
           .contentShape(Rectangle())
-          .onTapGesture { searchActive = true }
+          .onTapGesture {
+            searchActive = true
+            searchFocused = true
+          }
       }
 
       TextField("", text: $query)
@@ -269,6 +272,12 @@ struct ShelfView: View {
         .textInputAutocapitalization(.never)
         .submitLabel(.search)
         .onSubmit { commitSearch() }
+        .onChange(of: query) { text in
+          // 直接点输入框打字时也要进搜索态，否则界面停在书架，看起来像「没反应」
+          if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            searchActive = true
+          }
+        }
         .focused($searchFocused)
         .frame(maxWidth: .infinity)
 
@@ -281,6 +290,10 @@ struct ShelfView: View {
         }
         .padding(.trailing, 4)
       }
+    }
+    .onChange(of: searchFocused) { focused in
+      // 点一下输入框就切到搜索界面，不用先点放大镜
+      if focused { searchActive = true }
     }
     .frame(height: 56)
     .background(AppColor.surfaceContainerHigh, in: Capsule())
@@ -436,32 +449,37 @@ struct ShelfView: View {
         }
       } else {
         ScrollView {
-          LazyVStack(spacing: 8) {
-            if filteredBooks.isEmpty {
-              Text("没有找到匹配的有声书")
-                .font(AppFont.bodyMedium())
-                .foregroundColor(AppColor.onSurfaceVariant)
-                .frame(maxWidth: .infinity, alignment: .center)
-                .padding(.top, 32)
-                .padding(.bottom, 8)
-            } else {
-              ForEach(filteredBooks) { book in
-                ListBookCard(book: book)
-                  .padding(.horizontal, 8)
-                  .onTapGesture {
-                    commitSearch()
-                    app.openBook(book)
-                  }
+          VStack(spacing: 0) {
+            // 本地结果用 Lazy，书多时不卡
+            LazyVStack(spacing: 8) {
+              if filteredBooks.isEmpty {
+                Text("没有找到匹配的有声书")
+                  .font(AppFont.bodyMedium())
+                  .foregroundColor(AppColor.onSurfaceVariant)
+                  .frame(maxWidth: .infinity, alignment: .center)
+                  .padding(.top, 32)
+                  .padding(.bottom, 8)
+              } else {
+                ForEach(filteredBooks) { book in
+                  ListBookCard(book: book)
+                    .padding(.horizontal, 8)
+                    .onTapGesture {
+                      commitSearch()
+                      app.openBook(book)
+                    }
+                }
               }
             }
 
-            // 安卓 BookSearchContent：本地结果之后接「在线」段落
+            // 「在线」段落必须放在 Lazy 容器外：放进 LazyVStack 时，本地结果一多它就被
+            // 滚出渲染范围，.task 不触发，表现为「搜索没反应」。
             OnlineSearchSection(query: trimmedQuery) { selection in
               onlineSelection = selection
             }
+
+            Spacer().frame(height: 24)
           }
           .padding(.top, 16)
-          .padding(.bottom, 24)
         }
       }
     }

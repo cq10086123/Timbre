@@ -40,6 +40,11 @@ struct OnlineSearchSection: View {
 
   var body: some View {
     VStack(spacing: 0) {
+      Rectangle()
+        .fill(AppColor.outlineVariant.opacity(0.4))
+        .frame(height: 1)
+        .padding(.horizontal, 16)
+        .padding(.top, 8)
       chipRow
       content
     }
@@ -125,12 +130,17 @@ struct OnlineSearchSection: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
     } else if loading {
-      HStack {
-        Spacer()
+      HStack(spacing: 10) {
         ProgressView().scaleEffect(0.9)
-        Spacer()
+        Text("正在搜索「\(query)」…")
+          .font(AppFont.bodyMedium())
+          .foregroundColor(AppColor.onSurfaceVariant)
+          .lineLimit(1)
+        Spacer(minLength: 0)
       }
-      .frame(height: 56)
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .padding(.horizontal, 16)
+      .padding(.vertical, 12)
     } else if let failureText {
       VStack(alignment: .leading, spacing: 6) {
         Text(offline ? "网络不可用，请检查连接" : "搜索失败")
@@ -153,6 +163,13 @@ struct OnlineSearchSection: View {
       .frame(maxWidth: .infinity, alignment: .leading)
       .padding(.horizontal, 16)
       .padding(.vertical, 12)
+    } else if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+      Text("输入关键词，在线上书源里搜书")
+        .font(AppFont.bodyMedium())
+        .foregroundColor(AppColor.onSurfaceVariant)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
     } else if results.isEmpty {
       Text("这个源没有搜到结果")
         .font(AppFont.bodyMedium())
