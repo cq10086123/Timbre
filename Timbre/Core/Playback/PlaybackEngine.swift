@@ -19,6 +19,9 @@ final class PlaybackEngine: NSObject, ObservableObject {
   @Published private(set) var sleepAtChapterEnd = false
   @Published private(set) var sleepRemaining: Double = 0
   @Published var errorMessage: String?
+  /// 终极兜底（整集下载后播放）的进度 0~1；nil = 没在下载。
+  /// 63MB 的 DASH 音轨要下一会儿，播放键上得能看到百分比，不然用户以为又卡死了。
+  @Published private(set) var downloadProgress: Double?
 
   private let player = AVPlayer()
   private let library: LibraryStore
@@ -48,9 +51,11 @@ final class PlaybackEngine: NSObject, ObservableObject {
   private var proxyLoader: HeaderProxyLoader?
   /// 容器声明方式：0 = com.apple.m4a-audio，1 = public.mpeg-4
   private var proxyVariant = 0
-  /// 取流策略阶梯：0 = 代理+m4a，1 = 代理+mp4，2 = 原生补头（不走代理）。
-  /// 每爬一级重装一次 item，最多爬两级。
+  /// 取流策略阶梯：0 = 代理+m4a，1 = 代理+mp4，2 = 整集下载后播放，3 = 原生补头（不走代理）。
+  /// 每爬一级重装一次 item，最多爬三级。
   private var streamStage = 0
+  /// 第 2 档的整集下载任务：切章 / 重试时要作废，别让它在后台白下 63MB
+  private var fallbackDownloadTask: Task<Void, Never>?
   /// 就绪看门狗：数据在流进来但 item 迟迟不变 ready，说明容器声明对不上，换下一级
   private var readyWatchdog: Timer?
   /// 已经喂给播放器多少字节（判断「慢」还是「解不了」）
@@ -94,6 +99,7 @@ final class PlaybackEngine: NSObject, ObservableObject {
 
   deinit {
     readyWatchdog?.invalidate()
+    fallbackDownloadTask?.cancel()
     timeControlObservation?.invalidate()
     if let timeObserverToken { player.removeTimeObserver(timeObserverToken) }
     for observer in [endObserver, failedObserver, errorLogObserver, interruptionObserver, routeObserver] {
@@ -245,6 +251,7 @@ final class PlaybackEngine: NSObject, ObservableObject {
     player.replaceCurrentItem(with: nil)
     isPlaying = false
     isLoading = false
+    downloadProgress = nil
     errorMessage = nil
     pendingResume = resume
     position = resume
@@ -320,6 +327,9 @@ final class PlaybackEngine: NSObject, ObservableObject {
   func stop() {
     player.pause()
     player.replaceCurrentItem(with: nil)
+    fallbackDownloadTask?.cancel()
+    fallbackDownloadTask = nil
+    downloadProgress = nil
     isPlaying = false
     position = 0
     duration = 0
@@ -560,6 +570,10 @@ final class PlaybackEngine: NSObject, ObservableObject {
     readyWatchdog = nil
     proxyLoader = nil
     lastBufferedBytes = 0
+    // 上一轮如果还在整集下载，立刻作废（Task 里按 token 校验，不会误装旧章）
+    fallbackDownloadTask?.cancel()
+    fallbackDownloadTask = nil
+    downloadProgress = nil
     if !isRetry {
       streamStage = 0
       proxyVariant = 0
@@ -649,12 +663,12 @@ final class PlaybackEngine: NSObject, ObservableObject {
     // 预加载命中：直接装，不用再等一次源接口（切章秒开的关键）
     if let cached = preloader.take(chapterId: chapter.id) {
       DLog("preload", "命中预加载 第\(chapter.title)")
-      install(
-        item: AVPlayerItem(
-          asset: makeAsset(url: cached.url, headers: cached.headers, tag: "接口源(预加载)")
-        ),
+      installResolved(
+        url: cached.url,
+        headers: cached.headers,
         book: book,
-        chapter: chapter
+        chapter: chapter,
+        token: token
       )
       return
     }
@@ -665,17 +679,87 @@ final class PlaybackEngine: NSObject, ObservableObject {
         let resolved = try await self.resolveRemote(chapter: chapter, context: remote)
         await MainActor.run {
           guard self.loadToken == token else { return }
-          let asset = self.makeAsset(
+          self.installResolved(
             url: resolved.url,
             headers: resolved.headers,
-            tag: "接口源"
+            book: book,
+            chapter: chapter,
+            token: token
           )
-          self.install(item: AVPlayerItem(asset: asset), book: book, chapter: chapter)
         }
       } catch {
         await MainActor.run {
           guard self.loadToken == token else { return }
           self.fail(Self.sourceErrorMessage(error))
+        }
+      }
+    }
+  }
+
+  /// 接口源直链拿到后的统一出口：第 2 档先整集下载，其余直接装 item。
+  private func installResolved(
+    url: URL,
+    headers: [String: String],
+    book: Book,
+    chapter: Chapter,
+    token: Int
+  ) {
+    if streamStage == 2 {
+      downloadThenPlay(url: url, headers: headers, book: book, chapter: chapter, token: token)
+      return
+    }
+    let asset = makeAsset(url: url, headers: headers, tag: "接口源")
+    install(item: AVPlayerItem(asset: asset), book: book, chapter: chapter)
+  }
+
+  /// 第 2 档兜底：流式喂进去解不动的容器（典型是 DASH 分片音轨），把整集下到
+  /// 在线缓存目录再播本地文件。**对任何源通用**：只要服务器肯给字节就能播，
+  /// 不对任何一家做特判。文件落在线缓存 —— 这一集以后再播直接命中缓存，秒开。
+  private func downloadThenPlay(
+    url: URL,
+    headers: [String: String],
+    book: Book,
+    chapter: Chapter,
+    token: Int
+  ) {
+    let source = OnlineChapterFileCache.sourceSegment(sourceId: book.sourceId)
+    let fileURL = OnlineChapterFileCache.file(
+      source: source,
+      bookId: book.id,
+      chapterId: chapter.id
+    )
+    let tmpURL = fileURL.appendingPathExtension("part")
+    DLog("player", "终极兜底：整集下载后播放 \(url.host ?? "-")\(url.path)")
+    isLoading = true
+    downloadProgress = 0
+    fallbackDownloadTask = Task { [weak self] in
+      guard let self else { return }
+      let outcome = await ChapterDownloader.download(
+        url: url,
+        headers: HeaderProxyLoader.mergedHeaders(headers),
+        tmpURL: tmpURL,
+        fileURL: fileURL
+      ) { [weak self] written, expected in
+        guard let self, expected > 0 else { return }
+        let fraction = min(1, Double(written) / Double(expected))
+        Task { @MainActor in
+          guard self.loadToken == token else { return }
+          self.downloadProgress = fraction
+        }
+      }
+      await MainActor.run {
+        guard self.loadToken == token else { return }
+        self.downloadProgress = nil
+        switch outcome {
+        case .stored:
+          DLog("player", "整集下载完成，改播本地文件 第\(chapter.title)")
+          self.install(item: AVPlayerItem(url: fileURL), book: book, chapter: chapter)
+        case .failed(_, let detail):
+          DLog("player", "✗ 整集下载失败 \(detail ?? "-")")
+          // 下载失败还有最后一档（原生补头），别急着弹错误
+          if !self.escalateStreamStage(reason: "整集下载失败（\(detail ?? "未知")）") {
+            self.fail("拉流失败：\(detail ?? "直链可能已过期")")
+          }
         }
       }
     }
@@ -693,9 +777,9 @@ final class PlaybackEngine: NSObject, ObservableObject {
   private static let httpHeaderFieldsKey = "AVURLAssetHTTPHeaderFieldsKey"
 
   private func makeAsset(url: URL, headers: [String: String], tag: String) -> AVURLAsset {
-    // 第 3 级：怀疑是我们这层代理喂字节的方式让播放器解不动，退回系统自带补头。
+    // 第 4 级：怀疑是我们这层代理喂字节的方式让播放器解不动，退回系统自带补头。
     // 缺点是 AVFoundation 补发的子请求不一定继承这些头，所以只放在最后一档试。
-    if streamStage >= 2, !headers.isEmpty {
+    if streamStage >= 3, !headers.isEmpty {
       DLog(
         "player",
         "\(tag) 原生补头 \(url.host ?? "-")\(url.path) 头=\(headers.keys.sorted())"
@@ -724,20 +808,21 @@ final class PlaybackEngine: NSObject, ObservableObject {
     return proxyLoader?.makeAsset() ?? AVURLAsset(url: url)
   }
 
-  /// 一级一级往下换取流策略：代理+m4a → 代理+mp4 → 原生补头。
+  /// 一级一级往下换取流策略：代理+m4a → 代理+mp4 → 整集下载 → 原生补头。
   ///
-  /// 之前只在 `-11828` 时换一次，但 B 站这类 fMP4 的表现是**永远不就绪**
-  /// （item.status 一直 unknown，数据却在流进来），根本等不到 -11828，
-  /// 于是一路转圈。现在改成「喂了数据还不就绪」就自动爬下一级。
+  /// 1.0.23 的日志证明：B 站这类 DASH 分片音轨在前两档「喂 3MB+ 仍不就绪」、
+  /// 原生补头档又被 mCDN 防盗链 -11828 拒掉。所以中间加了「整集下载后播放」——
+  /// 只要服务器肯给字节就能播，是真正意义上与源无关的兜底。
   @discardableResult
   private func escalateStreamStage(reason: String) -> Bool {
-    guard streamStage < 2, let context = activeLoad else { return false }
+    guard streamStage < 3, let context = activeLoad else { return false }
     streamStage += 1
     proxyVariant = streamStage == 0 ? 0 : 1
     let next: String
     switch streamStage {
     case 1: next = "代理 + public.mpeg-4"
-    case 2: next = "原生补头（不走代理）"
+    case 2: next = "整集下载后播放"
+    case 3: next = "原生补头（不走代理）"
     default: next = "?"
     }
     DLog("player", "⚠️ \(reason)，换第 \(streamStage + 1) 种取流方式：\(next)")
@@ -774,8 +859,8 @@ final class PlaybackEngine: NSObject, ObservableObject {
       if fed >= 3_000_000 {
         timer.invalidate()
         if !self.escalateStreamStage(reason: "已喂入 \(Format.bytes(fed)) 仍未就绪") {
-          DLog("player", "✗ 三种取流方式都不就绪，放弃这一集")
-          self.fail("这个源的音频容器解不开（已换三种方式重试），换一集或换个书源试试")
+          DLog("player", "✗ 四种取流方式都不就绪，放弃这一集")
+          self.fail("这个源的音频容器解不开（已换四种方式重试），换一集或换个书源试试")
         }
         return
       }

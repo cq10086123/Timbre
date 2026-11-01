@@ -108,10 +108,14 @@ final class HeaderProxyLoader: NSObject, AVAssetResourceLoaderDelegate {
     components?.scheme = Self.scheme
     // 自定义 scheme 的 URL 必须带一个系统类型表里认得的后缀。
     // `.m4s` 不在表里（它是 DASH 分片），播放器判不出容器就只会一直拉数据、迟迟不 ready——
-    // 表现就是「点了播放一直转圈」。补一个 .m4a，取流时再摘掉。
+    // 表现就是「点了播放一直转圈」。
+    // 后缀必须和 contentTypeVariant 对上：声明 m4a 就补 .m4a，声明 mp4 就补 .mp4。
+    // 1.0.23 的教训：第 2 档声明的是 public.mpeg-4，URL 后缀却还是 .m4a，
+    // 系统照着后缀挑了 CoreAudio 的 m4a 解析器——它不认分片 MP4（moof），永远不就绪。
     if components != nil, !Self.knownAudioExtensions.contains(origin.pathExtension.lowercased()) {
-      components?.path += ".m4a"
-      appendedExtension = ".m4a"
+      let ext = contentTypeVariant == 1 ? ".mp4" : ".m4a"
+      components?.path += ext
+      appendedExtension = ext
     }
     guard let proxied = components?.url else {
       return AVURLAsset(url: origin)
@@ -130,8 +134,8 @@ final class HeaderProxyLoader: NSObject, AVAssetResourceLoaderDelegate {
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     + "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
 
-  /// 拉流用的完整请求头：源给的 + 浏览器兜底
-  private func mergedHeaders() -> [String: String] {
+  /// 拉流用的完整请求头：源给的 + 浏览器兜底（整集下载兜底也要用同一套头）
+  static func mergedHeaders(_ headers: [String: String]) -> [String: String] {
     var merged = headers
     func hasHeader(_ name: String) -> Bool {
       merged.keys.contains { $0.lowercased() == name }
@@ -142,6 +146,10 @@ final class HeaderProxyLoader: NSObject, AVAssetResourceLoaderDelegate {
     // 别让 CDN 用 gzip 压字节流，解压后 offset 就对不上 Range 了
     if !hasHeader("accept-encoding") { merged["Accept-Encoding"] = "identity" }
     return merged
+  }
+
+  private func mergedHeaders() -> [String: String] {
+    Self.mergedHeaders(headers)
   }
 
   private func realURL(from url: URL) -> URL? {

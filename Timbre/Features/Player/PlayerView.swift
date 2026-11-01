@@ -395,7 +395,14 @@ struct PlayerView: View {
         // 安卓的 CircularProgressIndicator 不消费点击，SF 的 ProgressView 会 ——
         // 之前它就是「第一次点击被加载圈吃掉、要点两次才能播」的元凶
         if player.isLoading {
-          M3CircularProgress(size: 88, stroke: 3)
+          if let progress = player.downloadProgress {
+            // 终极兜底正在整集下载：显示百分比，别让用户以为又卡死了
+            Text("\(Int(progress * 100))%")
+              .font(AppFont.labelLarge())
+              .foregroundStyle(AppColor.onSurface)
+          } else {
+            M3CircularProgress(size: 88, stroke: 3)
+          }
         }
       }
       .frame(width: 88, height: 88)
