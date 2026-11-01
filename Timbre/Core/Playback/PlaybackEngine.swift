@@ -56,6 +56,17 @@ final class PlaybackEngine: NSObject, ObservableObject {
   private var streamStage = 0
   /// 第 2 档的整集下载任务：切章 / 重试时要作废，别让它在后台白下 63MB
   private var fallbackDownloadTask: Task<Void, Never>?
+  /// 换档复用：本集已解析出的直链与请求头。
+  /// 接口源脚本跑一遍要好几秒（B 站要 finger/wbi/playurl 四连），
+  /// 换取流档位时直链又没过期，没理由重跑一遍脚本。
+  private var lastResolved: ResolvedStream?
+
+  private struct ResolvedStream {
+    let url: URL
+    let headers: [String: String]
+    let bookId: String
+    let chapterId: String
+  }
   /// 就绪看门狗：数据在流进来但 item 迟迟不变 ready，说明容器声明对不上，换下一级
   private var readyWatchdog: Timer?
   /// 已经喂给播放器多少字节（判断「慢」还是「解不了」）
@@ -577,6 +588,7 @@ final class PlaybackEngine: NSObject, ObservableObject {
     if !isRetry {
       streamStage = 0
       proxyVariant = 0
+      lastResolved = nil
     }
 
     if book.kind == .local {
@@ -651,6 +663,24 @@ final class PlaybackEngine: NSObject, ObservableObject {
       return
     }
 
+    // 换档重试：直链没换、也没过期，直接复用上一次的解析结果，
+    // 别再跑一遍源脚本（B 站脚本一轮 finger/wbi/playurl 要 5 秒+）
+    if isRetry,
+      let resolved = lastResolved,
+      resolved.bookId == book.id,
+      resolved.chapterId == chapter.id
+    {
+      DLog("player", "复用已解析直链，跳过源脚本")
+      installResolved(
+        url: resolved.url,
+        headers: resolved.headers,
+        book: book,
+        chapter: chapter,
+        token: token
+      )
+      return
+    }
+
     // 源脚本 / allowInsecure 在主线程取好快照，后台只做网络与 JS 执行，避免跨线程读 ExtensionStore
     guard let sourceId = book.sourceId,
       let installed = extensions.enabledSources.first(where: { $0.id == sourceId })
@@ -704,7 +734,7 @@ final class PlaybackEngine: NSObject, ObservableObject {
     }
   }
 
-  /// 接口源直链拿到后的统一出口：第 2 档先整集下载，其余直接装 item。
+  /// 接口源直链拿到后的统一出口：记录直链供换档复用；DASH 分片直跳整集下载；其余直接装。
   private func installResolved(
     url: URL,
     headers: [String: String],
@@ -712,6 +742,26 @@ final class PlaybackEngine: NSObject, ObservableObject {
     chapter: Chapter,
     token: Int
   ) {
+    lastResolved = ResolvedStream(
+      url: url,
+      headers: headers,
+      bookId: book.id,
+      chapterId: chapter.id
+    )
+
+    // `.m4s` 是 DASH 分片，天生就是分片式 fMP4（moov 里没有采样表、全靠 moof 逐段索引）。
+    // 三个版本的实测都证明 iOS 的 AVFoundation 对它走流式永远解不出可靠索引
+    // （喂几 MB 不就绪，即便「就绪」了时长也是错的），安卓 ExoPlayer 能边下边解是引擎差异。
+    // 所以按**容器格式**（不是按哪家源）直接走整集下载：跳过两轮注定失败的流式尝试，
+    // 下载带宽好的话十几秒完事，且落了缓存以后秒开。
+    if streamStage < 2, url.pathExtension.lowercased() == "m4s" {
+      DLog("player", "DASH 分片容器（fMP4）流式解不动，直接整集下载后播放")
+      streamStage = 2
+      proxyVariant = 1
+      downloadThenPlay(url: url, headers: headers, book: book, chapter: chapter, token: token)
+      return
+    }
+
     if streamStage == 2 {
       downloadThenPlay(url: url, headers: headers, book: book, chapter: chapter, token: token)
       return
