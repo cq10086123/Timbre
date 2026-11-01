@@ -292,7 +292,8 @@ final class HeaderProxyLoader: NSObject, AVAssetResourceLoaderDelegate {
     let lower = (mime ?? "").lowercased()
     let ext = pathExtension.lowercased()
 
-    if ext == "flac" || lower.contains("flac") { return AVFileType.flac.rawValue }
+    // FLAC 在 AVFileType 里没有对应常量，用系统 UTI
+    if ext == "flac" || lower.contains("flac") { return "org.xiph.flac" }
     if ext == "mp3" || (lower.contains("mpeg") && lower.contains("audio")) {
       return AVFileType.mp3.rawValue
     }
