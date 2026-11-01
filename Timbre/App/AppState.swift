@@ -90,6 +90,7 @@ final class AppState: ObservableObject {
   /// 打开播放页。默认**不自动播放** —— 安卓点书架上的书只是 `goTo(Playback(bookId))`，
   /// 播放要等用户按播放键；只有「播这一集」这种明确意图才传 `autoplay: true`。
   func openBook(_ book: Book, chapterIndex: Int? = nil, autoplay: Bool = false) {
+    DLog("shelf", "打开播放页 书=\(book.title) 集=\((chapterIndex ?? book.position.chapterIndex) + 1)")
     let index = chapterIndex ?? (book.position.isStarted ? book.position.chapterIndex : 0)
     player.open(book, chapterIndex: index, autoplay: autoplay)
     showPlayer = true
@@ -107,6 +108,7 @@ final class AppState: ObservableObject {
   // MARK: - 书架操作
 
   func delete(_ book: Book) {
+    DLog("shelf", "删除书 \(book.title)")
     if player.currentBook?.id == book.id { player.stop() }
     // 在线书删掉后，手动缓存下来的章节也一并清掉（对齐安卓 book.delete.dialog.message_online）
     if book.kind == .jdr {

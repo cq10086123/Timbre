@@ -69,6 +69,8 @@ struct ShelfView: View {
   @State private var searchActive = false
   @State private var query = ""
   @State private var sheetBook: Book?
+  /// 长按弹抽屉的时间戳：松手那一刻 tap 手势还会触发一次，靠它把这次 tap 挡掉
+  @State private var lastLongPressAt = Date.distantPast
   @State private var renameTarget: Book?
   @State private var renameText = ""
   @State private var deleteTarget: Book?
@@ -181,8 +183,11 @@ struct ShelfView: View {
         book: book,
         onRename: {
           sheetBook = nil
-          renameText = book.title
-          renameTarget = book
+          // 抽屉收起和 alert 弹出抢同一个窗口：不隔一拍 alert 会被吞掉（删除/改名都一样）
+          DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+            renameText = book.title
+            renameTarget = book
+          }
         },
         onEditCover: {
           sheetBook = nil
@@ -206,7 +211,9 @@ struct ShelfView: View {
         },
         onDelete: {
           sheetBook = nil
-          deleteTarget = book
+          DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+            deleteTarget = book
+          }
         },
         onCategory: { category in
           sheetBook = nil
@@ -214,6 +221,7 @@ struct ShelfView: View {
         }
       )
       .presentationDragIndicator(.visible)
+      .presentationDetents([.height(BookActionsSheet.sheetHeight(for: book))])
     }
     .fullScreenCover(item: $coverTarget) { book in
       CoverFlowView(
@@ -393,12 +401,8 @@ struct ShelfView: View {
                       sourceLabel: sourceLabel(for: book)
                     )
                       .contentShape(Rectangle())
-                      .gesture(
-                        Self.bookGesture(
-                          onTap: { app.openBook(book) },
-                          onMenu: { sheetBook = book }
-                        )
-                      )
+                      .onTapGesture { handleTap(book) }
+                      .onLongPressGesture(minimumDuration: 0.5) { handleLongPress(book) }
                   }
                 }
                 .padding(.horizontal, 8)
@@ -414,12 +418,8 @@ struct ShelfView: View {
                     ListBookCard(book: book, sourceLabel: sourceLabel(for: book))
                       .padding(.horizontal, 8)
                       .contentShape(Rectangle())
-                      .gesture(
-                        Self.bookGesture(
-                          onTap: { app.openBook(book) },
-                          onMenu: { sheetBook = book }
-                        )
-                      )
+                      .onTapGesture { handleTap(book) }
+                      .onLongPressGesture(minimumDuration: 0.5) { handleLongPress(book) }
                   }
                 } header: {
                   SectionHeader(title: group.category.title)
@@ -438,28 +438,31 @@ struct ShelfView: View {
     }
   }
 
-  private var gridColumns: [GridItem] {
-    Array(repeating: GridItem(.flexible(), spacing: 8), count: gridColumnCount)
-  }
-
   /// 轻点开书、长按弹操作抽屉。
   ///
-  /// 不能用 `.onTapGesture` 再叠一个 `.onLongPressGesture`：长按到 0.5s 抽屉已经弹了，
-  /// 松手时 tap 手势照样会触发一次，`openBook` 立刻把播放器盖上来，
-  /// 用户看到的就是「长按书架什么都没发生」。`exclusively(before:)` 让两者互斥：
-  /// 长按成立 → tap 被取消；短按松手 → 长按判定失败 → tap 生效。
-  private static func bookGesture(
-    onTap: @escaping () -> Void,
-    onMenu: @escaping () -> Void
-  ) -> some Gesture {
-    LongPressGesture(minimumDuration: 0.5)
-      .exclusively(before: TapGesture())
-      .onEnded { value in
-        switch value {
-        case .first: onMenu()
-        case .second: onTap()
-        }
-      }
+  /// 踩过的两种坑：
+  /// 1. `LongPressGesture.exclusively(before: TapGesture())` —— 理论上互斥，
+  ///    实测 tap 永远不被触发（点卡片没反应，进不了播放器），弃用。
+  /// 2. 裸叠 `.onTapGesture` + `.onLongPressGesture` —— 长按 0.5s 抽屉已经弹出，
+  ///    松手那一刻 tap 仍会触发一次，播放器把抽屉盖掉，看起来就是「长按没反应」。
+  ///    现在用 `lastLongPressAt` 时间戳把长按后的那一下 tap 挡掉。
+  private func handleTap(_ book: Book) {
+    guard Date().timeIntervalSince(lastLongPressAt) > 0.6 else {
+      DLog("shelf", "忽略长按松手带出的 tap \(book.title)")
+      return
+    }
+    DLog("shelf", "点开书 \(book.title)")
+    app.openBook(book)
+  }
+
+  private func handleLongPress(_ book: Book) {
+    lastLongPressAt = Date()
+    DLog("shelf", "长按 \(book.title) 弹出操作抽屉")
+    sheetBook = book
+  }
+
+  private var gridColumns: [GridItem] {
+    Array(repeating: GridItem(.flexible(), spacing: 8), count: gridColumnCount)
   }
 
   private var gridColumnCount: Int {
@@ -800,5 +803,11 @@ struct BookActionsSheet: View {
     }
     .padding(.top, 12)
     .frame(maxWidth: .infinity)
+  }
+
+  /// 抽屉高度（行数算出来），让 sheet 贴着内容而不是撑满半屏。
+  /// 结构固定：2 个主操作 + 删除 + 2 个「标记为…」（当前分类那个不显示）。
+  static func sheetHeight(for book: Book) -> CGFloat {
+    12.0 + 5.0 * 56.0 + 24.0
   }
 }
