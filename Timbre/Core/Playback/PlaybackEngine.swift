@@ -1156,9 +1156,46 @@ final class PlaybackEngine: NSObject, ObservableObject {
       settings: settings.settings,
       resolve: { [weak self] chapter in
         guard let self else { return nil }
-        return try? await self.resolveRemote(chapter: chapter, context: remote)
+        guard let resolved = try? await self.resolveRemote(chapter: chapter, context: remote) else {
+          return nil
+        }
+        await self.prefetchDashedAudio(book: book, chapter: chapter, resolved: resolved)
+        return resolved
       }
     )
+  }
+
+  /// 预加载对 DASH 分片源的加强：解析出直链后顺手把整章音频下到缓存。
+  ///
+  /// 普通源（mp3/m4a）解析直链就够切章秒开；但 `.m4s` 的瓶颈是整集下载，
+  /// 只预解析直链等于白预。这里复用与手动缓存完全相同的落盘路径
+  /// （OnlineChapterFileCache + CachedAudioAlias），切章时直接「命中手动缓存」。
+  /// 只在 Wi-Fi 下做（一章 100MB+，不能偷跑蜂窝流量），落盘失败不影响预加载链条。
+  private func prefetchDashedAudio(book: Book, chapter: Chapter, resolved: (url: URL, headers: [String: String])) async {
+    guard resolved.url.pathExtension.lowercased() == "m4s" else { return }
+    let source = OnlineChapterFileCache.sourceSegment(sourceId: book.sourceId)
+    guard !OnlineChapterFileCache.isCached(source: source, bookId: book.id, chapterId: chapter.id) else {
+      DLog("preload", "第\(chapter.title) 已有落盘缓存，跳过预下载")
+      return
+    }
+    guard NetworkPathMonitor.shared.allowBulkDownload else {
+      DLog("preload", "蜂窝/受限网络，跳过 DASH 预下载 第\(chapter.title)")
+      return
+    }
+    let fileURL = OnlineChapterFileCache.file(source: source, bookId: book.id, chapterId: chapter.id)
+    DLog("preload", "DASH 预下载开始 第\(chapter.title) \(resolved.url.host ?? "-")")
+    let outcome = await ChapterDownloader.download(
+      url: resolved.url,
+      headers: HeaderProxyLoader.mergedHeaders(resolved.headers),
+      tmpURL: fileURL.appendingPathExtension("part"),
+      fileURL: fileURL
+    ) { _, _ in }
+    switch outcome {
+    case .stored:
+      DLog("preload", "DASH 预下载完成 第\(chapter.title)（切章将命中缓存）")
+    case .failed(let reason, let detail):
+      DLog("preload", "DASH 预下载失败 第\(chapter.title) reason=\(reason) \(detail ?? "-")")
+    }
   }
 
   // MARK: - 进度保存
