@@ -14,10 +14,10 @@ struct ChapterSheet: View {
   /// 点某个分块后，把该块第一项滚到顶部并短暂高亮 2 秒
   @State private var highlightedItemIndex: Int?
   /// 拍平后的播放单元。整本书可能上千条，缓存在 State 里，别每次重算
-  @State private var units: [Unit] = []
+  @State private var units: [ChapterUnit] = []
 
   /// 一个可点项 = 一个分段
-  struct Unit: Identifiable {
+  struct ChapterUnit: Identifiable {
     var id: Int            // 全局序号（0 起）
     var chapterIndex: Int
     var markIndex: Int
@@ -31,14 +31,14 @@ struct ChapterSheet: View {
   /// 只在换书 / 章节数变化时重建
   private var unitsKey: String { "\(player.bookId ?? "")-\(chapters.count)" }
 
-  private func buildUnits() -> [Unit] {
-    var result: [Unit] = []
+  private func buildUnits() -> [ChapterUnit] {
+    var result: [ChapterUnit] = []
     var number = 0
     var startAcc: Double = 0
     for (chapterIndex, chapter) in chapters.enumerated() {
       for (markIndex, mark) in chapter.chapterMarks.enumerated() {
         result.append(
-          Unit(
+          ChapterUnit(
             id: number,
             chapterIndex: chapterIndex,
             markIndex: markIndex,
@@ -53,7 +53,7 @@ struct ChapterSheet: View {
     return result
   }
 
-  private func isActive(_ unit: Unit) -> Bool {
+  private func isActive(_ unit: ChapterUnit) -> Bool {
     unit.chapterIndex == player.chapterIndex && unit.markIndex == player.markIndex
   }
 
@@ -198,7 +198,7 @@ struct ChapterSheet: View {
   /// 安卓 ListItem：leading 编号 / 正文标题 / trailing 起始时间，
   /// 背景 active → primaryContainer，跳转高亮 → secondaryContainer，
   /// 外层 padding(3dp) + 圆角 12dp。
-  private func row(_ unit: Unit) -> some View {
+  private func row(_ unit: ChapterUnit) -> some View {
     let active = isActive(unit)
     let background: Color =
       active

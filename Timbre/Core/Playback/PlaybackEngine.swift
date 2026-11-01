@@ -171,11 +171,12 @@ final class PlaybackEngine: NSObject, ObservableObject {
     }
     let index = min(max(0, chapterIndex), book.chapters.count - 1)
     let marks = book.chapters[index].chapterMarks
+    let requestedMark = markIndex.map { min(max(0, $0), max(0, marks.count - 1)) }
 
     // 起点：显式给分段就从分段头开始，否则用给定秒数 / 书里的断点
     let resume: Double
-    if let markIndex, marks.indices.contains(markIndex) {
-      resume = marks[markIndex].start
+    if let requestedMark, marks.indices.contains(requestedMark) {
+      resume = marks[requestedMark].start
     } else if let resumeAt {
       resume = max(0, resumeAt)
     } else if book.position.chapterIndex == index {
@@ -183,7 +184,7 @@ final class PlaybackEngine: NSObject, ObservableObject {
     } else {
       resume = marks.first?.start ?? 0
     }
-    let resolvedMark = markIndex ?? book.markIndex(chapterIndex: index, seconds: resume)
+    let resolvedMark = requestedMark ?? book.markIndex(chapterIndex: index, seconds: resume)
 
     // 从书架点回「正在播的这本书」不能把播放停掉：目标没变就别重来一遍
     let sameTarget = self.bookId == book.id
@@ -203,6 +204,9 @@ final class PlaybackEngine: NSObject, ObservableObject {
       load(book: book, chapter: book.chapters[index], resume: resume)
     } else if !sameTarget {
       prepare(book: book, resume: resume)
+    } else if markIndex != nil {
+      // 暂停着点自己在听的那一项：只把位置挪到这一段开头，不重新取流
+      seek(to: resume)
     }
   }
 
@@ -1069,8 +1073,15 @@ final class PlaybackEngine: NSObject, ObservableObject {
     guard marks.indices.contains(markIndex) else { return }
     let mark = marks[markIndex]
     guard mark.end > mark.start, position >= mark.end else { return }
-    guard markIndex + 1 < marks.count else { return }
-    jump(toMark: markIndex + 1, autoplay: true)
+    let next = markIndex + 1
+    guard next < marks.count else { return }
+    // 只把游标推过去，不往回 seek —— 观察者 0.5 秒才看一次，
+    // 播到边界时人已经多走了不到半秒，硬跳回分段起点会听得出来
+    markIndex = next
+    outroHandled = false
+    if position < marks[next].start {
+      seek(to: marks[next].start)
+    }
   }
 
   private func handleChapterFinished() {
