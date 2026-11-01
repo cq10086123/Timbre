@@ -24,17 +24,20 @@ final class HeaderProxyLoader: NSObject, AVAssetResourceLoaderDelegate {
 
   private let origin: URL
   private let headers: [String: String]
+  /// 0 = 按 m4a 声明（com.apple.m4a-audio），1 = 按 mp4 声明（public.mpeg-4）
+  private let contentTypeVariant: Int
   /// 串行队列：既是 resourceLoader 的 delegate queue，也是所有状态读写的唯一入口
   private let queue = DispatchQueue(label: "app.timbre.stream-proxy", qos: .userInitiated)
   private let session: URLSession
 
   /// 已探明的媒体总长度（来自 Content-Range），回填给 contentInformationRequest
   private var contentLength: Int64?
-  private var loggedFirstByte = false
+  private var requestCount = 0
 
-  init(origin: URL, headers: [String: String]) {
+  init(origin: URL, headers: [String: String], contentTypeVariant: Int = 0) {
     self.origin = origin
     self.headers = headers
+    self.contentTypeVariant = contentTypeVariant
     let config = URLSessionConfiguration.ephemeral
     config.timeoutIntervalForRequest = 30
     config.timeoutIntervalForResource = 120
@@ -203,12 +206,12 @@ final class HeaderProxyLoader: NSObject, AVAssetResourceLoaderDelegate {
       return
     }
 
-    if !loggedFirstByte {
-      loggedFirstByte = true
+    if requestCount < 8 {
+      requestCount += 1
       let ctype = http.value(forHTTPHeaderField: "Content-Type") ?? "-"
       let crange = http.value(forHTTPHeaderField: "Content-Range") ?? "-"
-      let clen = http.value(forHTTPHeaderField: "Content-Length") ?? "-"
-      DLog("stream", "首帧 状态=\(http.statusCode) 类型=\(ctype) 区间=\(crange) 长度=\(clen)")
+      let declared = resolveContentType(mime: ctype, pathExtension: target.pathExtension)
+      DLog("stream", "#\(requestCount) 状态=\(http.statusCode) 类型=\(ctype) 区间=\(crange) 声明=\(declared)")
     }
 
     guard (200...299).contains(http.statusCode) else {
@@ -278,21 +281,25 @@ final class HeaderProxyLoader: NSObject, AVAssetResourceLoaderDelegate {
     return nil
   }
 
-  /// 容器类型。CDN 常把 m4s 报成 octet-stream，按扩展名兜底成 mp4。
+  /// 容器类型。这里必须用 `AVFileType` 的真值，不能手写 UTI 字符串。
+  ///
+  /// 踩过的坑：`public.mp4` 不是合法 UTI（Apple 的 MPEG-4 电影是 `public.mpeg-4`），
+  /// 回填一个查不到的 UTI，AVFoundation 直接判 `AVErrorFileFormatNotRecognized (-11828)`，
+  /// 而且报错时机在 item 加载阶段，看起来就像「这个源播不了」。
+  /// B 站 DASH 音轨是标准 fMP4（ftyp iso5 + moov/mvex + stsd mp4a），
+  /// 容器本身没问题，错的一直是我们回填的类型。
   private func resolveContentType(mime: String?, pathExtension: String) -> String {
     let lower = (mime ?? "").lowercased()
-    if lower.contains("mp4") || lower.contains("m4a") || lower.contains("aac") {
-      return "public.mp4"
+    let ext = pathExtension.lowercased()
+
+    if ext == "flac" || lower.contains("flac") { return AVFileType.flac.rawValue }
+    if ext == "mp3" || (lower.contains("mpeg") && lower.contains("audio")) {
+      return AVFileType.mp3.rawValue
     }
-    if lower.contains("mpeg") && lower.contains("audio") { return "public.mp3" }
-    if lower.contains("flac") { return "public.flac" }
-    switch pathExtension.lowercased() {
-    case "mp3": return "public.mp3"
-    case "flac": return "public.flac"
-    case "m4a", "m4s", "mp4", "aac": return "public.mp4"
-    default:
-      // 未知时按 mp4 试：DASH 音轨与 m4a 都是这个盒子结构，比 octet-stream 强
-      return "public.mp4"
-    }
+    // 音轨优先按 m4a 声明（com.apple.m4a-audio），AVFoundation 会走音频解析路径；
+    // variant 1 时退回 public.mpeg-4，两层里总有一个能过。
+    if contentTypeVariant == 1 { return AVFileType.mp4.rawValue }
+    if ext == "mp4" || lower.contains("video/mp4") { return AVFileType.mp4.rawValue }
+    return AVFileType.m4a.rawValue
   }
 }

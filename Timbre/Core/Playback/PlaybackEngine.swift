@@ -42,6 +42,12 @@ final class PlaybackEngine: NSObject, ObservableObject {
   private var loadToken = 0
   /// resourceLoader.delegate 是 weak，必须由这里强引用住，否则代理立刻失效
   private var proxyLoader: HeaderProxyLoader?
+  /// 容器声明方式：0 = com.apple.m4a-audio，1 = public.mpeg-4
+  private var proxyVariant = 0
+  /// -11828 时换一种声明重试，每章只重试一次
+  private var didRetryVariant = false
+  /// 当前这一章解析出来的直链，重试时不用再跑一遍 JS
+  private var activeLoad: (book: Book, chapter: Chapter)?
 
   init(
     library: LibraryStore,
@@ -113,6 +119,9 @@ final class PlaybackEngine: NSObject, ObservableObject {
     self.speed = book.speed > 0 ? book.speed : 1.0
     self.outroHandled = false
     self.resumeAfterLoad = autoplay
+    // 换书 / 换章：容器声明与重试计数都归零
+    self.proxyVariant = 0
+    self.didRetryVariant = false
     let resume = resumeAt
       ?? (book.position.chapterIndex == index ? max(0, book.position.seconds) : 0)
     load(book: book, chapter: book.chapters[index], resume: resume)
@@ -304,6 +313,7 @@ final class PlaybackEngine: NSObject, ObservableObject {
     pendingResume = resume
     loadToken += 1
     let token = loadToken
+    activeLoad = (book, chapter)
 
     if book.kind == .local {
       guard let path = chapter.localFile else {
@@ -394,9 +404,27 @@ final class PlaybackEngine: NSObject, ObservableObject {
       DLog("player", "\(tag) 直连 \(url.host ?? "-")\(url.path) (无头，原生路径)")
       return AVURLAsset(url: url)
     }
-    DLog("player", "\(tag) 代理 \(url.host ?? "-")\(url.path) 头=\(headers.keys.sorted())")
-    proxyLoader = HeaderProxyLoader(origin: url, headers: headers)
+    DLog(
+      "player",
+      "\(tag) 代理 \(url.host ?? "-")\(url.path) 头=\(headers.keys.sorted()) 声明=\(proxyVariant)"
+    )
+    proxyLoader = HeaderProxyLoader(
+      origin: url,
+      headers: headers,
+      contentTypeVariant: proxyVariant
+    )
     return proxyLoader?.makeAsset() ?? AVURLAsset(url: url)
+  }
+
+  /// -11828 = AVFoundation 认不出容器。最常见的成因是我们回填的 UTI 和实际内容对不上，
+  /// 换另一种声明重新加载一次就行，不用再跑一遍接口源脚本。
+  private func retryWithOtherContainer() -> Bool {
+    guard !didRetryVariant, proxyVariant == 0, let context = activeLoad else { return false }
+    didRetryVariant = true
+    proxyVariant = 1
+    DLog("player", "容器声明失败，换成 public.mpeg-4 重试一次")
+    load(book: context.book, chapter: context.chapter, resume: pendingResume)
+    return true
   }
 
   private func install(item: AVPlayerItem, book: Book, chapter: Chapter) {
@@ -587,6 +615,8 @@ final class PlaybackEngine: NSObject, ObservableObject {
             + "\(error?.localizedDescription ?? "")"
         )
         DispatchQueue.main.async {
+          // 认不出容器时先换一种 UTI 重试，别直接弹错误
+          if error?.code == -11828, self?.retryWithOtherContainer() == true { return }
           self?.fail(Self.describe(error))
         }
       case .unknown:
