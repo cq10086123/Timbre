@@ -167,6 +167,36 @@ final class ExtensionStore: ObservableObject {
     extensions.first { $0.id == id }
   }
 
+  /// 按源 id 找到那一条源本身（不是它所在的扩展包）。
+  ///
+  /// 一个 `.jdr` 里常常挂着好几个源（A / B / 企鹅FM / 酷我…），
+  /// 书架上要标的是「这本书走的是哪个接口」，所以取 `meta.name`，
+  /// 不能拿扩展包的名字 —— 同一个包里的书全都会显示成同一个字母。
+  func source(withId id: String?) -> InstalledSource? {
+    guard let id, !id.isEmpty else { return nil }
+    // 书的 sourceId 存的是 `jdr:<meta.id>`；也兼容只存了裸 id 的老数据
+    let raw = id.hasPrefix("jdr:") ? String(id.dropFirst(4)) : id
+    for ext in extensions {
+      if let meta = ext.sources.first(where: { $0.id == raw || $0.id == id }) {
+        return InstalledSource(
+          extensionId: ext.id,
+          extensionName: ext.name,
+          allowInsecure: ext.allowInsecure,
+          meta: meta
+        )
+      }
+    }
+    return nil
+  }
+
+  /// 书架角标 / 卡片用的接口名。优先按 id 现查（顺带修好老数据里存成扩展名的情况），
+  /// 查不到再退回书里存的那个名字。
+  func displayName(forSourceId id: String?, fallback: String?) -> String? {
+    if let name = source(withId: id)?.displayName, !name.isEmpty { return name }
+    if let fallback, !fallback.isEmpty { return fallback }
+    return nil
+  }
+
   func source(for installed: InstalledSource) -> InstalledExtension? {
     installedExtension(withId: installed.extensionId)
   }

@@ -72,9 +72,11 @@ final class AppState: ObservableObject {
 
   // MARK: - 播放
 
-  func openBook(_ book: Book, chapterIndex: Int? = nil) {
+  /// 打开播放页。默认**不自动播放** —— 安卓点书架上的书只是 `goTo(Playback(bookId))`，
+  /// 播放要等用户按播放键；只有「播这一集」这种明确意图才传 `autoplay: true`。
+  func openBook(_ book: Book, chapterIndex: Int? = nil, autoplay: Bool = false) {
     let index = chapterIndex ?? (book.position.isStarted ? book.position.chapterIndex : 0)
-    player.open(book, chapterIndex: index, autoplay: true)
+    player.open(book, chapterIndex: index, autoplay: autoplay)
     showPlayer = true
   }
 

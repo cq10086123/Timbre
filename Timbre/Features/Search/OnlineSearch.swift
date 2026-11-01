@@ -587,7 +587,8 @@ struct OnlineChaptersDialog: View {
       return
     }
     onClose()
-    app.openBook(book, chapterIndex: index)
+    // 这是明确的「播这一集」，不是单纯进播放页
+    app.openBook(book, chapterIndex: index, autoplay: true)
   }
 
   private func makeBook() -> Book {
@@ -605,7 +606,9 @@ struct OnlineChaptersDialog: View {
       skipOutro: settings.settings.defaultSkipOutro,
       speed: settings.settings.defaultSpeed,
       sourceId: selection.source.id,
-      sourceName: selection.source.extensionName,
+      // 存的是「接口名」（meta.name，例如 B接口 / 企鹅FM），
+      // 不是扩展包名字 —— 一个 jdr 里可能有多个源，存包名会让书架全是同一个字
+      sourceName: selection.source.displayName,
       remoteBookId: selection.item.id,
       sourceExtraJSON: selection.item.extraJSON
     )

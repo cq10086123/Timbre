@@ -121,7 +121,8 @@ struct BookDetailView: View {
   private func actionRow(_ book: Book) -> some View {
     HStack(spacing: 12) {
       Button {
-        app.openBook(book)
+        // 「开始播放 / 继续播放」是明确的播放意图，不是单纯打开播放页
+        app.openBook(book, autoplay: true)
       } label: {
         Label(
           book.position.isStarted ? "继续播放" : "开始播放",

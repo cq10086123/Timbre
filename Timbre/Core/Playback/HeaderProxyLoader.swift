@@ -15,6 +15,12 @@ import Foundation
 /// `AVAssetResourceLoaderDelegate` 接管。代理里用 URLSession 带完整请求头
 /// 去拉真链接，主动回填 `contentType` 与 `contentLength`，再按 Range 把字节喂回去。
 ///
+/// **必须边收边喂**：AVFoundation 对 fMP4 的第一手往往就是「从 0 到文件末尾」的
+/// 整段区间（B 站音轨动辄 90 MB+）。早先的实现用 `dataTask` 的 completion 回调，
+/// 等于要把整段下载完拿到 `Data` 才 `respond`，于是每次开始播放前都要干等
+/// 整份文件落盘（实测 11–25 秒），期间界面一直转圈。现在改成
+/// `URLSessionDataDelegate` 逐块 `respond`，收到第一个分片就开始喂。
+///
 /// 全过程写 DLog：日志里能看到每一次拉流请求的真实 HTTP 状态码，
 /// 以后再遇到「这家的源播不了」，导日志就能分清是 CDN 拒绝还是容器不支持。
 final class HeaderProxyLoader: NSObject, AVAssetResourceLoaderDelegate {
@@ -28,24 +34,52 @@ final class HeaderProxyLoader: NSObject, AVAssetResourceLoaderDelegate {
   private let contentTypeVariant: Int
   /// 串行队列：既是 resourceLoader 的 delegate queue，也是所有状态读写的唯一入口
   private let queue = DispatchQueue(label: "app.timbre.stream-proxy", qos: .userInitiated)
-  private let session: URLSession
+  private var session: URLSession!
+  /// URLSession 会强引用自己的 delegate，而 delegate 就是本对象时会造成循环引用、
+  /// deinit 永远不执行。用这个弱引用转发器隔一层。
+  private let delegateProxy = ProxySessionDelegate()
 
   /// 已探明的媒体总长度（来自 Content-Range），回填给 contentInformationRequest
   private var contentLength: Int64?
   private var requestCount = 0
 
+  /// 每一条仍在进行的字节流（taskIdentifier → 状态）
+  private var streams: [Int: StreamState] = [:]
+
+  private struct StreamState {
+    let loadingRequest: AVAssetResourceLoadingRequest
+    let requestedOffset: Int64
+    let toEnd: Bool
+    let wantLength: Int64
+    /// 服务器忽略 Range 回了整份文件时，要丢弃的前缀字节数
+    var skipRemaining: Int64 = 0
+    /// 已经 respond 出去的字节数
+    var delivered: Int64 = 0
+  }
+
   init(origin: URL, headers: [String: String], contentTypeVariant: Int = 0) {
     self.origin = origin
     self.headers = headers
     self.contentTypeVariant = contentTypeVariant
+    super.init()
+
+    delegateProxy.owner = self
     let config = URLSessionConfiguration.ephemeral
-    config.timeoutIntervalForRequest = 30
-    config.timeoutIntervalForResource = 120
+    config.timeoutIntervalForRequest = 60
+    // 整段 90 MB 的音轨按正常网速也要几分钟，别让资源超时把它掐了
+    config.timeoutIntervalForResource = 3600
     config.httpMaximumConnectionsPerHost = 4
     // 流有自己的 Range 语义，别让系统缓存插一脚
     config.requestCachePolicy = .reloadIgnoringLocalCacheData
-    self.session = URLSession(configuration: config)
-    super.init()
+    // 回调跑在同一条串行队列上，streams / contentLength 就不用额外加锁
+    let callbackQueue = OperationQueue()
+    callbackQueue.underlyingQueue = queue
+    callbackQueue.maxConcurrentOperationCount = 1
+    session = URLSession(
+      configuration: config,
+      delegate: delegateProxy,
+      delegateQueue: callbackQueue
+    )
   }
 
   deinit {
@@ -123,7 +157,7 @@ final class HeaderProxyLoader: NSObject, AVAssetResourceLoaderDelegate {
     var request = URLRequest(
       url: target,
       cachePolicy: .reloadIgnoringLocalCacheData,
-      timeoutInterval: 30
+      timeoutInterval: 60
     )
     var sent = mergedHeaders()
 
@@ -153,56 +187,33 @@ final class HeaderProxyLoader: NSObject, AVAssetResourceLoaderDelegate {
       request.setValue(value, forHTTPHeaderField: key)
     }
 
-    let rangeDesc = sent["Range"] ?? "-"
-    let task = session.dataTask(with: request) { [weak self] data, response, error in
-      guard let self else {
-        loadingRequest.finishLoading()
-        return
-      }
-      // URLSession 的 completion 跑在它自己的 delegate queue 上，
-      // 必须切回 queue 再碰 contentLength / loadingRequest，否则就是数据竞争
-      self.queue.async {
-        self.finish(
-          loadingRequest,
-          data: data,
-          response: response,
-          error: error,
-          range: rangeDesc,
-          wantOffset: wantOffset,
-          wantLength: wantLength,
-          toEnd: toEnd,
-          target: target
-        )
-      }
-    }
+    let task = session.dataTask(with: request)
+    streams[task.taskIdentifier] = StreamState(
+      loadingRequest: loadingRequest,
+      requestedOffset: wantOffset,
+      toEnd: toEnd,
+      wantLength: wantLength
+    )
     task.resume()
   }
 
-  private func finish(
-    _ loadingRequest: AVAssetResourceLoadingRequest,
-    data: Data?,
-    response: URLResponse?,
-    error: Error?,
-    range: String,
-    wantOffset: Int64,
-    wantLength: Int64,
-    toEnd: Bool,
-    target: URL
+  // MARK: - 流式回调（全部跑在同一条串行队列上）
+
+  func handleResponse(
+    _ response: URLResponse,
+    for dataTask: URLSessionDataTask,
+    completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
   ) {
-    guard !loadingRequest.isCancelled else {
-      DLog("stream", "请求已被 AVFoundation 取消 range=\(range)")
-      return
-    }
-    if let error {
-      DLog("stream", "✗ 拉流失败 range=\(range) \(error.localizedDescription)")
-      loadingRequest.finishLoading(with: error)
+    guard let state = streams[dataTask.taskIdentifier] else {
+      completionHandler(.cancel)
       return
     }
     guard let http = response as? HTTPURLResponse else {
-      loadingRequest.finishLoading(with: NSError(
+      finish(dataTask, error: NSError(
         domain: "TimbreStream", code: -2,
         userInfo: [NSLocalizedDescriptionKey: "无 HTTP 响应"]
       ))
+      completionHandler(.cancel)
       return
     }
 
@@ -210,14 +221,17 @@ final class HeaderProxyLoader: NSObject, AVAssetResourceLoaderDelegate {
       requestCount += 1
       let ctype = http.value(forHTTPHeaderField: "Content-Type") ?? "-"
       let crange = http.value(forHTTPHeaderField: "Content-Range") ?? "-"
-      let declared = resolveContentType(mime: ctype, pathExtension: target.pathExtension)
+      let declared = resolveContentType(
+        mime: ctype,
+        pathExtension: state.loadingRequest.request.url?.pathExtension ?? ""
+      )
       DLog("stream", "#\(requestCount) 状态=\(http.statusCode) 类型=\(ctype) 区间=\(crange) 声明=\(declared)")
     }
 
     guard (200...299).contains(http.statusCode) else {
       // 403 是最常见的：CDN 不认我们的头，或者直链过期了
-      DLog("stream", "✗ 拉流被拒 状态=\(http.statusCode) range=\(range)")
-      loadingRequest.finishLoading(with: NSError(
+      DLog("stream", "✗ 拉流被拒 状态=\(http.statusCode)")
+      finish(dataTask, error: NSError(
         domain: "TimbreStream",
         code: http.statusCode,
         userInfo: [
@@ -225,43 +239,98 @@ final class HeaderProxyLoader: NSObject, AVAssetResourceLoaderDelegate {
             "音频服务器返回 HTTP \(http.statusCode)，直链可能已过期或需要额外的请求头"
         ]
       ))
+      completionHandler(.cancel)
       return
     }
 
     if let total = Self.totalLength(from: http) {
       contentLength = total
     }
-    if let information = loadingRequest.contentInformationRequest {
+    if let information = state.loadingRequest.contentInformationRequest {
       information.isByteRangeAccessSupported = true
       information.contentType = resolveContentType(
         mime: http.value(forHTTPHeaderField: "Content-Type"),
-        pathExtension: target.pathExtension
+        pathExtension: state.loadingRequest.request.url?.pathExtension ?? ""
       )
       if let length = contentLength {
         information.contentLength = length
       }
     }
 
-    guard let data, !data.isEmpty else {
-      // 元信息请求到这里就够了
-      loadingRequest.finishLoading()
+    // 只要元信息的那一轮：拿到响应头就够了，没必要把整个文件拉下来
+    if state.loadingRequest.dataRequest == nil {
+      streams.removeValue(forKey: dataTask.taskIdentifier)
+      state.loadingRequest.finishLoading()
+      completionHandler(.cancel)
       return
     }
 
-    if let dataRequest = loadingRequest.dataRequest {
-      if http.statusCode == 200, wantOffset > 0 || !toEnd {
-        // 服务器忽略了 Range，回的是整份文件 —— 自己切出这一轮要的区间
-        if wantOffset < Int64(data.count) {
-          let end = toEnd
-            ? Int64(data.count)
-            : min(Int64(data.count), wantOffset + max(wantLength, 1))
-          dataRequest.respond(with: data.subdata(in: Int(wantOffset)..<Int(end)))
-        }
-      } else {
-        dataRequest.respond(with: data)
+    // 服务器忽略了 Range、回了整份文件：记住要跳过前面 wantOffset 个字节
+    if http.statusCode == 200, state.requestedOffset > 0 {
+      var updated = state
+      updated.skipRemaining = state.requestedOffset
+      streams[dataTask.taskIdentifier] = updated
+    }
+
+    completionHandler(.allow)
+  }
+
+  func handleData(_ data: Data, for dataTask: URLSessionDataTask) {
+    guard var state = streams[dataTask.taskIdentifier] else { return }
+
+    // AVFoundation 换 seek 目标时会取消旧请求，立刻停止下载，别白烧流量
+    if state.loadingRequest.isCancelled {
+      streams.removeValue(forKey: dataTask.taskIdentifier)
+      dataTask.cancel()
+      DLog("stream", "请求已被 AVFoundation 取消，停止下载")
+      return
+    }
+
+    var chunk = data
+    if state.skipRemaining > 0 {
+      let drop = Int(min(state.skipRemaining, Int64(chunk.count)))
+      chunk = chunk.dropFirst(drop)
+      state.skipRemaining -= Int64(drop)
+    }
+    if !state.toEnd, state.wantLength > 0 {
+      let remaining = state.wantLength - state.delivered
+      if remaining <= 0 {
+        streams.removeValue(forKey: dataTask.taskIdentifier)
+        dataTask.cancel()
+        return
+      }
+      if Int64(chunk.count) > remaining {
+        chunk = chunk.prefix(Int(remaining))
       }
     }
-    loadingRequest.finishLoading()
+    state.delivered += Int64(chunk.count)
+    streams[dataTask.taskIdentifier] = state
+
+    guard !chunk.isEmpty else { return }
+    // 关键：一边收一边喂，播放器不用等整份文件
+    state.loadingRequest.dataRequest?.respond(with: chunk)
+  }
+
+  func handleCompletion(_ task: URLSessionTask, error: Error?) {
+    // 已经从 streams 里摘掉的（主动取消 / 提前完成）不再重复 finish
+    guard let state = streams.removeValue(forKey: task.taskIdentifier) else { return }
+    if let error, (error as NSError).code != NSURLErrorCancelled {
+      DLog("stream", "✗ 拉流中断 \(error.localizedDescription)")
+      state.loadingRequest.finishLoading(with: error)
+    } else {
+      state.loadingRequest.finishLoading()
+    }
+  }
+
+  /// 出错时收尾：摘掉状态 + 把错误交给播放器
+  private func finish(_ task: URLSessionTask, error: Error) {
+    guard let state = streams.removeValue(forKey: task.taskIdentifier) else {
+      task.cancel()
+      return
+    }
+    task.cancel()
+    DLog("stream", "✗ 拉流失败 \(error.localizedDescription)")
+    state.loadingRequest.finishLoading(with: error)
   }
 
   /// 从 `Content-Range: bytes 0-1/12345678` 或 `Content-Length` 里取总长
@@ -302,5 +371,32 @@ final class HeaderProxyLoader: NSObject, AVAssetResourceLoaderDelegate {
     if contentTypeVariant == 1 { return AVFileType.mp4.rawValue }
     if ext == "mp4" || lower.contains("video/mp4") { return AVFileType.mp4.rawValue }
     return AVFileType.m4a.rawValue
+  }
+}
+
+/// URLSession 的 delegate 弱转发：让 session 只强引用这个中间人，
+/// 真正的 loader 才能正常 deinit（session 会一直持有 delegate 直到 invalidate）。
+private final class ProxySessionDelegate: NSObject, URLSessionDataDelegate {
+  weak var owner: HeaderProxyLoader?
+
+  func urlSession(
+    _ session: URLSession,
+    dataTask: URLSessionDataTask,
+    didReceive response: URLResponse,
+    completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
+  ) {
+    guard let owner else {
+      completionHandler(.cancel)
+      return
+    }
+    owner.handleResponse(response, for: dataTask, completionHandler: completionHandler)
+  }
+
+  func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+    owner?.handleData(data, for: dataTask)
+  }
+
+  func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+    owner?.handleCompletion(task, error: error)
   }
 }

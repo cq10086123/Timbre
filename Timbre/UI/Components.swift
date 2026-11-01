@@ -418,6 +418,10 @@ struct M3DropdownMenu<Content: View>: View {
       }
       .padding(.vertical, 8)
       .frame(minWidth: 168, alignment: .leading)
+      // 必须 fixedSize：ZStack 会把「整屏」的尺寸提案传给下面，
+      // 而每个菜单项的 HStack 里有 Spacer（贪婪），于是面板会被撑成整屏宽 ——
+      // 表现就是「右上一块灰色把上半屏全占了」。fixedSize 让它按内容取宽。
+      .fixedSize(horizontal: true, vertical: false)
       .background(
         RoundedRectangle(cornerRadius: 4, style: .continuous)
           .fill(AppColor.surfaceContainer)

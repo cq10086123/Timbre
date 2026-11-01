@@ -118,6 +118,9 @@ final class PlaybackEngine: NSObject, ObservableObject {
       return
     }
     let index = min(max(0, chapterIndex), book.chapters.count - 1)
+    // 从书架点回「正在播的这本书」不能把播放停掉：目标没变就别重来一遍
+    let sameTarget =
+      self.bookId == book.id && self.chapterIndex == index && player.currentItem != nil
     self.bookId = book.id
     self.chapterIndex = index
     self.speed = book.speed > 0 ? book.speed : 1.0
@@ -128,7 +131,35 @@ final class PlaybackEngine: NSObject, ObservableObject {
     self.didRetryVariant = false
     let resume = resumeAt
       ?? (book.position.chapterIndex == index ? max(0, book.position.seconds) : 0)
-    load(book: book, chapter: book.chapters[index], resume: resume)
+    if autoplay {
+      load(book: book, chapter: book.chapters[index], resume: resume)
+    } else if !sameTarget {
+      prepare(book: book, resume: resume)
+    }
+  }
+
+  /// 只做准备、不取流也不播 —— 对齐安卓：`BookPlayScreen` 只展示当前播放状态，
+  /// 进播放页不会自己去解析直链（`OnlinePlaybackPreloader` 也要等真正开播才动）。
+  ///
+  /// 之前这里直接 `load()`，结果一进播放页就启动接口源脚本、拉整段音频、
+  /// 而且 `autoplay` 还顺手把播放点了 —— 用户看到的就是「自己跳进来自己就播了」。
+  private func prepare(book: Book, resume: Double) {
+    // 作废还在跑的上一次解析，别让它一会儿把 item 装回来
+    loadToken += 1
+    activeLoad = nil
+    player.pause()
+    player.replaceCurrentItem(with: nil)
+    isPlaying = false
+    isLoading = false
+    errorMessage = nil
+    pendingResume = resume
+    position = resume
+    duration = book.chapters.indices.contains(chapterIndex)
+      ? max(0, book.chapters[chapterIndex].duration)
+      : 0
+    saveTick = 0
+    updateNowPlayingInfo()
+    DLog("player", "准备第\(chapterIndex + 1)集（未取流，等播放键） 起点=\(Int(resume))s")
   }
 
   func togglePlayPause() {
@@ -149,7 +180,10 @@ final class PlaybackEngine: NSObject, ObservableObject {
 
   func play() {
     guard player.currentItem != nil else {
-      if let book = currentBook { open(book, chapterIndex: chapterIndex, autoplay: true) }
+      // 进播放页时只做了准备（没取流），第一次按播放才真正开始加载
+      if let book = currentBook {
+        open(book, chapterIndex: chapterIndex, autoplay: true, resumeAt: pendingResume)
+      }
       return
     }
     let wasPlaying = isPlaying
@@ -205,6 +239,8 @@ final class PlaybackEngine: NSObject, ObservableObject {
       toleranceAfter: .zero
     )
     position = clamped
+    // 还没取流就拖进度条：记住目标位置，按播放时从这里开始
+    if player.currentItem == nil { pendingResume = clamped }
     updateNowPlayingInfo()
   }
 

@@ -59,6 +59,13 @@ struct ShelfView: View {
 
   private var isGrid: Bool { settings.settings.useGridLayout }
 
+  /// 卡片右上角的接口名。安卓是「整串接口名」而不是单个字母，
+  /// 而且取的是这条源自己的名字（A / B / 企鹅FM），不是扩展包的名字。
+  private func sourceLabel(for book: Book) -> String? {
+    guard book.kind == .jdr else { return nil }
+    return extensions.displayName(forSourceId: book.sourceId, fallback: book.sourceName)
+  }
+
   private var trimmedQuery: String {
     query.trimmingCharacters(in: .whitespacesAndNewlines)
   }
@@ -320,7 +327,11 @@ struct ShelfView: View {
                   .padding(.bottom, 4)
                 LazyVGrid(columns: gridColumns, spacing: 8) {
                   ForEach(group.books) { book in
-                    GridBookCard(book: book, width: gridItemWidth)
+                    GridBookCard(
+                      book: book,
+                      width: gridItemWidth,
+                      sourceLabel: sourceLabel(for: book)
+                    )
                       .onTapGesture { app.openBook(book) }
                       .onLongPressGesture(minimumDuration: 0.5, perform: { sheetBook = book })
                   }
@@ -335,7 +346,7 @@ struct ShelfView: View {
               ForEach(grouped, id: \.category) { group in
                 Section {
                   ForEach(group.books) { book in
-                    ListBookCard(book: book)
+                    ListBookCard(book: book, sourceLabel: sourceLabel(for: book))
                       .padding(.horizontal, 8)
                       .onTapGesture { app.openBook(book) }
                       .onLongPressGesture(minimumDuration: 0.5, perform: { sheetBook = book })
@@ -461,7 +472,7 @@ struct ShelfView: View {
                   .padding(.bottom, 8)
               } else {
                 ForEach(filteredBooks) { book in
-                  ListBookCard(book: book)
+                  ListBookCard(book: book, sourceLabel: sourceLabel(for: book))
                     .padding(.horizontal, 8)
                     .onTapGesture {
                       commitSearch()
@@ -511,8 +522,28 @@ enum SearchHistory {
 
 // MARK: - 列表卡片
 
+/// 接口名角标（对齐安卓 `OnlineSourceBadge`）：
+/// Capsule 底、secondaryContainer、labelMedium 加粗、左右 10 上下 5，外留 8。
+/// 安卓显示的是整串接口名（A / B / 企鹅FM），所以这里不做首字母缩写。
+struct SourceNameBadge: View {
+  var text: String
+
+  var body: some View {
+    Text(text)
+      .font(AppFont.labelMedium())
+      .fontWeight(.bold)
+      .foregroundColor(AppColor.onSecondaryContainer)
+      .lineLimit(1)
+      .padding(.horizontal, 10)
+      .padding(.vertical, 5)
+      .background(AppColor.secondaryContainer, in: Capsule())
+      .padding(8)
+  }
+}
+
 struct ListBookCard: View {
   var book: Book
+  var sourceLabel: String?
 
   private var showProgress: Bool { book.progress > 0.05 }
 
@@ -565,23 +596,11 @@ struct ListBookCard: View {
         .fill(AppColor.surfaceContainerLow)
     )
     .overlay(alignment: .topTrailing) {
-      if let badge = sourceBadge {
-        Text(badge)
-          .font(.system(size: 12, weight: .bold))
-          .foregroundColor(AppColor.onSecondaryContainer)
-          .padding(.horizontal, 10)
-          .padding(.vertical, 5)
-          .background(AppColor.secondaryContainer, in: Capsule())
-          .padding(8)
+      if let badge = sourceLabel {
+        SourceNameBadge(text: badge)
       }
     }
     .contentShape(RoundedRectangle(cornerRadius: AppRadius.extraLarge, style: .continuous))
-  }
-
-  private var sourceBadge: String? {
-    guard book.kind == .jdr else { return nil }
-    let name = book.sourceName ?? "源"
-    return String(name.prefix(1)).uppercased()
   }
 }
 
@@ -590,6 +609,7 @@ struct ListBookCard: View {
 struct GridBookCard: View {
   var book: Book
   var width: CGFloat
+  var sourceLabel: String?
 
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
@@ -629,23 +649,11 @@ struct GridBookCard: View {
         .fill(AppColor.surfaceContainerLow)
     )
     .overlay(alignment: .topTrailing) {
-      if let badge = sourceBadge {
-        Text(badge)
-          .font(.system(size: 12, weight: .bold))
-          .foregroundColor(AppColor.onSecondaryContainer)
-          .padding(.horizontal, 10)
-          .padding(.vertical, 5)
-          .background(AppColor.secondaryContainer, in: Capsule())
-          .padding(8)
+      if let badge = sourceLabel {
+        SourceNameBadge(text: badge)
       }
     }
     .contentShape(RoundedRectangle(cornerRadius: AppRadius.extraLarge, style: .continuous))
-  }
-
-  private var sourceBadge: String? {
-    guard book.kind == .jdr else { return nil }
-    let name = book.sourceName ?? "源"
-    return String(name.prefix(1)).uppercased()
   }
 }
 
