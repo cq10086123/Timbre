@@ -14,6 +14,7 @@ struct PlayerView: View {
   @State private var showSkip = false
   @State private var showGain = false
   @State private var showBookmarks = false
+  @State private var showOverflow = false
   @State private var dragValue: Double?
 
   private var book: Book? { player.currentBook }
@@ -46,6 +47,9 @@ struct PlayerView: View {
         }
       }
       .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
+      .overlay(alignment: .topTrailing) {
+        if showOverflow { overflowMenu(landscape: landscape) }
+      }
     }
     .background(AppColor.background.ignoresSafeArea())
     .m3Sheet(isPresented: $showChapters) {
@@ -54,13 +58,17 @@ struct PlayerView: View {
     .m3Sheet(isPresented: $showSleep) {
       SleepSheet(player: player) { showSleep = false }
     }
-    .m3Sheet(isPresented: $showSpeed) {
-      SpeedSheet(player: player)
-    }
     .fullScreenCover(isPresented: $showBookmarks) {
       BookmarksView(player: player, library: library) { showBookmarks = false }
     }
-    // 这两个在安卓都是居中的 AlertDialog，不是底部弹窗
+    // 下面三个在安卓都是居中的 AlertDialog，不是底部弹窗
+    .overlay {
+      if showSpeed {
+        M3AlertDialog(title: "播放速度", onDismiss: { showSpeed = false }) {
+          SpeedSheet(player: player)
+        }
+      }
+    }
     .overlay {
       if showSkip {
         M3AlertDialog(title: "跳过片头片尾", onDismiss: { showSkip = false }) {
@@ -75,13 +83,18 @@ struct PlayerView: View {
         }
       }
     }
-    .alert("播放出错", isPresented: Binding(
-      get: { player.errorMessage != nil },
-      set: { if !$0 { player.errorMessage = nil } }
-    )) {
-      Button("知道了", role: .cancel) { player.errorMessage = nil }
-    } message: {
-      Text(player.errorMessage ?? "")
+    // 取流失败：安卓把源自己给的原文原封不动摆出来（可滚动、可复制），
+    // 只有「知道了」一个按钮，不替源组织语言
+    .overlay {
+      if let message = player.errorMessage {
+        M3AlertDialog(
+          title: "播放出错",
+          actionTitle: "知道了",
+          onDismiss: { player.errorMessage = nil }
+        ) {
+          SourceErrorPanel(message: message)
+        }
+      }
     }
     .overlay(alignment: .bottom) {
       if let toast = app.toast {
@@ -98,12 +111,37 @@ struct PlayerView: View {
 
   // MARK: 顶部栏
 
+  /// 安卓 OverflowMenu 的三项：跳过空白（行尾带勾选框）、音量提升、跳过片头片尾
+  private func overflowMenu(landscape: Bool) -> some View {
+    M3DropdownMenu(onDismiss: { showOverflow = false }) {
+      M3DropdownItem(
+        title: "跳过空白部分",
+        checked: book?.skipSilence ?? false
+      ) {
+        showOverflow = false
+        player.setSkipSilence(!(book?.skipSilence ?? false))
+      }
+      M3DropdownItem(title: "音量提升") {
+        showOverflow = false
+        showGain = true
+      }
+      M3DropdownItem(title: "跳过片头片尾") {
+        showOverflow = false
+        showSkip = true
+      }
+    }
+    .padding(.top, (landscape ? 56 : 64) + 4)
+    .padding(.trailing, 8)
+  }
+
   /// 章节 + 进度 + 控制，竖屏直接排在封面下，横屏放进右半栏
   @ViewBuilder
   private var controlsColumn: some View {
     // 用 Color.clear 而非 Spacer：Spacer 是弹性视图，会跟封面抢剩余高度，
     // 结果封面被压扁、控件区反而留白。这里间距必须是死的。
-    if book != nil && (book?.chapters.count ?? 0) > 1 {
+    // 安卓的 ChapterRow 只要 chapterName 非空就渲染，左右箭头则由
+    // showPreviousNextButtons 单独控制 —— 只有一章时也照样显示章节名。
+    if book != nil, player.currentChapter != nil {
       Color.clear.frame(height: 16)
       chapterRow
       Color.clear.frame(height: 20)
@@ -135,16 +173,18 @@ struct PlayerView: View {
       } else {
         Spacer(minLength: 0)
       }
-      IconButton48(
-        systemName: player.sleepActive ? "moon.zzz.fill" : "moon.zzz",
-        label: "睡眠定时器"
-      ) {
+      // 安卓 Bedtime（实心月牙）/ BedtimeOff（月牙带斜杠）
+      Button {
         if player.sleepActive {
           player.cancelSleepTimer()
         } else {
           showSleep = true
         }
+      } label: {
+        SleepTimerIcon(active: player.sleepActive)
       }
+      .buttonStyle(.plain)
+      .accessibilityLabel("睡眠定时器")
       // 书签：单击打开列表，长按在当前位置加书签
       Button {
         showBookmarks = true
@@ -168,25 +208,8 @@ struct PlayerView: View {
         showSpeed = true
       }
       // 安卓是 MoreVert（竖三点）+ DropdownMenu，三项顺序：跳过空白、音量提升、跳过片头片尾
-      Menu {
-        Toggle(
-          isOn: Binding(
-            get: { book?.skipSilence ?? false },
-            set: { player.setSkipSilence($0) }
-          )
-        ) {
-          Text("跳过空白部分")
-        }
-        Button {
-          showGain = true
-        } label: {
-          Text("音量提升")
-        }
-        Button {
-          showSkip = true
-        } label: {
-          Text("跳过片头片尾")
-        }
+      Button {
+        showOverflow = true
       } label: {
         Image(systemName: "ellipsis")
           .font(.system(size: 24))
@@ -195,7 +218,7 @@ struct PlayerView: View {
           .frame(width: 48, height: 48)
           .contentShape(Rectangle())
       }
-      .tint(AppColor.onSurfaceVariant)
+      .buttonStyle(.plain)
       .accessibilityLabel("更多")
     }
     .padding(.horizontal, 4)
@@ -268,15 +291,20 @@ struct PlayerView: View {
   // MARK: 章节行
 
   private var chapterRow: some View {
-    HStack(spacing: 0) {
-      IconButton48(systemName: "chevron.left", iconSize: 36, label: "上一节") {
-        player.previousChapter()
+    // 安卓 nextPreviousVisible：只有一章时不画左右箭头，章节名依然居中显示
+    let arrows = (book?.chapters.count ?? 0) > 1
+    return HStack(spacing: 0) {
+      if arrows {
+        IconButton48(systemName: "chevron.left", iconSize: 36, label: "上一节") {
+          player.previousChapter()
+        }
       }
       Button {
         showChapters = true
       } label: {
         HStack(spacing: 0) {
-          Color.clear.frame(width: 28, height: 28)
+          // 首尾各留 28 的占位，让标题在整行里真正居中
+          if arrows { Color.clear.frame(width: 28, height: 28) }
           Text(player.currentChapter?.title ?? "")
             .font(AppFont.bodyLarge())
             .foregroundColor(AppColor.onSurface)
@@ -284,18 +312,22 @@ struct PlayerView: View {
             .lineLimit(1)
             .truncationMode(.middle)
             .padding(.horizontal, 4)
-          Image(systemName: "chevron.down")
-            .font(.system(size: 28))
-            .foregroundColor(AppColor.onSurface)
-            .frame(width: 28, height: 28)
+          if arrows {
+            Image(systemName: "chevron.down")
+              .font(.system(size: 28))
+              .foregroundColor(AppColor.onSurface)
+              .frame(width: 28, height: 28)
+          }
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 16)
         .contentShape(Rectangle())
       }
       .buttonStyle(.plain)
-      IconButton48(systemName: "chevron.right", iconSize: 36, label: "下一节") {
-        player.nextChapter()
+      if arrows {
+        IconButton48(systemName: "chevron.right", iconSize: 36, label: "下一节") {
+          player.nextChapter()
+        }
       }
     }
     .padding(.horizontal, 8)
@@ -383,6 +415,31 @@ struct PlayerView: View {
       .accessibilityLabel("快进")
     }
     .frame(maxWidth: .infinity)
+  }
+}
+
+// MARK: - 睡眠定时器图标（对齐安卓 Bedtime / BedtimeOff）
+
+/// 安卓顶栏用 `Bedtime`（实心月牙）与 `BedtimeOff`（月牙加一道斜杠）区分开关状态。
+/// SF Symbols 没有 BedtimeOff，这里用 `moon.fill` 叠一条 45° 斜线来还原，
+/// 比 `moon.zzz`（带 z 的月亮）更接近安卓那个图形。
+private struct SleepTimerIcon: View {
+  var active: Bool
+
+  var body: some View {
+    ZStack {
+      Image(systemName: "moon.fill")
+        .font(.system(size: 24))
+        .foregroundColor(AppColor.onSurfaceVariant)
+      if active {
+        Rectangle()
+          .fill(AppColor.onSurfaceVariant)
+          .frame(width: 2, height: 30)
+          .rotationEffect(.degrees(45))
+      }
+    }
+    .frame(width: 48, height: 48)
+    .contentShape(Rectangle())
   }
 }
 

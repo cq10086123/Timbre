@@ -285,6 +285,11 @@ private struct MarqueeWidthKey: PreferenceKey {
 /// iOS 的 `.alert` 放不了滑块，`.sheet` 又是底部弹窗，形态对不上，所以自己搭一个。
 struct M3AlertDialog<Content: View>: View {
   var title: String?
+  /// 底部右侧的文字按钮（安卓 AlertDialog 的 confirmButton）。
+  /// 「播放出错」用它放「知道了」；倍速/音量提升/跳过片头片尾在安卓那边
+  /// `confirmButton = {}`，所以留空即可 —— 靠点遮罩关闭。
+  var actionTitle: String? = nil
+  var onAction: (() -> Void)? = nil
   var onDismiss: () -> Void
   @ViewBuilder var content: () -> Content
 
@@ -303,6 +308,23 @@ struct M3AlertDialog<Content: View>: View {
           Color.clear.frame(height: 16)
         }
         content()
+        if let actionTitle, !actionTitle.isEmpty {
+          Color.clear.frame(height: 8)
+          HStack(spacing: 0) {
+            Spacer(minLength: 0)
+            Button {
+              if let onAction { onAction() } else { onDismiss() }
+            } label: {
+              Text(actionTitle)
+                .font(AppFont.labelLarge())
+                .foregroundColor(AppColor.primary)
+                .padding(.horizontal, 12)
+                .frame(minWidth: 64, minHeight: 40)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+          }
+        }
       }
       .padding(24)
       .frame(maxWidth: 320, alignment: .leading)
@@ -312,5 +334,64 @@ struct M3AlertDialog<Content: View>: View {
       )
       .padding(.horizontal, 24)
     }
+  }
+}
+
+// MARK: - M3 下拉菜单（对齐安卓 DropdownMenu）
+
+/// 安卓播放页的「更多」是 `DropdownMenu`：surfaceContainer 底、圆角 4、
+/// 单项 48 高、首项 trailing 挂一个 Checkbox。SwiftUI 的 `Menu` 换不了
+/// 行尾图形，所以按 M3 规格自己画一个，用全屏透明层负责点外部关闭。
+struct M3DropdownMenu<Content: View>: View {
+  var onDismiss: () -> Void
+  @ViewBuilder var content: () -> Content
+
+  var body: some View {
+    ZStack(alignment: .topTrailing) {
+      Color.clear
+        .contentShape(Rectangle())
+        .ignoresSafeArea()
+        .onTapGesture { onDismiss() }
+
+      VStack(alignment: .leading, spacing: 0) {
+        content()
+      }
+      .padding(.vertical, 8)
+      .frame(minWidth: 168, alignment: .leading)
+      .background(
+        RoundedRectangle(cornerRadius: 4, style: .continuous)
+          .fill(AppColor.surfaceContainer)
+      )
+      .shadow(color: Color.black.opacity(0.18), radius: 6, y: 2)
+    }
+  }
+}
+
+/// DropdownMenuItem：高 48、左右 12、正文 bodyLarge；
+/// `checked` 非 nil 时在行尾画 M3 Checkbox。
+struct M3DropdownItem: View {
+  var title: String
+  var checked: Bool? = nil
+  var action: () -> Void
+
+  var body: some View {
+    Button(action: action) {
+      HStack(spacing: 0) {
+        Text(title)
+          .font(AppFont.bodyLarge())
+          .foregroundColor(AppColor.onSurface)
+          .lineLimit(1)
+        Spacer(minLength: 12)
+        if let checked {
+          Image(systemName: checked ? "checkmark.square.fill" : "square")
+            .font(.system(size: 18))
+            .foregroundColor(checked ? AppColor.primary : AppColor.onSurfaceVariant)
+        }
+      }
+      .padding(.horizontal, 12)
+      .frame(height: 48)
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
   }
 }

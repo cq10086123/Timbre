@@ -1,16 +1,19 @@
 import SwiftUI
 
-// MARK: - 章节列表抽屉
+// MARK: - 章节列表抽屉（对齐安卓 SelectChapterDialog）
 
 struct ChapterSheet: View {
   @ObservedObject var player: PlaybackEngine
   var onClose: () -> Void
 
-  /// 点击跳转后短暂高亮的块序号，2 秒后自动消失（对齐安卓 HIGHLIGHT_DURATION）
-  @State private var highlightedRange: Int?
+  /// 分块跳转网格默认收起，点标题栏展开（安卓 rangesExpanded）
+  @State private var rangesExpanded = false
+  /// 点某个分块后，把该块第一项滚到顶部并短暂高亮 2 秒
+  @State private var highlightedItemIndex: Int?
 
   private var chapters: [Chapter] { player.currentBook?.chapters ?? [] }
 
+  /// 每一项的累计起始时间（安卓 formatTime(chapterStart + mark.startMs)）
   private var starts: [Double] {
     var result: [Double] = []
     var acc: Double = 0
@@ -21,11 +24,13 @@ struct ChapterSheet: View {
     return result
   }
 
-  /// 分块跳转网格：集数太少时可以直接滚，不显示网格
   private struct ChapterRange {
     var first: Int
     var last: Int
     var startIndex: Int
+
+    /// 安卓 `containsCurrent = activeItemIndex in start until end`
+    func contains(_ index: Int) -> Bool { index >= startIndex && index < last }
   }
 
   /// 对齐安卓 ChapterRanges.kt：<30 不显示，>2000 每块 100，否则每块 50
@@ -44,72 +49,68 @@ struct ChapterSheet: View {
   }
 
   var body: some View {
-    VStack(spacing: 0) {
-      HStack(spacing: 4) {
-        Text("共\(chapters.count)集")
-          .font(AppFont.titleMedium())
-          .foregroundColor(AppColor.onSurface)
-      }
-      .frame(maxWidth: .infinity)
-      .padding(.vertical, 12)
+    ScrollViewReader { proxy in
+      VStack(spacing: 0) {
+        // 安卓只有在 ranges 非空时才画这一行；它就是展开/收起网格的开关
+        if !ranges.isEmpty {
+          header
+          if rangesExpanded {
+            rangeGrid(proxy)
+          }
+        }
 
-      ScrollViewReader { proxy in
-        VStack(spacing: 0) {
-          if !ranges.isEmpty { rangeGrid(proxy) }
-
-          ScrollView {
-            LazyVStack(spacing: 0) {
-              ForEach(chapters.indices, id: \.self) { index in
-                let chapter = chapters[index]
-                Button {
-                  if let book = player.currentBook {
-                    player.open(book, chapterIndex: index, autoplay: true)
-                  }
-                  onClose()
-                } label: {
-                  HStack(spacing: 0) {
-                    Text("\(index + 1)")
-                      .font(AppFont.bodyMedium())
-                      .foregroundColor(AppColor.onSurfaceVariant)
-                      .frame(minWidth: 32, alignment: .leading)
-                    Text(chapter.title)
-                      .font(AppFont.bodyLarge())
-                      .foregroundColor(AppColor.onSurface)
-                      .lineLimit(1)
-                    Spacer(minLength: 12)
-                    Text(Format.clockString(starts[index] + chapter.duration))
-                      .font(AppFont.bodySmall())
-                      .foregroundColor(AppColor.onSurfaceVariant)
-                  }
-                  .padding(.horizontal, 16)
-                  .padding(.vertical, 12)
-                  .background(
-                    index == player.chapterIndex
-                      ? AppColor.primaryContainer : Color.clear
-                  )
-                  .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                  .padding(.horizontal, 3)
-                  .padding(.vertical, 3)
-                  .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .id(index)
-              }
+        ScrollView {
+          LazyVStack(spacing: 0) {
+            ForEach(chapters.indices, id: \.self) { index in
+              row(index)
             }
-            .padding(.bottom, 24)
           }
+          .padding(.bottom, 24)
         }
-        .onAppear {
-          if player.chapterIndex > 0 {
-            proxy.scrollTo(max(0, player.chapterIndex - 1), anchor: .top)
-          }
-        }
+      }
+      .onAppear {
+        // 安卓 rememberLazyListState(initialFirstVisibleItemIndex = selectedIndex - 1)：
+        // 把上一章顶到第一条，用户一眼能看到自己在哪
+        let target = max(0, player.chapterIndex - 1)
+        if target > 0 { proxy.scrollTo(target, anchor: .top) }
+      }
+      .task(id: highlightedItemIndex) {
+        // 对齐安卓 HIGHLIGHT_DURATION = 2s：跳转高亮两秒后自动褪掉
+        guard let value = highlightedItemIndex else { return }
+        try? await Task.sleep(nanoseconds: 2_000_000_000)
+        if highlightedItemIndex == value { highlightedItemIndex = nil }
       }
     }
     .presentationDetents([.large])
   }
 
-  /// 3 列网格，高度上限 300（对齐安卓 RANGE_GRID_MAX_HEIGHT）
+
+  // MARK: 标题栏
+
+  private var header: some View {
+    Button {
+      withAnimation(.easeInOut(duration: 0.2)) { rangesExpanded.toggle() }
+    } label: {
+      HStack(spacing: 0) {
+        Text("共\(chapters.count)集")
+          .font(AppFont.titleMedium())
+          .foregroundColor(AppColor.onSurface)
+        Image(systemName: "chevron.down")
+          .font(.system(size: 24))
+          .foregroundColor(AppColor.onSurface)
+          .padding(.leading, 4)
+          .rotationEffect(.degrees(rangesExpanded ? 180 : 0))
+      }
+      .frame(maxWidth: .infinity)
+      .padding(.vertical, 12)
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+  }
+
+  // MARK: 分块跳转网格
+
+  /// 3 列、间距 8、左右留 12、高度上限 300（安卓 RANGE_GRID_MAX_HEIGHT）
   private func rangeGrid(_ proxy: ScrollViewProxy) -> some View {
     ScrollView {
       LazyVGrid(
@@ -118,47 +119,80 @@ struct ChapterSheet: View {
       ) {
         ForEach(ranges.indices, id: \.self) { index in
           let range = ranges[index]
-          let isCurrent =
-            player.chapterIndex >= range.startIndex && player.chapterIndex <= range.last - 1
+          let containsCurrent = range.contains(player.chapterIndex)
           Button {
+            // 安卓：点分块 → 收起网格 → 高亮该块第一项 → 滚到该块
+            withAnimation(.easeInOut(duration: 0.2)) { rangesExpanded = false }
+            highlightedItemIndex = range.startIndex
             proxy.scrollTo(range.startIndex, anchor: .top)
-            highlightedRange = index
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-              if highlightedRange == index { highlightedRange = nil }
-            }
           } label: {
-            Text("\(range.first) - \(range.last)")
+            Text("\(range.first)-\(range.last)")
               .font(AppFont.bodyMedium())
               .foregroundColor(
-                isCurrent ? AppColor.onPrimaryContainer : AppColor.onSurfaceVariant
+                containsCurrent ? AppColor.onPrimaryContainer : AppColor.onSurfaceVariant
               )
+              .padding(.horizontal, 8)
+              .padding(.vertical, 10)
               .frame(maxWidth: .infinity)
-              .frame(height: 40)
               .background(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                  .fill(
-                    highlightedRange == index
-                      ? AppColor.primary
-                      : (isCurrent ? AppColor.primaryContainer : AppColor.surfaceContainerHigh)
-                  )
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                  .fill(containsCurrent ? AppColor.primaryContainer : AppColor.surfaceVariant)
               )
           }
           .buttonStyle(.plain)
         }
       }
-      .padding(.horizontal, 16)
-      .padding(.vertical, 8)
+      .padding(.horizontal, 12)
     }
     .frame(maxHeight: 300)
-    .overlay(alignment: .bottom) {
-      Rectangle()
-        .fill(AppColor.outlineVariant.opacity(0.4))
-        .frame(height: 1)
+  }
+
+  // MARK: 单个章节
+
+  /// 安卓 ListItem：leading 编号 / 正文标题 / trailing 起始时间，
+  /// 背景 active → primaryContainer，跳转高亮 → secondaryContainer，
+  /// 外层 padding(3dp) + 圆角 12dp。
+  private func row(_ index: Int) -> some View {
+    let chapter = chapters[index]
+    let background: Color =
+      index == player.chapterIndex
+      ? AppColor.primaryContainer
+      : (index == highlightedItemIndex ? AppColor.secondaryContainer : Color.clear)
+
+    return Button {
+      if let book = player.currentBook {
+        player.open(book, chapterIndex: index, autoplay: true)
+      }
+      onClose()
+    } label: {
+      HStack(spacing: 0) {
+        Text("\(index + 1)")
+          .font(AppFont.bodySmall())
+          .foregroundColor(AppColor.onSurfaceVariant)
+          .frame(minWidth: 24, alignment: .leading)
+        Text(chapter.title)
+          .font(AppFont.bodyLarge())
+          .foregroundColor(AppColor.onSurface)
+          .lineLimit(1)
+          .padding(.leading, 16)
+        Spacer(minLength: 16)
+        Text(Format.clockString(starts[index]))
+          .font(AppFont.bodySmall())
+          .foregroundColor(AppColor.onSurfaceVariant)
+      }
+      .padding(.horizontal, 16)
+      .frame(minHeight: 56)
+      .background(background)
+      .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+      .padding(3)
+      .contentShape(Rectangle())
     }
+    .buttonStyle(.plain)
+    .id(index)
   }
 }
 
-// MARK: - 睡眠定时器抽屉
+// MARK: - 睡眠定时器抽屉（对齐安卓 SleepTimerDialog）
 
 struct SleepSheet: View {
   @ObservedObject var player: PlaybackEngine
@@ -173,10 +207,11 @@ struct SleepSheet: View {
       Text("做个好梦！🌙")
         .font(AppFont.headlineSmall())
         .foregroundColor(AppColor.onSurface)
-        .frame(maxWidth: .infinity, alignment: .center)
+        .multilineTextAlignment(.center)
+        .frame(maxWidth: .infinity)
         .padding(.horizontal, 16)
         .padding(.top, 8)
-      Spacer().frame(height: 16)
+      Color.clear.frame(height: 16)
 
       ForEach(presets, id: \.self) { minutes in
         M3ListItem(title: "\(minutes) 分钟", action: {
@@ -185,33 +220,28 @@ struct SleepSheet: View {
         })
       }
 
+      // 自定义分钟：点标题区即用当前分钟数开始计时；加减号长按 0.5s 后每 0.1s 连续增减
       HStack(spacing: 0) {
-        Text("\(customMinutes) 分钟")
-          .font(AppFont.bodyLarge())
-          .foregroundColor(AppColor.onSurface)
-        Spacer(minLength: 8)
         Button {
+          player.startSleepTimer(minutes: customMinutes)
+          onClose()
+        } label: {
+          HStack(spacing: 0) {
+            Text("\(customMinutes) 分钟")
+              .font(AppFont.bodyLarge())
+              .foregroundColor(AppColor.onSurface)
+            Spacer(minLength: 0)
+          }
+          .frame(maxWidth: .infinity)
+          .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        ContinuousPressIcon(systemName: "minus", label: "更短") {
           customMinutes = max(1, customMinutes - 1)
-        } label: {
-          Image(systemName: "minus")
-            .font(.system(size: 24))
-            .foregroundColor(AppColor.onSurfaceVariant)
-            .frame(width: 48, height: 48)
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel("更短")
-        Button {
+        ContinuousPressIcon(systemName: "plus", label: "更长") {
           customMinutes += 1
-        } label: {
-          Image(systemName: "plus")
-            .font(.system(size: 24))
-            .foregroundColor(AppColor.onSurfaceVariant)
-            .frame(width: 48, height: 48)
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel("更长")
       }
       .padding(.horizontal, 16)
       .frame(minHeight: 56)
@@ -221,43 +251,90 @@ struct SleepSheet: View {
         onClose()
       })
 
-      Spacer().frame(height: 32)
+      Color.clear.frame(height: 32)
     }
     .presentationDetents([.height(470)])
   }
 }
 
-// MARK: - 倍速
+/// 安卓 ContinuousPressIcon：单击一步，长按 500ms 后每 100ms 重复一步
+private struct ContinuousPressIcon: View {
+  var systemName: String
+  var label: String
+  var onTrigger: () -> Void
+
+  @State private var repeatTask: Task<Void, Never>?
+  /// 长按已经进入连续触发：松手时不能再补一步
+  @State private var repeating = false
+
+  var body: some View {
+    Image(systemName: systemName)
+      .font(.system(size: 24))
+      .foregroundColor(AppColor.onSurfaceVariant)
+      .frame(width: 48, height: 48)
+      .contentShape(Rectangle())
+      .gesture(
+        DragGesture(minimumDistance: 0)
+          .onChanged { _ in
+            guard repeatTask == nil else { return }
+            repeating = false
+            repeatTask = Task { @MainActor in
+              try? await Task.sleep(nanoseconds: 500_000_000)
+              while !Task.isCancelled {
+                repeating = true
+                onTrigger()
+                try? await Task.sleep(nanoseconds: 100_000_000)
+              }
+            }
+          }
+          .onEnded { _ in
+            repeatTask?.cancel()
+            repeatTask = nil
+            if !repeating { onTrigger() }
+            repeating = false
+          }
+      )
+      .onDisappear {
+        repeatTask?.cancel()
+        repeatTask = nil
+      }
+      .accessibilityLabel(label)
+  }
+}
+
+// MARK: - 倍速（对齐安卓 SpeedDialog）
 
 struct SpeedSheet: View {
   @ObservedObject var player: PlaybackEngine
 
+  /// 安卓 `maxSpeed = if (speed < 2F) 2F else 3.5F`
   private var maxSpeed: Double { player.speed < 2 ? 2 : 3.5 }
+
+  /// 0.5 … maxSpeed 的归一化位置
+  private var normalized: Double {
+    let clamped = min(max(player.speed, 0.5), maxSpeed)
+    let span = max(maxSpeed - 0.5, 0.0001)
+    return (clamped - 0.5) / span
+  }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
-      Text("播放速度")
-        .font(AppFont.headlineSmall())
-        .foregroundColor(AppColor.onSurface)
-      Spacer().frame(height: 16)
+      // 安卓 DecimalFormat("0.00 x")：AlertDialog 正文色是 onSurfaceVariant
       Text("播放速度: \(Format.speed(player.speed))")
         .font(AppFont.bodyMedium())
         .foregroundColor(AppColor.onSurfaceVariant)
-      Spacer().frame(height: 12)
-      Slider(
+      ExpressiveSlider(
         value: Binding(
-          get: { min(player.speed, maxSpeed) },
-          set: { player.setSpeed(($0 / 0.05).rounded() * 0.05) }
+          get: { normalized },
+          set: { value in
+            // 步进 0.05，落点吸附到刻度上（安卓 steps = rangeSize / 0.05 - 1）
+            let raw = 0.5 + value * (maxSpeed - 0.5)
+            player.setSpeed((raw / 0.05).rounded() * 0.05)
+          }
         ),
-        in: 0.5...maxSpeed,
-        step: 0.05
+        onEditingChanged: { _ in }
       )
-      .tint(AppColor.primary)
-      Spacer().frame(height: 24)
     }
-    .padding(24)
-    .frame(maxWidth: .infinity, alignment: .leading)
-    .presentationDetents([.height(240)])
   }
 }
 
@@ -280,7 +357,7 @@ struct SkipIntroOutroSheet: View {
         ),
         onEditingChanged: { _ in }
       )
-      Color.clear.frame(height: 20)
+      Color.clear.frame(height: 16)
       Text(rowTitle("跳过片尾", value: outro))
         .font(AppFont.bodyMedium())
         .foregroundColor(AppColor.onSurfaceVariant)
@@ -340,6 +417,26 @@ struct VolumeGainPanel: View {
 
   /// 对齐安卓 VolumeGain.MAX_GAIN = Decibel(9F)
   private static let maxGain: Double = 9
+}
+
+// MARK: - 取流失败正文（对齐安卓 SourceErrorDialog）
+
+/// 正文可选可复制：排查源的问题时，用户要能把源的原话原封不动贴出来。
+/// 高度上限 + 滚动，免得某个源把整页 HTML 当异常抛出来撑爆弹窗。
+struct SourceErrorPanel: View {
+  var message: String
+
+  var body: some View {
+    ScrollView {
+      Text(message)
+        .font(AppFont.bodyMedium())
+        .foregroundColor(AppColor.onSurfaceVariant)
+        .textSelection(.enabled)
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+    .frame(maxHeight: 280)
+  }
 }
 
 // MARK: - 书签页

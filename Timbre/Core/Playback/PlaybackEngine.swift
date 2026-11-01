@@ -387,7 +387,7 @@ final class PlaybackEngine: NSObject, ObservableObject {
       } catch {
         await MainActor.run {
           guard self.loadToken == token else { return }
-          self.fail(error.localizedDescription)
+          self.fail(Self.sourceErrorMessage(error))
         }
       }
     }
@@ -711,6 +711,54 @@ final class PlaybackEngine: NSObject, ObservableObject {
           + "host=\(event.serverAddress ?? "-") uri=\(event.uri ?? "-")"
       )
     }
+  }
+
+  // MARK: - 取流失败原文（对齐安卓 SourceErrorDialog）
+
+  /// 取流失败时给用户看的那句话。
+  ///
+  /// 不同源的报错格式完全不一样，所以一律照搬源脚本抛出的字符串 ——
+  /// 拼接、归类、改写成「这一章没有音频」都只会把真正的原因盖掉。
+  /// 只有网络库自己写的单词（不是源说的话）才换成本地文案。
+  static func sourceErrorMessage(_ error: Error) -> String {
+    let raw = (error as NSError).localizedDescription
+    if let framework = frameworkErrorText(raw) { return framework }
+    let stripped = rawSourceErrorText(raw)
+    return stripped.isEmpty ? "在线书源没有返回这一章的音频地址" : stripped
+  }
+
+  /// `timeout` / `canceled` 是 URLSession 与取消逻辑里写死的单词，不是接口返回的内容
+  private static func frameworkErrorText(_ detail: String) -> String? {
+    switch detail.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+    case "timeout", "timed out", "the request timed out.":
+      return "连接书源超时，请检查网络后重试"
+    case "canceled", "cancelled":
+      return "请求已取消"
+    default:
+      return nil
+    }
+  }
+
+  /// 只剥掉包装层，正文一个字不改（换行也保留）：
+  /// 异常类型前缀（`Error: ...` / `QuickJsException: ...`）和 JS 调用栈行（`    at audio (l.js:154:37)`）。
+  private static func rawSourceErrorText(_ detail: String) -> String {
+    var text = detail.trimmingCharacters(in: .whitespacesAndNewlines)
+    while true {
+      let stripped = text
+        .replacingOccurrences(
+          of: #"^([\w.$]*(Exception|Error|Failure|Throwable)|Error):\s*"#,
+          with: "",
+          options: .regularExpression
+        )
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+      if stripped == text || stripped.isEmpty { break }
+      text = stripped
+    }
+    return text
+      .components(separatedBy: .newlines)
+      .filter { $0.range(of: #"^\s*at\s+\S"#, options: .regularExpression) == nil }
+      .joined(separator: "\n")
+      .trimmingCharacters(in: .whitespacesAndNewlines)
   }
 
   /// 把 AVFoundation 的错误翻成听得懂的话
