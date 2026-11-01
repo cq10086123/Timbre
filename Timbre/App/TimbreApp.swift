@@ -28,6 +28,8 @@ struct RootView: View {
     ShelfView()
       // 冷启动的书架自动刷新：只刷 WebDAV 书，受「仅 Wi-Fi 下自动刷新」约束
       .task {
+        // 老库补齐：把 m4b 里的内嵌章节读成 markData
+        await app.backfillChapterMarks()
         await WebDavRefresher.refreshIfAllowed(
           library: app.library,
           webdav: app.webdav,

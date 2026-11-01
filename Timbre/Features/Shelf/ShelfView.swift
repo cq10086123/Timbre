@@ -17,6 +17,24 @@ enum BookOverviewCategory: Int, CaseIterable, Identifiable {
     case .completed: return "已结束播放"
     }
   }
+
+  /// 分类内的排序规则 —— 与安卓 `BookOverviewCategory.comparator` 一致：
+  /// 进行中 / 已完成按最后播放时间倒序，未开始按书名自然序。
+  func sort(_ books: [Book]) -> [Book] {
+    switch self {
+    case .current, .completed:
+      return books.sorted { left, right in
+        let l = left.lastPlayedAt ?? left.position.updatedAt ?? left.addedAt
+        let r = right.lastPlayedAt ?? right.position.updatedAt ?? right.addedAt
+        if l == r { return NaturalSort.compare(left.title, right.title) == .orderedAscending }
+        return l > r
+      }
+    case .notStarted:
+      return books.sorted {
+        NaturalSort.compare($0.title, $1.title) == .orderedAscending
+      }
+    }
+  }
 }
 
 extension Book {
@@ -54,6 +72,8 @@ struct ShelfView: View {
   @State private var renameTarget: Book?
   @State private var renameText = ""
   @State private var deleteTarget: Book?
+  /// 换封面全屏流程
+  @State private var coverTarget: Book?
   @State private var history: [String] = SearchHistory.load()
   @State private var onlineSelection: OnlineBookSelection?
 
@@ -81,7 +101,7 @@ struct ShelfView: View {
 
   private var grouped: [(category: BookOverviewCategory, books: [Book])] {
     BookOverviewCategory.allCases.compactMap { category in
-      let items = filteredBooks.filter { $0.overviewCategory == category }
+      let items = category.sort(filteredBooks.filter { $0.overviewCategory == category })
       return items.isEmpty ? nil : (category, items)
     }
   }
@@ -162,6 +182,20 @@ struct ShelfView: View {
           renameText = book.title
           renameTarget = book
         },
+        onEditCover: {
+          sheetBook = nil
+          // 抽屉还在收起路上就弹全屏会被系统拒绝，隔一拍再上
+          DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+            coverTarget = book
+          }
+        },
+        onRefreshChapters: {
+          sheetBook = nil
+          Task { @MainActor in
+            let message = await app.refreshOnlineChapters(book)
+            app.showToast(message)
+          }
+        },
         onDelete: {
           sheetBook = nil
           deleteTarget = book
@@ -172,6 +206,20 @@ struct ShelfView: View {
         }
       )
       .presentationDragIndicator(.visible)
+    }
+    .fullScreenCover(item: $coverTarget) { book in
+      CoverFlowView(
+        book: book,
+        onCancel: { coverTarget = nil },
+        onApply: { data in
+          if app.applyCover(bookId: book.id, imageData: data) {
+            app.showToast("封面已更新")
+          } else {
+            app.errorMessage = "封面保存失败，换张图片试试"
+          }
+          coverTarget = nil
+        }
+      )
     }
     .alert("编辑书名", isPresented: Binding(
       get: { renameTarget != nil },
@@ -662,13 +710,27 @@ struct GridBookCard: View {
 struct BookActionsSheet: View {
   var book: Book
   var onRename: () -> Void
+  var onEditCover: () -> Void
+  var onRefreshChapters: () -> Void
   var onDelete: () -> Void
   var onCategory: (BookOverviewCategory) -> Void
 
+  /// 在线书源的书（`jdr:`）改封面 / 改名都没意义：
+  /// 封面是源给的 URL，改名后端下次刷新会覆盖回去（对齐安卓两处 `return emptyList()`）
+  private var isOnline: Bool { book.kind == .jdr }
+
   var body: some View {
     VStack(spacing: 0) {
-      if book.kind == .local {
+      if !isOnline {
+        // 安卓 EditBookTitleViewModel：仓库里所有书都能改名，包括 WebDAV 导入的
         M3ListItem(systemName: "textformat", title: "名称", action: onRename)
+        M3ListItem(systemName: "photo", title: "更换封面", action: onEditCover)
+      } else {
+        M3ListItem(
+          systemName: "arrow.triangle.2.circlepath",
+          title: "刷新章节",
+          action: onRefreshChapters
+        )
       }
       M3ListItem(systemName: "trash", title: "删除有声书", action: onDelete)
       if book.overviewCategory != .notStarted {

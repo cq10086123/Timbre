@@ -128,6 +128,68 @@ struct AudioImporter {
     return durations
   }
 
+  /// 内嵌章节（m4b / mp4 的章节轨、QuickTime 章节）→ markData。
+  ///
+  /// 这是 chapterMarks 真正的用武之地：一个 m4b 里塞着几百个章节，
+  /// 安卓靠扫文件里的章节轨把它们拆成 mark，章节抽屉才能一项一项跳。
+  /// iOS 没有等价的可直接调用的解析器，走 AVFoundation 的章节元数据组。
+  static func chapterMarks(for url: URL) async -> [MarkData] {
+    let asset = AVURLAsset(url: url)
+    let groups: [AVTimedMetadataGroup]
+    do {
+      groups = try await asset.loadChapterMetadataGroups(
+        bestMatchingPreferredLanguages: ["zh-Hans", "zh", "en"]
+      )
+    } catch {
+      return []
+    }
+    guard groups.count > 1 else { return [] }
+
+    var result: [MarkData] = []
+    for group in groups {
+      let start = group.timeRange.start.seconds
+      guard start.isFinite, start >= 0 else { continue }
+      var title = ""
+      for item in group.items {
+        guard item.commonKey == .commonKeyTitle else { continue }
+        if let text = try? await item.load(.stringValue), !text.isEmpty {
+          title = text
+          break
+        }
+      }
+      // 章节没有标题就用序号，别让抽屉里一片空白
+      if title.isEmpty { title = "第 \(result.count + 1) 节" }
+      result.append(MarkData(startMs: Int((start * 1000).rounded()), name: title))
+    }
+    return result.count > 1 ? result : []
+  }
+
+  /// 后台补齐任务：时长 + 内嵌章节一起读，避免同一份文件解析两次
+  struct Analysis {
+    var durations: [String: Double] = [:]
+    var marks: [String: [MarkData]] = [:]
+  }
+
+  /// 只有 MP4 系的容器里才可能有章节轨，其它的别白跑一遍 AVFoundation
+  static let markableExtensions: Set<String> = ["m4b", "m4a", "mp4", "aac", "mkv", "webm"]
+
+  static func analyze(bookId: String, chapters: [Chapter], readMarks: Bool) async -> Analysis {
+    var result = Analysis()
+    for chapter in chapters {
+      guard let path = chapter.localFile else { continue }
+      let url = AppPaths.url(for: path)
+      guard FileManager.default.fileExists(atPath: url.path) else { continue }
+      if let seconds = await duration(for: url), seconds > 0 {
+        result.durations[chapter.id] = seconds
+      }
+      if readMarks, markableExtensions.contains(url.pathExtension.lowercased()) {
+        let marks = await chapterMarks(for: url)
+        if !marks.isEmpty { result.marks[chapter.id] = marks }
+      }
+    }
+    return result
+  }
+
   static func duration(for url: URL) async -> Double? {
     let asset = AVURLAsset(url: url)
     guard let time = try? await asset.load(.duration) else { return nil }

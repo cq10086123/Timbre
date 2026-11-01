@@ -111,6 +111,50 @@ final class LibraryStore: ObservableObject {
     save()
   }
 
+  /// 换封面：只改指向，图片文件由调用方放进 Covers/
+  func setCover(bookId: String, coverFile: String?) {
+    guard let i = index(of: bookId) else { return }
+    books[i].coverFile = coverFile
+    save()
+  }
+
+  /// 在线书源刷新章节：按 id 合并，老章节已探到的时长 / 内嵌分段沿用，
+  /// 新章节追加在后面（对齐安卓 `OnlinePlaybackCatalog.refreshChapters`）
+  @discardableResult
+  func mergeChapters(bookId: String, fresh: [Chapter]) -> (added: Int, total: Int) {
+    guard let i = index(of: bookId) else { return (0, 0) }
+    let old = books[i].chapters
+    let oldById = Dictionary(old.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+    var added = 0
+    let merged = fresh.map { chapter -> Chapter in
+      guard let previous = oldById[chapter.id] else {
+        added += 1
+        return chapter
+      }
+      var next = chapter
+      // 已经量到 / 源里已经给过时长，别被空值冲掉
+      if previous.duration > 0 { next.duration = previous.duration }
+      if !previous.markData.isEmpty { next.markData = previous.markData }
+      return next
+    }
+    books[i].chapters = merged
+
+    // 正在听的那一集可能已经从源里消失：把断点挪到合法位置，别指着一个不存在的地方
+    let ids = Set(merged.map(\.id))
+    let currentId = old.indices.contains(books[i].position.chapterIndex)
+      ? old[books[i].position.chapterIndex].id
+      : nil
+    if let currentId, ids.contains(currentId) {
+      books[i].position.chapterIndex = merged.firstIndex { $0.id == currentId } ?? 0
+    } else {
+      books[i].position = PlaybackPosition()
+    }
+    if books[i].introSkippedChapter >= merged.count { books[i].introSkippedChapter = -1 }
+    save()
+    DLog("library", "刷新章节 书=\(bookId) 新增=\(added) 总计=\(merged.count)")
+    return (added, merged.count)
+  }
+
   // MARK: - 播放进度
 
   func setPosition(bookId: String, chapterIndex: Int, seconds: Double) {
@@ -121,6 +165,16 @@ final class LibraryStore: ObservableObject {
       updatedAt: Date()
     )
     save(delay: 3)
+  }
+
+  /// 记录「这本书刚播过」，书架「进行中 / 已完成」按它倒序排（对齐安卓 `lastPlayedAt`）。
+  /// 30 秒内重复调用不重复写盘 —— 位置本身每 10 秒就会存一次。
+  func touchLastPlayed(bookId: String) {
+    guard let i = index(of: bookId) else { return }
+    let now = Date()
+    if let last = books[i].lastPlayedAt, now.timeIntervalSince(last) < 30 { return }
+    books[i].lastPlayedAt = now
+    save(delay: 2)
   }
 
   func markIntroSkipped(bookId: String, chapterIndex: Int) {
@@ -188,5 +242,26 @@ final class LibraryStore: ObservableObject {
       }
     }
     if changed { save(delay: 1) }
+  }
+
+  /// 写入从音频文件里读出来的内嵌章节（m4b / mp4 的章节轨 → markData）
+  func updateChapterMarks(bookId: String, marks: [String: [MarkData]]) {
+    guard let i = index(of: bookId) else { return }
+    var changed = false
+    for c in 0..<books[i].chapters.count {
+      guard let data = marks[books[i].chapters[c].id], !data.isEmpty else { continue }
+      guard books[i].chapters[c].markData != data else { continue }
+      books[i].chapters[c].markData = data
+      changed = true
+    }
+    // 扫过就标一下，下次启动不重复开文件
+    if !books[i].marksScanned {
+      books[i].marksScanned = true
+      changed = true
+    }
+    if changed {
+      save(delay: 1)
+      DLog("library", "写入内嵌章节 书=\(bookId) 命中章数=\(marks.count)")
+    }
   }
 }

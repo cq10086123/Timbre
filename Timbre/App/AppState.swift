@@ -56,15 +56,18 @@ final class AppState: ObservableObject {
         }
       }
 
-      // 后台补齐时长，不挡播放
+      // 后台补齐时长 + 内嵌章节，不挡播放
       for book in books {
-        let durations = await AudioImporter.fillDurations(
+        let analysis = await AudioImporter.analyze(
           bookId: book.id,
-          chapters: book.chapters
+          chapters: book.chapters,
+          readMarks: true
         )
         let bookId = book.id
         await MainActor.run { [weak self] in
-          self?.library.updateChapterDurations(bookId: bookId, durations: durations)
+          guard let self else { return }
+          self.library.updateChapterDurations(bookId: bookId, durations: analysis.durations)
+          self.library.updateChapterMarks(bookId: bookId, marks: analysis.marks)
         }
       }
     }
@@ -188,6 +191,88 @@ final class AppState: ObservableObject {
     toast = text
     DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) { [weak self] in
       if self?.toast == text { self?.toast = nil }
+    }
+  }
+
+  // MARK: - 在线书源：刷新章节
+
+  @Published var refreshingBookId: String?
+
+  /// 重新拉一遍章节列表并合并回书架。返回给用户看的一句话。
+  @MainActor
+  @discardableResult
+  func refreshOnlineChapters(_ book: Book) async -> String {
+    guard book.kind == .jdr else { return "这本不是在线书源的书" }
+    guard
+      let installed = extensions.source(withId: book.sourceId),
+      let script = extensions.scriptText(for: installed)
+    else { return "找不到这本书的接口源，可能已经被卸载了" }
+
+    refreshingBookId = book.id
+    defer { refreshingBookId = nil }
+    do {
+      let fresh = try await ExtensionSourceService.shared.chapters(
+        script: script,
+        allowInsecure: installed.allowInsecure,
+        bookId: book.remoteBookId ?? book.id,
+        extraJSON: book.sourceExtraJSON
+      )
+      guard !fresh.isEmpty else { return "接口源这次没有返回章节" }
+      let result = library.mergeChapters(bookId: book.id, fresh: fresh)
+      if result.added > 0 { return "已刷新，新增 \(result.added) 集，共 \(result.total) 集" }
+      return "已刷新，共 \(result.total) 集（没有新增）"
+    } catch {
+      return "刷新失败：\(error.localizedDescription)"
+    }
+  }
+
+  // MARK: - 封面
+
+  /// 把选中的图片文件拷进 Covers/ 并挂到书上
+  func applyCover(bookId: String, imageURL: URL) -> Bool {
+    let accessed = imageURL.startAccessingSecurityScopedResource()
+    defer { if accessed { imageURL.stopAccessingSecurityScopedResource() } }
+    guard let data = try? Data(contentsOf: imageURL), !data.isEmpty else { return false }
+    return applyCover(bookId: bookId, imageData: data, fileExtension: imageURL.pathExtension)
+  }
+
+  func applyCover(bookId: String, imageData: Data, fileExtension: String = "jpg") -> Bool {
+    let ext = fileExtension.isEmpty ? "jpg" : fileExtension.lowercased()
+    let name = "\(bookId).\(ext)"
+    let destination = AppPaths.coversDir.appendingPathComponent(name)
+    do {
+      if FileManager.default.fileExists(atPath: destination.path) {
+        try FileManager.default.removeItem(at: destination)
+      }
+      try imageData.write(to: destination, options: .atomic)
+    } catch {
+      return false
+    }
+    library.setCover(bookId: bookId, coverFile: "Covers/\(name)")
+    return true
+  }
+
+  // MARK: - 老库补齐内嵌章节
+
+  /// 1.0.20 之前导入的书没读过内嵌章节（m4b 整本只有一个「第 1 集」）。
+  /// 启动后在后台补扫一遍：只碰本地 / WebDAV 且还没有 markData 的书。
+  @MainActor
+  func backfillChapterMarks() async {
+    let pending = library.books.filter { book in
+      book.kind != .jdr && !book.marksScanned
+        && book.chapters.contains { $0.localFile != nil }
+    }
+    guard !pending.isEmpty else { return }
+    for book in pending {
+      let analysis = await AudioImporter.analyze(
+        bookId: book.id,
+        chapters: book.chapters,
+        readMarks: true
+      )
+      library.updateChapterMarks(bookId: book.id, marks: analysis.marks)
+      if !analysis.marks.isEmpty {
+        DLog("library", "补齐内嵌章节 书=\(book.title) 命中=\(analysis.marks.count)")
+      }
     }
   }
 

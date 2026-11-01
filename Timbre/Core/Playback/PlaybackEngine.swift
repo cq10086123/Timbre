@@ -8,6 +8,8 @@ import UIKit
 final class PlaybackEngine: NSObject, ObservableObject {
   @Published private(set) var bookId: String?
   @Published private(set) var chapterIndex: Int = 0
+  /// 章内第几个分段（对齐安卓的 markIndex）—— 播放的最小单位是分段
+  @Published private(set) var markIndex: Int = 0
   @Published private(set) var isPlaying = false
   @Published private(set) var position: Double = 0
   @Published private(set) var duration: Double = 0
@@ -92,11 +94,55 @@ final class PlaybackEngine: NSObject, ObservableObject {
     return book.chapters[chapterIndex]
   }
 
+  /// 当前章的所有分段
+  var currentMarks: [ChapterMark] { currentChapter?.chapterMarks ?? [] }
+
+  /// 当前分段。没有 markData 的章节只有一个覆盖整章的分段。
+  var currentMark: ChapterMark? {
+    let marks = currentMarks
+    guard marks.indices.contains(markIndex) else { return marks.first }
+    return marks[markIndex]
+  }
+
+  /// 当前播放单元的名字（分段名优先，退回章节名）
+  var currentUnitTitle: String {
+    if let name = currentMark?.name, !name.isEmpty { return name }
+    return currentChapter?.title ?? ""
+  }
+
+  /// 全局第几个播放单元（跨章累加，1 起）—— 对齐安卓章节抽屉的编号
+  var currentUnitNumber: Int {
+    guard let book = currentBook else { return markIndex + 1 }
+    var count = 0
+    for index in 0..<min(chapterIndex, book.chapters.count) {
+      count += book.chapters[index].chapterMarks.count
+    }
+    return count + markIndex + 1
+  }
+
   var progressFraction: Double {
     duration > 0 ? min(1, max(0, position / duration)) : 0
   }
 
   var remaining: Double { max(0, duration - position) }
+
+  // MARK: 分段相对进度（安卓播放页显示的就是分段时长，不是整章时长）
+
+  /// 当前分段在章内的起点
+  var unitStart: Double { currentMark?.start ?? 0 }
+
+  /// 当前分段时长。单分段的章节就等于整章时长。
+  var unitDuration: Double {
+    guard let mark = currentMark else { return duration }
+    return mark.duration > 0 ? mark.duration : duration
+  }
+
+  /// 分段内已播秒数
+  var unitPosition: Double { max(0, position - unitStart) }
+
+  var unitProgressFraction: Double {
+    unitDuration > 0 ? min(1, max(0, unitPosition / unitDuration)) : 0
+  }
 
   var sleepActive: Bool { sleepAtChapterEnd || sleepTimerEnd != nil }
 
@@ -107,9 +153,15 @@ final class PlaybackEngine: NSObject, ObservableObject {
 
   // MARK: - 打开 / 播放
 
+  /// 打开一本书 / 一章 / 一个分段。
+  ///
+  /// - `markIndex` 非 nil：从这个分段的开头开始（章节抽屉点某一项）
+  /// - `resumeAt` 非 nil：从这个秒数开始（书签、断点续播）
+  /// - 两者都没给：按书里记的断点
   func open(
     _ book: Book,
     chapterIndex: Int = 0,
+    markIndex: Int? = nil,
     autoplay: Bool = true,
     resumeAt: Double? = nil
   ) {
@@ -118,19 +170,35 @@ final class PlaybackEngine: NSObject, ObservableObject {
       return
     }
     let index = min(max(0, chapterIndex), book.chapters.count - 1)
+    let marks = book.chapters[index].chapterMarks
+
+    // 起点：显式给分段就从分段头开始，否则用给定秒数 / 书里的断点
+    let resume: Double
+    if let markIndex, marks.indices.contains(markIndex) {
+      resume = marks[markIndex].start
+    } else if let resumeAt {
+      resume = max(0, resumeAt)
+    } else if book.position.chapterIndex == index {
+      resume = max(0, book.position.seconds)
+    } else {
+      resume = marks.first?.start ?? 0
+    }
+    let resolvedMark = markIndex ?? book.markIndex(chapterIndex: index, seconds: resume)
+
     // 从书架点回「正在播的这本书」不能把播放停掉：目标没变就别重来一遍
-    let sameTarget =
-      self.bookId == book.id && self.chapterIndex == index && player.currentItem != nil
+    let sameTarget = self.bookId == book.id
+      && self.chapterIndex == index
+      && self.markIndex == resolvedMark
+      && player.currentItem != nil
     self.bookId = book.id
     self.chapterIndex = index
+    self.markIndex = min(max(0, resolvedMark), max(0, marks.count - 1))
     self.speed = book.speed > 0 ? book.speed : 1.0
     self.outroHandled = false
     self.resumeAfterLoad = autoplay
     // 换书 / 换章：容器声明与重试计数都归零
     self.proxyVariant = 0
     self.didRetryVariant = false
-    let resume = resumeAt
-      ?? (book.position.chapterIndex == index ? max(0, book.position.seconds) : 0)
     if autoplay {
       load(book: book, chapter: book.chapters[index], resume: resume)
     } else if !sameTarget {
@@ -157,9 +225,13 @@ final class PlaybackEngine: NSObject, ObservableObject {
     duration = book.chapters.indices.contains(chapterIndex)
       ? max(0, book.chapters[chapterIndex].duration)
       : 0
+    markIndex = book.markIndex(chapterIndex: chapterIndex, seconds: resume)
     saveTick = 0
     updateNowPlayingInfo()
-    DLog("player", "准备第\(chapterIndex + 1)集（未取流，等播放键） 起点=\(Int(resume))s")
+    DLog(
+      "player",
+      "准备第\(chapterIndex + 1)集·第\(markIndex + 1)分段（未取流，等播放键） 起点=\(Int(resume))s"
+    )
   }
 
   func togglePlayPause() {
@@ -190,6 +262,7 @@ final class PlaybackEngine: NSObject, ObservableObject {
     activateAudioSession()
     player.playImmediately(atRate: Float(speed))
     isPlaying = true
+    if let bookId { library.touchLastPlayed(bookId: bookId) }
     updateNowPlayingInfo()
     if !wasPlaying { autoEnableSleepTimerIfNeeded() }
   }
@@ -226,6 +299,7 @@ final class PlaybackEngine: NSObject, ObservableObject {
     duration = 0
     bookId = nil
     chapterIndex = 0
+    markIndex = 0
     cancelSleepTimer()
     MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
   }
@@ -239,13 +313,51 @@ final class PlaybackEngine: NSObject, ObservableObject {
       toleranceAfter: .zero
     )
     position = clamped
+    if let book = currentBook {
+      markIndex = book.markIndex(chapterIndex: chapterIndex, seconds: clamped)
+    }
     // 还没取流就拖进度条：记住目标位置，按播放时从这里开始
     if player.currentItem == nil { pendingResume = clamped }
     updateNowPlayingInfo()
   }
 
+  /// 快进 / 快退。
+  ///
+  /// 安卓的 `seekBackBy` 是跨 media item 走的（`crossMediaItems = true`），
+  /// 一个分段不够扣就把余量带到相邻分段。这里在同一章的分段之间做同样的换算；
+  /// 跨章不做（那要重新取流，收益太小）。
   func skip(_ delta: Double) {
-    seek(to: position + delta)
+    guard delta != 0 else { return }
+    let marks = currentMarks
+    guard marks.indices.contains(markIndex) else {
+      seek(to: position + delta)
+      return
+    }
+    var index = markIndex
+    var target = position + delta
+
+    if delta > 0 {
+      while target > marks[index].end {
+        guard index + 1 < marks.count else {
+          target = marks[index].end
+          break
+        }
+        let carry = target - marks[index].end
+        index += 1
+        target = marks[index].start + carry
+      }
+    } else {
+      while target < marks[index].start {
+        guard index > 0 else {
+          target = 0
+          break
+        }
+        let carry = marks[index].start - target
+        index -= 1
+        target = marks[index].end - carry
+      }
+    }
+    seek(to: max(0, target))
   }
 
   func seekToFraction(_ fraction: Double) {
@@ -268,14 +380,33 @@ final class PlaybackEngine: NSObject, ObservableObject {
   /// 之前这里一律 `autoplay: true`，暂停着点下一集就自己响起来了。
   private var chapterSwitchAutoplay: Bool { wantsToPlay }
 
+  /// 同章内跳到另一个分段：只 seek，不重建 item，所以播放状态天然不变
+  private func jump(toMark index: Int, autoplay: Bool) {
+    guard let chapter = currentChapter else { return }
+    let marks = chapter.chapterMarks
+    guard marks.indices.contains(index) else { return }
+    markIndex = index
+    outroHandled = false
+    seek(to: marks[index].start)
+    if autoplay, player.currentItem == nil {
+      // 还没取流（进播放页只做了准备）：把待播位置改到这一段再起播
+      pendingResume = marks[index].start
+      play()
+    }
+    DLog("player", "跳到第\(chapterIndex + 1)集·第\(index + 1)分段 \(marks[index].name ?? "")")
+  }
+
+  /// 下一集 / 下一分段 —— 对齐安卓 `forceSeekToNext`：始终走下一项
   func nextChapter(autoplay: Bool? = nil) {
     guard let book = currentBook else { return }
+    let shouldPlay = autoplay ?? chapterSwitchAutoplay
+    let marks = currentMarks
+    if markIndex + 1 < marks.count {
+      jump(toMark: markIndex + 1, autoplay: shouldPlay)
+      return
+    }
     if chapterIndex + 1 < book.chapters.count {
-      open(
-        book,
-        chapterIndex: chapterIndex + 1,
-        autoplay: autoplay ?? chapterSwitchAutoplay
-      )
+      open(book, chapterIndex: chapterIndex + 1, markIndex: 0, autoplay: shouldPlay)
     } else {
       player.pause()
       isPlaying = false
@@ -284,17 +415,27 @@ final class PlaybackEngine: NSObject, ObservableObject {
     }
   }
 
+  /// 上一集 / 上一分段 —— 对齐安卓 `forceSeekToPrevious`：
+  /// 永远是「上一项」，不回退到当前项开头（那个是老版本误以为按钮坏了的原因）
   func previousChapter(autoplay: Bool? = nil) {
     guard let book = currentBook else { return }
-    if position > 3 || chapterIndex == 0 {
-      seek(to: 0)
+    let shouldPlay = autoplay ?? chapterSwitchAutoplay
+    if markIndex > 0 {
+      jump(toMark: markIndex - 1, autoplay: shouldPlay)
       return
     }
-    open(
-      book,
-      chapterIndex: chapterIndex - 1,
-      autoplay: autoplay ?? chapterSwitchAutoplay
-    )
+    if chapterIndex > 0 {
+      let previous = chapterIndex - 1
+      let count = book.chapters[previous].chapterMarks.count
+      open(
+        book,
+        chapterIndex: previous,
+        markIndex: max(0, count - 1),
+        autoplay: shouldPlay
+      )
+    } else {
+      seek(to: 0)
+    }
   }
 
   func setSpeed(_ value: Double) {
@@ -348,11 +489,11 @@ final class PlaybackEngine: NSObject, ObservableObject {
 
   func addBookmark(title: String = "") {
     guard let book = currentBook, !book.chapters.isEmpty else { return }
-    let chapterTitle = currentChapter?.title ?? ""
+    let unitTitle = currentUnitTitle
     let label = title.isEmpty
-      ? "\(chapterTitle) \(Format.time(position))"
+      ? "\(unitTitle) \(Format.time(position))"
       : title
-    let merged = chapterTitle.isEmpty ? label : "\(chapterTitle) · \(label)"
+    let merged = unitTitle.isEmpty ? label : "\(unitTitle) · \(label)"
     library.addBookmark(
       bookId: book.id,
       chapterIndex: chapterIndex,
@@ -530,6 +671,7 @@ final class PlaybackEngine: NSObject, ObservableObject {
       }
     }
     position = target
+    markIndex = book.markIndex(chapterIndex: chapterIndex, seconds: target)
     if target > 0 {
       player.seek(
         to: CMTime(seconds: target, preferredTimescale: 600),
@@ -541,6 +683,7 @@ final class PlaybackEngine: NSObject, ObservableObject {
       activateAudioSession()
       player.playImmediately(atRate: Float(speed))
       isPlaying = true
+      library.touchLastPlayed(bookId: book.id)
     }
     saveTick = 0
     updateNowPlayingInfo()
@@ -713,6 +856,7 @@ final class PlaybackEngine: NSObject, ObservableObject {
       self.saveTick += 1
       // 1000 集的 library.json 不小，别每 3 秒全量编码一次；暂停/切章会 force 落盘
       if self.saveTick % 20 == 0 { self.savePosition() }
+      self.checkMarkBoundary()
       self.checkOutroSkip()
       if self.audioProcessor.consumeSilenceJump() { self.jumpOverSilence() }
       self.drivePreload()
@@ -914,6 +1058,21 @@ final class PlaybackEngine: NSObject, ObservableObject {
     }
   }
 
+  /// 播到分段末尾就自动进下一分段（同章内只 seek，跨章才换 item）。
+  ///
+  /// 安卓一个分段就是一个 media item，播完自动换下一个；iOS 一个 item 是整章，
+  /// 所以这一段得自己按分段的 endMs 推过去，否则带 markData 的书会一章连着播到底。
+  /// 本章最后一个分段不在这里处理 —— 交给 `AVPlayerItemDidPlayToEndTime`。
+  private func checkMarkBoundary() {
+    guard player.timeControlStatus == .playing, duration > 0 else { return }
+    let marks = currentMarks
+    guard marks.indices.contains(markIndex) else { return }
+    let mark = marks[markIndex]
+    guard mark.end > mark.start, position >= mark.end else { return }
+    guard markIndex + 1 < marks.count else { return }
+    jump(toMark: markIndex + 1, autoplay: true)
+  }
+
   private func handleChapterFinished() {
     if sleepAtChapterEnd {
       finishSleep()
@@ -933,6 +1092,8 @@ final class PlaybackEngine: NSObject, ObservableObject {
   private func checkOutroSkip() {
     guard let book = currentBook, book.skipOutro > 0, !outroHandled, duration > 0 else { return }
     guard chapterIndex + 1 < book.chapters.count else { return }
+    // 片尾只在整章的最后一段生效，别每小节尾巴都跳一次
+    guard markIndex == max(0, currentMarks.count - 1) else { return }
     guard duration > Double(book.skipOutro) + 5 else { return }
     let threshold = duration - Double(book.skipOutro)
     if position >= threshold, player.timeControlStatus == .playing {
@@ -1059,7 +1220,8 @@ final class PlaybackEngine: NSObject, ObservableObject {
       guard let self,
         let positionEvent = event as? MPChangePlaybackPositionCommandEvent
       else { return .commandFailed }
-      self.seek(to: positionEvent.positionTime)
+      // 锁屏进度条和播放页一样是「分段内相对位置」，加回分段起点才是章内绝对位置
+      self.seek(to: self.unitStart + positionEvent.positionTime)
       return .success
     }
   }
@@ -1070,15 +1232,16 @@ final class PlaybackEngine: NSObject, ObservableObject {
       return
     }
     var info: [String: Any] = [
-      MPMediaItemPropertyTitle: chapter.title,
+      MPMediaItemPropertyTitle: currentUnitTitle.isEmpty ? chapter.title : currentUnitTitle,
       MPMediaItemPropertyArtist: book.author.isEmpty ? "有声书" : book.author,
       MPMediaItemPropertyAlbumTitle: book.title,
-      MPNowPlayingInfoPropertyElapsedPlaybackTime: position,
+      // 锁屏进度同样按分段算，和播放页里的进度条保持一致
+      MPNowPlayingInfoPropertyElapsedPlaybackTime: unitPosition,
       MPNowPlayingInfoPropertyPlaybackRate: isPlaying ? speed : 0,
       MPNowPlayingInfoPropertyDefaultPlaybackRate: speed,
     ]
-    if duration > 0 {
-      info[MPMediaItemPropertyPlaybackDuration] = duration
+    if unitDuration > 0 {
+      info[MPMediaItemPropertyPlaybackDuration] = unitDuration
     }
     if let image = coverImage(for: book) {
       info[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: image.size) { _ in image }

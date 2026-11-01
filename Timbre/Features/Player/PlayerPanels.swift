@@ -2,6 +2,9 @@ import SwiftUI
 
 // MARK: - 章节列表抽屉（对齐安卓 SelectChapterDialog）
 
+/// 安卓的章节抽屉列的是 **分段（chapterMark）** 而不是章：
+/// 一个有 markData 的章会展开成好几项，编号跨章连续累加，
+/// 时间显示的是「前面所有章的总时长 + 本段在章内的起点」。
 struct ChapterSheet: View {
   @ObservedObject var player: PlaybackEngine
   var onClose: () -> Void
@@ -10,39 +13,76 @@ struct ChapterSheet: View {
   @State private var rangesExpanded = false
   /// 点某个分块后，把该块第一项滚到顶部并短暂高亮 2 秒
   @State private var highlightedItemIndex: Int?
+  /// 拍平后的播放单元。整本书可能上千条，缓存在 State 里，别每次重算
+  @State private var units: [Unit] = []
+
+  /// 一个可点项 = 一个分段
+  struct Unit: Identifiable {
+    var id: Int            // 全局序号（0 起）
+    var chapterIndex: Int
+    var markIndex: Int
+    var name: String
+    /// 全局起始秒（前面所有章时长 + 本段章内起点）
+    var start: Double
+  }
 
   private var chapters: [Chapter] { player.currentBook?.chapters ?? [] }
 
-  /// 每一项的累计起始时间（安卓 formatTime(chapterStart + mark.startMs)）
-  private var starts: [Double] {
-    var result: [Double] = []
-    var acc: Double = 0
-    for chapter in chapters {
-      result.append(acc)
-      acc += chapter.duration
+  /// 只在换书 / 章节数变化时重建
+  private var unitsKey: String { "\(player.bookId ?? "")-\(chapters.count)" }
+
+  private func buildUnits() -> [Unit] {
+    var result: [Unit] = []
+    var number = 0
+    var startAcc: Double = 0
+    for (chapterIndex, chapter) in chapters.enumerated() {
+      for (markIndex, mark) in chapter.chapterMarks.enumerated() {
+        result.append(
+          Unit(
+            id: number,
+            chapterIndex: chapterIndex,
+            markIndex: markIndex,
+            name: mark.name ?? chapter.title,
+            start: startAcc + mark.start
+          )
+        )
+        number += 1
+      }
+      startAcc += chapter.duration
     }
     return result
+  }
+
+  private func isActive(_ unit: Unit) -> Bool {
+    unit.chapterIndex == player.chapterIndex && unit.markIndex == player.markIndex
+  }
+
+  private var activeUnitIndex: Int {
+    units.firstIndex { isActive($0) } ?? 0
   }
 
   private struct ChapterRange {
     var first: Int
     var last: Int
     var startIndex: Int
+    var endIndex: Int
 
     /// 安卓 `containsCurrent = activeItemIndex in start until end`
-    func contains(_ index: Int) -> Bool { index >= startIndex && index < last }
+    func contains(_ index: Int) -> Bool { index >= startIndex && index < endIndex }
   }
 
   /// 对齐安卓 ChapterRanges.kt：<30 不显示，>2000 每块 100，否则每块 50
   private var ranges: [ChapterRange] {
-    let count = chapters.count
+    let count = units.count
     guard count >= 30 else { return [] }
     let size = count > 2000 ? 100 : 50
     var result: [ChapterRange] = []
     var start = 0
     while start < count {
       let end = min(start + size, count)
-      result.append(ChapterRange(first: start + 1, last: end, startIndex: start))
+      result.append(
+        ChapterRange(first: start + 1, last: end, startIndex: start, endIndex: end)
+      )
       start = end
     }
     return result
@@ -61,18 +101,16 @@ struct ChapterSheet: View {
 
         ScrollView {
           LazyVStack(spacing: 0) {
-            ForEach(chapters.indices, id: \.self) { index in
-              row(index)
+            ForEach(units) { unit in
+              row(unit)
             }
           }
           .padding(.bottom, 24)
         }
       }
-      .onAppear {
-        // 安卓 rememberLazyListState(initialFirstVisibleItemIndex = selectedIndex - 1)：
-        // 把上一章顶到第一条，用户一眼能看到自己在哪
-        let target = max(0, player.chapterIndex - 1)
-        if target > 0 { proxy.scrollTo(target, anchor: .top) }
+      .onAppear { rebuild(proxy: proxy) }
+      .onChange(of: unitsKey) { _ in
+        rebuild(proxy: proxy)
       }
       .task(id: highlightedItemIndex) {
         // 对齐安卓 HIGHLIGHT_DURATION = 2s：跳转高亮两秒后自动褪掉
@@ -84,6 +122,16 @@ struct ChapterSheet: View {
     .presentationDetents([.large])
   }
 
+  private func rebuild(proxy: ScrollViewProxy) {
+    units = buildUnits()
+    // 安卓 rememberLazyListState(initialFirstVisibleItemIndex = selectedIndex - 1)：
+    // 把上一项顶到第一条，用户一眼能看到自己在哪
+    let target = max(0, activeUnitIndex - 1)
+    if target > 0 {
+      DispatchQueue.main.async { proxy.scrollTo(target, anchor: .top) }
+    }
+  }
+
 
   // MARK: 标题栏
 
@@ -92,7 +140,7 @@ struct ChapterSheet: View {
       withAnimation(.easeInOut(duration: 0.2)) { rangesExpanded.toggle() }
     } label: {
       HStack(spacing: 0) {
-        Text("共\(chapters.count)集")
+        Text("共\(units.count)集")
           .font(AppFont.titleMedium())
           .foregroundColor(AppColor.onSurface)
         AndroidIcon(glyph: .expandMore, size: 24, color: AppColor.onSurface)
@@ -117,7 +165,7 @@ struct ChapterSheet: View {
       ) {
         ForEach(ranges.indices, id: \.self) { index in
           let range = ranges[index]
-          let containsCurrent = range.contains(player.chapterIndex)
+          let containsCurrent = range.contains(activeUnitIndex)
           Button {
             // 安卓：点分块 → 收起网格 → 高亮该块第一项 → 滚到该块
             withAnimation(.easeInOut(duration: 0.2)) { rangesExpanded = false }
@@ -145,38 +193,43 @@ struct ChapterSheet: View {
     .frame(maxHeight: 300)
   }
 
-  // MARK: 单个章节
+  // MARK: 单个分段
 
   /// 安卓 ListItem：leading 编号 / 正文标题 / trailing 起始时间，
   /// 背景 active → primaryContainer，跳转高亮 → secondaryContainer，
   /// 外层 padding(3dp) + 圆角 12dp。
-  private func row(_ index: Int) -> some View {
-    let chapter = chapters[index]
+  private func row(_ unit: Unit) -> some View {
+    let active = isActive(unit)
     let background: Color =
-      index == player.chapterIndex
+      active
       ? AppColor.primaryContainer
-      : (index == highlightedItemIndex ? AppColor.secondaryContainer : Color.clear)
+      : (unit.id == highlightedItemIndex ? AppColor.secondaryContainer : Color.clear)
 
     return Button {
       if let book = player.currentBook {
         // 安卓 onChapterClick 只 setPosition，不改 playWhenReady：
         // 暂停着切到某一集，切完还是暂停
-        player.open(book, chapterIndex: index, autoplay: player.wantsToPlay)
+        player.open(
+          book,
+          chapterIndex: unit.chapterIndex,
+          markIndex: unit.markIndex,
+          autoplay: player.wantsToPlay
+        )
       }
       onClose()
     } label: {
       HStack(spacing: 0) {
-        Text("\(index + 1)")
+        Text("\(unit.id + 1)")
           .font(AppFont.bodySmall())
           .foregroundColor(AppColor.onSurfaceVariant)
           .frame(minWidth: 24, alignment: .leading)
-        Text(chapter.title)
+        Text(unit.name)
           .font(AppFont.bodyLarge())
           .foregroundColor(AppColor.onSurface)
           .lineLimit(1)
           .padding(.leading, 16)
         Spacer(minLength: 16)
-        Text(Format.clockString(starts[index]))
+        Text(Format.clockString(unit.start))
           .font(AppFont.bodySmall())
           .foregroundColor(AppColor.onSurfaceVariant)
       }
@@ -188,7 +241,7 @@ struct ChapterSheet: View {
       .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
-    .id(index)
+    .id(unit.id)
   }
 }
 

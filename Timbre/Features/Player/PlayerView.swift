@@ -19,7 +19,9 @@ struct PlayerView: View {
 
   private var book: Book? { player.currentBook }
 
-  private var displayPosition: Double { dragValue ?? player.position }
+  /// 进度条上的已播秒数 —— 对齐安卓：显示的是**当前分段内**的位置，
+  /// 一个章里有多个分段时，进度条走到头就换下一段，而不是走完整章。
+  private var displayPosition: Double { dragValue ?? player.unitPosition }
 
   var body: some View {
     GeometryReader { geo in
@@ -151,9 +153,10 @@ struct PlayerView: View {
   private var controlsColumn: some View {
     // 用 Color.clear 而非 Spacer：Spacer 是弹性视图，会跟封面抢剩余高度，
     // 结果封面被压扁、控件区反而留白。这里间距必须是死的。
-    // 安卓的 ChapterRow 只要 chapterName 非空就渲染，左右箭头则由
-    // showPreviousNextButtons 单独控制 —— 只有一章时也照样显示章节名。
-    if book != nil, player.currentChapter != nil {
+    // 安卓 BookPlayContent 把整个 ChapterRow 包在 `viewState.chapterName?.let {}` 里，
+    // 而 chapterName 只有「整本超过一个播放单元」时才有值 ——
+    // 所以只有一集的整本压根不出这一行。
+    if let book, book.playbackUnitCount > 1, player.currentChapter != nil {
       Color.clear.frame(height: 16)
       chapterRow
       Color.clear.frame(height: 20)
@@ -290,8 +293,10 @@ struct PlayerView: View {
   // MARK: 章节行
 
   private var chapterRow: some View {
-    // 安卓 nextPreviousVisible：只有一章时不画左右箭头，章节名依然居中显示
-    let arrows = (book?.chapters.count ?? 0) > 1
+    // 安卓 nextPreviousVisible / chapterName 都由「整本有多少个播放单元」决定：
+    // 只有一个单元时左右箭头和标题都不画（`currentMark.name.takeIf { hasMoreThanOneChapter }`）
+    let arrows = (book?.playbackUnitCount ?? 0) > 1
+    let title = arrows ? player.currentUnitTitle : ""
     return HStack(spacing: 0) {
       if arrows {
         GlyphButton(glyph: .chevronLeft, iconSize: 36, label: "上一节") {
@@ -304,7 +309,7 @@ struct PlayerView: View {
         HStack(spacing: 0) {
           // 首尾各留 28 的占位，让标题在整行里真正居中
           if arrows { Color.clear.frame(width: 28, height: 28) }
-          Text(player.currentChapter?.title ?? "")
+          Text(title)
             .font(AppFont.bodyLarge())
             .foregroundColor(AppColor.onSurface)
             .multilineTextAlignment(.center)
@@ -335,7 +340,7 @@ struct PlayerView: View {
   private var sliderRow: some View {
     HStack(spacing: 0) {
       // 两段时间固定宽度 + 等宽数字：否则 0:00:00 → 1:23:45 之间宽度变化会把滑块挤得左右跳
-      Text(Format.clockString(displayPosition, duration: player.duration))
+      Text(Format.clockString(displayPosition, duration: player.unitDuration))
         .font(AppFont.bodyLarge())
         .monospacedDigit()
         .foregroundColor(AppColor.onSurface)
@@ -344,18 +349,19 @@ struct PlayerView: View {
         .frame(minWidth: 58, alignment: .leading)
       ExpressiveSlider(
         value: Binding(
-          get: { dragValue ?? (player.duration > 0 ? player.position / player.duration : 0) },
-          set: { dragValue = $0 * player.duration }
+          get: { dragValue ?? player.unitProgressFraction },
+          set: { dragValue = $0 * player.unitDuration }
         ),
         onEditingChanged: { editing in
           if !editing, let preview = dragValue {
-            player.seek(to: preview)
+            // 拖的是分段内的位置，加回分段起点才是章内绝对位置
+            player.seek(to: player.unitStart + preview)
             dragValue = nil
           }
         }
       )
       .padding(.horizontal, 8)
-      Text(Format.clockString(player.duration, duration: player.duration))
+      Text(Format.clockString(player.unitDuration, duration: player.unitDuration))
         .font(AppFont.bodyLarge())
         .monospacedDigit()
         .foregroundColor(AppColor.onSurface)
