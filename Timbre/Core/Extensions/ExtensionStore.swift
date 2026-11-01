@@ -25,6 +25,15 @@ enum ExtensionInstallError: LocalizedError {
   }
 }
 
+/// 数组逐条容错解码：单条坏数据只丢这一条，不连累整个数组
+struct FailableDecodable<T: Decodable>: Decodable {
+  let value: T?
+
+  init(from decoder: Decoder) throws {
+    value = try? T(from: decoder)
+  }
+}
+
 /// 已安装的 .jdr 包
 struct InstalledExtension: Codable, Identifiable, Hashable {
   var id: String
@@ -118,8 +127,11 @@ final class ExtensionStore: ObservableObject {
 
   private func load() {
     guard let data = try? Data(contentsOf: AppPaths.extensionsFile) else { return }
-    let decoded = (try? JSONCoding.decoder().decode([InstalledExtension].self, from: data)) ?? []
-    extensions = decoded.filter { !$0.id.isEmpty }.map { ext in
+    // 逐条容错：某一条记录坏了只丢这一条，不让整份列表变空
+    let decoded =
+      (try? JSONCoding.decoder().decode([FailableDecodable<InstalledExtension>].self, from: data))
+      ?? []
+    extensions = decoded.compactMap(\.value).filter { !$0.id.isEmpty }.map { ext in
       var fixed = ext
       if fixed.folder.isEmpty { fixed.folder = "Extensions/\(fixed.id)" }
       return fixed
@@ -136,7 +148,7 @@ final class ExtensionStore: ObservableObject {
 
   var enabledSources: [InstalledSource] {
     extensions.flatMap { ext in
-      ext.sources.filter { ext.isSourceEnabled($0.id) }.map {
+      ext.sources.filter { !$0.id.isEmpty && ext.isSourceEnabled($0.id) }.map {
         InstalledSource(
           extensionId: ext.id,
           extensionName: ext.name,

@@ -18,11 +18,14 @@ struct ExtensionSourceMeta: Codable, Identifiable, Hashable {
 
   init(from decoder: Decoder) throws {
     let c = try decoder.container(keyedBy: CodingKeys.self)
-    id = try c.decode(String.self, forKey: .id)
-    name = try c.decodeIfPresent(String.self, forKey: .name) ?? id
-    script = try c.decodeIfPresent(String.self, forKey: .script) ?? ""
+    // 全部走容错路径：单条源字段缺失/类型不对时只让这条降级，
+    // 不能因为一条脏数据把整个已安装列表解码失败（那会导致「装好了也看不到」）。
+    id = (try? c.decode(String.self, forKey: .id)) ?? ""
+    name = (try? c.decode(String.self, forKey: .name)) ?? id
+    script = (try? c.decode(String.self, forKey: .script)) ?? ""
     capabilities =
-      try c.decodeIfPresent([String].self, forKey: .capabilities) ?? ["search", "chapters", "audio"]
+      (try? c.decode([String].self, forKey: .capabilities))
+      ?? ["search", "chapters", "audio"]
   }
 }
 
