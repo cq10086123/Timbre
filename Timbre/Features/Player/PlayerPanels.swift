@@ -159,7 +159,9 @@ struct ChapterSheet: View {
 
     return Button {
       if let book = player.currentBook {
-        player.open(book, chapterIndex: index, autoplay: true)
+        // 安卓 onChapterClick 只 setPosition，不改 playWhenReady：
+        // 暂停着切到某一集，切完还是暂停
+        player.open(book, chapterIndex: index, autoplay: player.wantsToPlay)
       }
       onClose()
     } label: {

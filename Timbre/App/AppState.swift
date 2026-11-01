@@ -82,7 +82,10 @@ final class AppState: ObservableObject {
 
   func playChapter(bookId: String, index: Int) {
     guard let book = library.book(withId: bookId) else { return }
-    player.open(book, chapterIndex: index, autoplay: true)
+    // 同一本书里跳集：保持当前播放状态（暂停就还是暂停）；
+    // 换到另一本书：不要替用户按下播放
+    let autoplay = player.currentBook?.id == book.id && player.wantsToPlay
+    player.open(book, chapterIndex: index, autoplay: autoplay)
     showPlayer = true
   }
 

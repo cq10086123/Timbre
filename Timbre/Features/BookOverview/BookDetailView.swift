@@ -213,7 +213,9 @@ struct BookDetailView: View {
       VStack(spacing: 0) {
         ForEach(book.bookmarks) { mark in
           Button {
-            player.open(book, chapterIndex: mark.chapterIndex, autoplay: true)
+            // 跳书签也保持原播放状态：暂停时跳过去仍然暂停
+            let autoplay = player.currentBook?.id == book.id && player.wantsToPlay
+            player.open(book, chapterIndex: mark.chapterIndex, autoplay: autoplay)
             player.seek(to: mark.seconds)
             app.showPlayer = true
           } label: {

@@ -253,10 +253,29 @@ final class PlaybackEngine: NSObject, ObservableObject {
     seek(to: duration * min(1, max(0, fraction)))
   }
 
-  func nextChapter(autoplay: Bool = true) {
+  /// 用户的播放意图：按过播放键、还没按暂停。缓冲中（`waitingToPlayAtSpecifiedRate`）也算在播。
+  ///
+  /// 不要用 `isPlaying` 判断切章要不要接着播 —— 它每 0.5 秒按
+  /// `timeControlStatus == .playing` 同步一次，缓冲那一下会被刷成 false，
+  /// 于是在缓冲期切章就会变成「切完停住了」。
+  var wantsToPlay: Bool { player.timeControlStatus != .paused }
+
+  /// 切章时要不要接着播。
+  ///
+  /// 对齐安卓：`next()` / `previous()` 走的是 ExoPlayer 的 `seekToNextMediaItem`，
+  /// 它只换 item，**不动 playWhenReady** —— 所以暂停状态切章切完还是暂停，
+  /// 只有正在播的时候切才继续播。`onChapterClick` 同理，只 `setPosition`。
+  /// 之前这里一律 `autoplay: true`，暂停着点下一集就自己响起来了。
+  private var chapterSwitchAutoplay: Bool { wantsToPlay }
+
+  func nextChapter(autoplay: Bool? = nil) {
     guard let book = currentBook else { return }
     if chapterIndex + 1 < book.chapters.count {
-      open(book, chapterIndex: chapterIndex + 1, autoplay: autoplay)
+      open(
+        book,
+        chapterIndex: chapterIndex + 1,
+        autoplay: autoplay ?? chapterSwitchAutoplay
+      )
     } else {
       player.pause()
       isPlaying = false
@@ -265,13 +284,17 @@ final class PlaybackEngine: NSObject, ObservableObject {
     }
   }
 
-  func previousChapter() {
+  func previousChapter(autoplay: Bool? = nil) {
     guard let book = currentBook else { return }
     if position > 3 || chapterIndex == 0 {
       seek(to: 0)
       return
     }
-    open(book, chapterIndex: chapterIndex - 1, autoplay: true)
+    open(
+      book,
+      chapterIndex: chapterIndex - 1,
+      autoplay: autoplay ?? chapterSwitchAutoplay
+    )
   }
 
   func setSpeed(_ value: Double) {
@@ -914,7 +937,8 @@ final class PlaybackEngine: NSObject, ObservableObject {
     let threshold = duration - Double(book.skipOutro)
     if position >= threshold, player.timeControlStatus == .playing {
       outroHandled = true
-      nextChapter()
+      // 片尾跳过是「自动接下一章」，必须接着播，不受暂停状态影响
+      nextChapter(autoplay: true)
     }
   }
 
