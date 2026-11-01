@@ -105,3 +105,5 @@ jobs:
         with:
           files: Timbre-unsigned.ipa
           generate_release_notes: true
+          # iOS 包目前只是调试验证阶段，标成预发布，不抢安卓正式版的「Latest」位置
+          prerelease: true
