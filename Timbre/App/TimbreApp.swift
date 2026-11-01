@@ -64,6 +64,22 @@ struct RootView: View {
             .transition(.opacity.combined(with: .move(edge: .bottom)))
         }
       }
+      .overlay {
+        if app.isImporting {
+          HStack(spacing: 10) {
+            ProgressView()
+              .tint(AppColor.accent)
+            Text("正在导入…")
+              .font(.footnote.weight(.medium))
+              .foregroundColor(AppColor.textPrimary)
+          }
+          .padding(.horizontal, 18)
+          .padding(.vertical, 14)
+          .background(AppColor.surface, in: Capsule())
+          .overlay(Capsule().stroke(AppColor.divider, lineWidth: 0.5))
+          .shadow(color: Color.black.opacity(0.2), radius: 16, y: 6)
+        }
+      }
       .alert(
         "出错了",
         isPresented: Binding(

@@ -200,6 +200,8 @@ enum JavaScriptSourceEngine {
     try { __log(parts.join(' ')); } catch (e) {}
   };
 
+  // 与安卓版保持一致：http.get / post 返回 Promise（宿主其实是同步请求，
+  // 这里包一层 Promise 是为了让 await / .then / Promise.all 三种写法都能用）
   var doHttp = function (method, url, options) {
     var opts = options || {};
     var raw = __httpRequest(method, String(url), JSON.stringify(opts));
@@ -213,9 +215,19 @@ enum JavaScriptSourceEngine {
     return parsed;
   };
 
+  var httpCall = function (method) {
+    return function (url, options) {
+      try {
+        return Promise.resolve(doHttp(method, url, options));
+      } catch (e) {
+        return Promise.reject(e);
+      }
+    };
+  };
+
   globalThis.http = {
-    get: function (url, options) { return doHttp('GET', url, options); },
-    post: function (url, options) { return doHttp('POST', url, options); }
+    get: httpCall('GET'),
+    post: httpCall('POST')
   };
 
   globalThis.__iosStateValue = 'pending';

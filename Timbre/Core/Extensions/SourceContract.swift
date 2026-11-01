@@ -136,12 +136,10 @@ enum SourceContract {
   }
 
   static func stringValue(_ value: Any?) -> String? {
-    switch value {
-    case let text as String: return text
-    case let number as NSNumber: return number.stringValue
-    case .none: return nil
-    case .some(let other): return "\(other)"
-    }
+    guard let value else { return nil }
+    if let text = value as? String { return text }
+    if let number = value as? NSNumber { return number.stringValue }
+    return "\(value)"
   }
 
   private static func firstString(_ dict: [String: Any], _ keys: [String]) -> String? {

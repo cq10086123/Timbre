@@ -304,13 +304,10 @@ enum HTTPBridge {
   }
 
   private static func stringValue(_ value: Any?) -> String {
-    switch value {
-    case let text as String: return text
-    case let number as NSNumber:
-      return number.stringValue
-    case .none: return ""
-    case .some(let other): return "\(other)"
-    }
+    guard let value else { return "" }
+    if let text = value as? String { return text }
+    if let number = value as? NSNumber { return number.stringValue }
+    return "\(value)"
   }
 
   private static func errorJSON(_ message: String) -> String {

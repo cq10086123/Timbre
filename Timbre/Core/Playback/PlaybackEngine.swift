@@ -35,6 +35,8 @@ final class PlaybackEngine: NSObject, ObservableObject {
   private var resumeAfterLoad = false
   private var shouldResumeAfterInterruption = false
   private var pendingResume: Double = 0
+  /// 每次加载递增，异步解析回来时校验，避免旧章节覆盖新章节
+  private var loadToken = 0
 
   init(library: LibraryStore, settings: SettingsStore, extensions: ExtensionStore) {
     self.library = library
@@ -252,6 +254,8 @@ final class PlaybackEngine: NSObject, ObservableObject {
     isLoading = true
     errorMessage = nil
     pendingResume = resume
+    loadToken += 1
+    let token = loadToken
 
     if book.kind == .local {
       guard let path = chapter.localFile else {
@@ -267,11 +271,29 @@ final class PlaybackEngine: NSObject, ObservableObject {
       return
     }
 
+    // 源脚本 / allowInsecure 在主线程取好快照，后台只做网络与 JS 执行，避免跨线程读 ExtensionStore
+    guard let sourceId = book.sourceId,
+      let installed = extensions.enabledSources.first(where: { $0.id == sourceId })
+    else {
+      fail("接口源未启用或已被删除")
+      return
+    }
+    guard let script = extensions.scriptText(for: installed) else {
+      fail("找不到该源的脚本文件")
+      return
+    }
+    let remote = RemoteContext(
+      script: script,
+      allowInsecure: installed.allowInsecure,
+      remoteBookId: book.remoteBookId ?? book.id
+    )
+
     Task { [weak self] in
       guard let self else { return }
       do {
-        let resolved = try await self.resolveRemote(book: book, chapter: chapter)
+        let resolved = try await self.resolveRemote(chapter: chapter, context: remote)
         await MainActor.run {
+          guard self.loadToken == token else { return }
           var options: [String: Any] = [:]
           if !resolved.headers.isEmpty {
             options["AVURLAssetHTTPHeaderFieldsKey"] = resolved.headers
@@ -284,6 +306,7 @@ final class PlaybackEngine: NSObject, ObservableObject {
         }
       } catch {
         await MainActor.run {
+          guard self.loadToken == token else { return }
           self.fail(error.localizedDescription)
         }
       }
@@ -328,23 +351,21 @@ final class PlaybackEngine: NSObject, ObservableObject {
     errorMessage = message
   }
 
-  private func resolveRemote(book: Book, chapter: Chapter) async throws -> (url: URL, headers: [String: String]) {
-    if let cached = chapter.remoteURL, let url = URL(string: cached), cached.hasPrefix("http") {
-      return (url, [:])
-    }
-    guard let sourceId = book.sourceId else {
-      throw SourceEngineError.source("这本书缺少接口源信息")
-    }
-    guard let installed = extensions.enabledSources.first(where: { $0.id == sourceId }) else {
-      throw SourceEngineError.source("接口源未启用或已被删除")
-    }
-    guard let script = extensions.scriptText(for: installed) else {
-      throw SourceEngineError.source("找不到该源的脚本文件")
-    }
+  /// 一次远程解析需要的、只能在主线程安全读取的上下文
+  private struct RemoteContext {
+    var script: String
+    var allowInsecure: Bool
+    var remoteBookId: String
+  }
+
+  private func resolveRemote(
+    chapter: Chapter,
+    context: RemoteContext
+  ) async throws -> (url: URL, headers: [String: String]) {
     let resolved = try await ExtensionSourceService.shared.audio(
-      script: script,
-      allowInsecure: installed.allowInsecure,
-      bookId: book.remoteBookId ?? book.id,
+      script: context.script,
+      allowInsecure: context.allowInsecure,
+      bookId: context.remoteBookId,
       chapterId: chapter.id,
       extraJSON: chapter.extraJSON
     )
@@ -388,7 +409,8 @@ final class PlaybackEngine: NSObject, ObservableObject {
         }
       }
       self.saveTick += 1
-      if self.saveTick % 6 == 0 { self.savePosition() }
+      // 1000 集的 library.json 不小，别每 3 秒全量编码一次；暂停/切章会 force 落盘
+      if self.saveTick % 20 == 0 { self.savePosition() }
       self.checkOutroSkip()
     }
 
@@ -617,6 +639,7 @@ final class PlaybackEngine: NSObject, ObservableObject {
       info[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
     }
     MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+    MPNowPlayingInfoCenter.default().playbackState = isPlaying ? .playing : .paused
   }
 
   func coverImage(for book: Book) -> UIImage? {

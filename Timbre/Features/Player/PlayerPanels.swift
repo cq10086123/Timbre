@@ -90,7 +90,8 @@ struct ChapterPanel: View {
           ScrollViewReader { proxy in
             ScrollView {
               LazyVStack(spacing: 0) {
-                ForEach(Array(book.chapters.enumerated()), id: \.element.id) { index, chapter in
+                ForEach(book.chapters.indices, id: \.self) { index in
+                  let chapter = book.chapters[index]
                   Button {
                     player.open(book, chapterIndex: index, autoplay: true)
                     dismiss()

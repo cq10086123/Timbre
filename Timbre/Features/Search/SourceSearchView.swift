@@ -339,7 +339,8 @@ private struct SourceBookSheet: View {
     } else {
       ScrollView {
         LazyVStack(spacing: 0) {
-          ForEach(Array(chapters.prefix(300).enumerated()), id: \.element.id) { index, chapter in
+          ForEach(chapters.prefix(300).indices, id: \.self) { index in
+            let chapter = chapters[index]
             HStack(spacing: 10) {
               Text("\(index + 1)")
                 .font(.system(size: 11, design: .rounded))

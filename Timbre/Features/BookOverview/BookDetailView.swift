@@ -263,7 +263,8 @@ struct BookDetailView: View {
       }
 
       LazyVStack(spacing: 0) {
-        ForEach(Array(book.chapters.enumerated()), id: \.element.id) { index, chapter in
+        ForEach(book.chapters.indices, id: \.self) { index in
+          let chapter = book.chapters[index]
           Button {
             app.playChapter(bookId: book.id, index: index)
           } label: {

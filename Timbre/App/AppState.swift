@@ -26,12 +26,14 @@ final class AppState: ObservableObject {
   func handleImport(urls: [URL]) {
     guard !urls.isEmpty else { return }
     isImporting = true
-    Task {
+    // 拷文件 / 解析元数据都是同步 IO，必须离开主线程，否则整本大书导入会卡界面
+    let config = settings.settings
+    Task.detached(priority: .userInitiated) { [weak self] in
       var imported: [Book] = []
       var failures: [String] = []
       for url in urls {
         do {
-          let book = try await AudioImporter.importItem(url: url, settings: self.settings.settings)
+          let book = try await AudioImporter.importItem(url: url, settings: config)
           imported.append(book)
         } catch {
           failures.append("\(url.lastPathComponent)：\(error.localizedDescription)")
@@ -39,7 +41,9 @@ final class AppState: ObservableObject {
       }
       let books = imported
       let errorText = failures.joined(separator: "\n")
-      await MainActor.run {
+
+      await MainActor.run { [weak self] in
+        guard let self else { return }
         for book in books { self.library.add(book) }
         self.isImporting = false
         if !books.isEmpty {
@@ -49,6 +53,7 @@ final class AppState: ObservableObject {
           self.errorMessage = errorText
         }
       }
+
       // 后台补齐时长，不挡播放
       for book in books {
         let durations = await AudioImporter.fillDurations(
@@ -56,8 +61,8 @@ final class AppState: ObservableObject {
           chapters: book.chapters
         )
         let bookId = book.id
-        await MainActor.run {
-          self.library.updateChapterDurations(bookId: bookId, durations: durations)
+        await MainActor.run { [weak self] in
+          self?.library.updateChapterDurations(bookId: bookId, durations: durations)
         }
       }
     }
