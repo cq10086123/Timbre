@@ -162,7 +162,10 @@ final class PlaybackEngine: NSObject, ObservableObject {
   /// 播放页重绘时还要再读一遍。这里按「章 id + 时长 + 分段条数」缓存当前这一份。
   var currentMarks: [ChapterMark] {
     guard let chapter = currentChapter else { return [] }
-    let key = "\(chapter.id)#\(chapter.duration)#\(chapter.markData.count)"
+    // 键里带上「首尾分段的起点」：重新解析 markData 时条数可能不变、位置却变了
+    let firstMs = chapter.markData.first?.startMs ?? -1
+    let lastMs = chapter.markData.last?.startMs ?? -1
+    let key = "\(chapter.id)#\(chapter.duration)#\(chapter.markData.count)#\(firstMs)#\(lastMs)"
     if let cached = marksCache, cached.key == key { return cached.marks }
     let marks = chapter.chapterMarks
     marksCache = (key, marks)
