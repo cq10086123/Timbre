@@ -75,6 +75,14 @@ final class PlaybackEngine: NSObject, ObservableObject {
   private var timeControlObservation: NSKeyValueObservation?
   /// 当前这一章解析出来的直链，重试时不用再跑一遍 JS
   private var activeLoad: (book: Book, chapter: Chapter)?
+  /// 最后一次**真正装进播放器**的位置（书 + 章 + 分段）。
+  ///
+  /// `open()` 一进来就把 `chapterIndex` 改成目标章，等 `load()` 去取流 —— 取流失败时
+  /// （典型：源限流 429 / 脚本报错）游标停在目标章，可播放器里还是上一集的 item。
+  /// 之后这一集播完，`handleChapterFinished` 会按游标 +1 直接跳过去，
+  /// 用户看到的就是「第 1500 集在播、界面显示 1501、播完跳到 1502」。
+  /// 失败时用它把游标退回去，保证「游标 = 实际在响的那一集」。
+  private var loadedTarget: (bookId: String, chapterIndex: Int, markIndex: Int)?
   /// 音量提升 + 跳过空白，走 MTAudioProcessingTap
   private let audioProcessor = AudioProcessor()
   /// 在线书源播放地址预加载（「播放器设置」里的那三个数值 + 开关）
@@ -261,6 +269,7 @@ final class PlaybackEngine: NSObject, ObservableObject {
     // 作废还在跑的上一次解析，别让它一会儿把 item 装回来
     loadToken += 1
     activeLoad = nil
+    loadedTarget = nil
     player.pause()
     player.replaceCurrentItem(with: nil)
     isPlaying = false
@@ -343,6 +352,7 @@ final class PlaybackEngine: NSObject, ObservableObject {
     // 会把已经停止（甚至已删除）的书自己播起来
     loadToken += 1
     activeLoad = nil
+    loadedTarget = nil
     resumeAfterLoad = false
     player.pause()
     player.replaceCurrentItem(with: nil)
@@ -985,6 +995,8 @@ final class PlaybackEngine: NSObject, ObservableObject {
     saveTick = 0
     updateNowPlayingInfo()
     driveWebDavPrefetch()
+    // 这一刻起「播放器里响的是什么」才等于游标，记下来供失败回退
+    loadedTarget = (book.id, chapterIndex, markIndex)
     // 本地文件（含命中缓存的）不需要盯；只有走网络的才需要判断「是不是解不动」
     if book.kind != .local,
       let asset = item.asset as? AVURLAsset,
@@ -1010,8 +1022,33 @@ final class PlaybackEngine: NSObject, ObservableObject {
 
   private func fail(_ message: String) {
     isLoading = false
-    isPlaying = false
+    // 别在这里硬写 false：切章失败时旧那一集可能还在响，按钮状态要跟着实际播放状态走
+    isPlaying = player.timeControlStatus == .playing
+    restoreLoadedTargetAfterFailure()
     errorMessage = message
+  }
+
+  /// 切章没装成（源限流 / 脚本报错 / 文件缺失）时的收尾：把游标退回播放器里**真正在响**的那一集。
+  ///
+  /// 之前的坑：`open()` 一进来就把 `chapterIndex` 改成目标章，取流失败只弹个错误就把游标留在目标章，
+  /// 于是界面显示 1501、音频还在 1500，这一集播完 `handleChapterFinished` 按 +1 直接开 1502，
+  /// 1501 被整集吃掉；关播放页时 `flush()` 还会把 1501 写进 library.json，下次启动断点也飘。
+  private func restoreLoadedTargetAfterFailure() {
+    guard let target = loadedTarget, target.bookId == bookId else { return }
+    guard chapterIndex != target.chapterIndex || markIndex != target.markIndex else { return }
+
+    chapterIndex = target.chapterIndex
+    if let book = currentBook, book.chapters.indices.contains(chapterIndex) {
+      // 分段按当前秒数重新定位：失败这段时间里可能已经跨过分段边界
+      markIndex = book.markIndex(chapterIndex: chapterIndex, seconds: position)
+      activeLoad = (book, book.chapters[chapterIndex])
+    } else {
+      markIndex = target.markIndex
+    }
+    // 立刻落盘：别让失败那一章的号留在断点里
+    savePosition(force: true)
+    updateNowPlayingInfo()
+    DLog("player", "切章失败，游标退回第\(chapterIndex + 1)集（音频仍在这一集）")
   }
 
   /// -11828 删缓存重取的计数：同一章最多回源一次，再解不开就是源的问题，
