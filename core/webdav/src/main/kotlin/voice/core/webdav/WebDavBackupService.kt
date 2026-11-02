@@ -1,6 +1,7 @@
 package voice.core.webdav
 
 import android.net.Uri
+import androidx.core.net.toUri
 import androidx.datastore.core.DataStore
 import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.Inject
@@ -226,7 +227,7 @@ public class WebDavBackupService(
         byRemoteFolder.putIfAbsent(url, book)
         byRemoteFolder.putIfAbsent(Uri.decode(url), book)
       }
-      Uri.parse(folder).path?.takeIf { it.isNotEmpty() }?.let { path ->
+      folder.toUri().path?.takeIf { it.isNotEmpty() }?.let { path ->
         byRemotePath.putIfAbsent(path, book)
       }
     }
@@ -240,7 +241,7 @@ public class WebDavBackupService(
       val book = byId[entry.id]
         ?: byRemoteFolder[entry.id]
         ?: Uri.decode(entry.id).let { byRemoteFolder[it] }
-        ?: Uri.parse(entry.id).path?.let { byRemotePath[it] }
+        ?: entry.id.toUri().path?.let { byRemotePath[it] }
         ?: byFallback[entry.fallbackKey()]?.firstOrNull()
       if (book == null) {
         // a webdav book cannot be recreated here: its chapters come from the
@@ -384,8 +385,8 @@ public class WebDavBackupService(
    */
   private fun String.sameRemoteFile(other: String): Boolean {
     if (this == other) return true
-    val a = Uri.parse(this).path ?: return false
-    val b = Uri.parse(other).path ?: return false
+    val a = this.toUri().path ?: return false
+    val b = other.toUri().path ?: return false
     return a.isNotEmpty() && a == b
   }
 
