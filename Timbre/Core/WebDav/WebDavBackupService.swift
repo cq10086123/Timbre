@@ -4,8 +4,13 @@ import Foundation
 ///
 /// 对齐安卓 `WebDavBackupService`：
 /// - 备份只写「书 + 听到哪 + 播放偏好」，音频文件永远不进备份；
+/// - 在线书只进 extras.online（books[] 与安卓对齐，不含在线书）；
 /// - 恢复只合并**本机已有**的书，按 id 匹配，id 变了就用「书名|章节数|总时长」兜底；
 /// - 备份里有、本机没有的 WebDAV 书单独计数，让界面说清楚「先把书源加回来」。
+///
+/// 整类挂 @MainActor：library/extensions 都是主线程 @Published 状态，
+/// 网络与编解码本来就在异步上下文里，不会卡主线程。
+@MainActor
 final class WebDavBackupService {
   private let library: LibraryStore
   private let servers: WebDavStore
@@ -75,14 +80,18 @@ final class WebDavBackupService {
       return .failure("备份目录地址不合法")
     }
 
+    // 在线书不进 books[]：安卓的 books[] 里没有在线书（它们在 extras.online），
+    // 写两份会让恢复端双重恢复、计数虚高，还扩大 fallback 错配面
+    let localBooks = books.filter { $0.kind != .jdr }
     var payload = WebDavBackup(
       createdAt: Self.isoString(Date()),
-      books: books.map { entry(for: $0) }
+      books: localBooks.map { entry(for: $0) }
     )
     // 在线书进 extras.online，格式与安卓 OnlineShelfBackupContributor 一致，
     // 这样安卓也能恢复 iOS 的在线书
     let online = books.filter { $0.kind == .jdr }.compactMap { onlineEntry(for: $0) }
     if !online.isEmpty { payload.extras = ["online": online] }
+    DLog("webdav", "备份完成：书 \(localBooks.count) 本 + 在线 \(online.count) 本")
     let data: Data
     do {
       data = try JSONCoding.encoder().encode(payload)
@@ -171,13 +180,20 @@ final class WebDavBackupService {
     var missingWebDav = 0
     for entry in payload.books {
       let entryFolder = Self.remotePath(of: entry.id) ?? entry.id
+      // 解码后的目录 URL 是结构性精确匹配，必须排在启发式 fallback 之前，
+      // 否则本可以精确对上的条目先被「书名|章节数|总时长」抢走
       var matched =
         byId[entry.id]
         ?? byRemoteFolder[entry.id]
+        ?? byRemoteFolder[entry.id.removingPercentEncoding ?? entry.id]
         ?? byRemotePath[entryFolder]
-        ?? byFallback[Self.fallbackKey(entry)]
-      if matched == nil, let decoded = entry.id.removingPercentEncoding {
-        matched = byRemoteFolder[decoded]
+      if matched == nil, let fallback = byFallback[Self.fallbackKey(entry)] {
+        // 启发式命中的类型校验：备份里 id 是 http(s) 目录 URL 的一定是 WebDAV 书，
+        // 撞到同名同章节数的在线书上会把它当成本机书改写进度（道诡事故的另一面）
+        let isWebDavEntry = entry.id.hasPrefix("http://") || entry.id.hasPrefix("https://")
+        if !(isWebDavEntry && fallback.kind != .webdav) {
+          matched = fallback
+        }
       }
       guard var book = matched else {
         // WebDAV 书没法在这儿凭空造出来：章节来自服务器，得先把书源加回来
@@ -357,6 +373,9 @@ final class WebDavBackupService {
       ? 0
       : min(max(0, book.position.chapterIndex), book.chapters.count - 1)
     let chapter = book.chapters.indices.contains(index) ? book.chapters[index] : nil
+    // 章节没拉齐（恢复后还没打开过）时目标章节还在 pendingChapterId 里，
+    // 直接写它，别丢——否则 iOS 备份再恢复一圈进度就对不上了
+    let currentChapterId = book.pendingChapterId ?? chapter?.id ?? ""
     // 封面：本地文件 base64 进备份（≤512KB，与安卓同一上限）
     var coverImage: String?
     if let coverFile = book.coverFile,
@@ -374,7 +393,7 @@ final class WebDavBackupService {
       coverUrl: nil,
       coverImage: coverImage,
       addedAt: Int64((book.addedAt.timeIntervalSince1970 * 1000).rounded()),
-      currentChapterId: chapter?.id ?? "",
+      currentChapterId: currentChapterId,
       positionInChapter: Int64((max(0, book.position.seconds) * 1000).rounded()),
       skipIntro: Int64(book.skipIntro) * 1000,
       skipOutro: Int64(book.skipOutro) * 1000,
@@ -407,7 +426,7 @@ final class WebDavBackupService {
         library.update(existing)
       } else {
         var book = Book(
-          title: entry.title ?? "",
+          title: entry.title?.isEmpty == false ? entry.title! : remoteBookId,
           author: entry.author ?? "",
           kind: .jdr,
           chapters: [],
@@ -440,7 +459,15 @@ final class WebDavBackupService {
   /// 对不上（列表为空或过时）先记账 pendingChapterId，打开时拉齐章节再换算。
   private func applyOnline(_ entry: OnlineBackupEntry, to book: inout Book) {
     let seconds = max(0, Double(entry.positionInChapter ?? 0) / 1000)
-    let playedAt = Self.millisToDate(entry.addedAt)
+    // 备份里只有 addedAt（加书时间）没有 lastPlayed；合并已有书时
+    // 别把本机较新的「最近播放」时间拉回到加书时间，书架排序会乱
+    let backupDate = Self.millisToDate(entry.addedAt)
+    let playedAt: Date?
+    if let backupDate, let existing = book.position.updatedAt, existing >= backupDate {
+      playedAt = existing
+    } else {
+      playedAt = backupDate
+    }
     if let pending = entry.currentChapterId, !pending.isEmpty,
       let index = book.chapters.firstIndex(where: { $0.id == pending })
     {

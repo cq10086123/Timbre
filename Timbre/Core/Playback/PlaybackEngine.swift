@@ -230,6 +230,9 @@ final class PlaybackEngine: NSObject, ObservableObject {
       && self.chapterIndex == index
       && self.markIndex == resolvedMark
       && player.currentItem != nil
+    // 换书：预加载缓存整包清掉——键虽已带 bookId 防串台，但旧书的预加载
+    // 结果再也不会被取用，留着只占内存
+    if self.bookId != book.id { preloader.clear() }
     self.bookId = book.id
     self.chapterIndex = index
     self.markIndex = min(max(0, resolvedMark), max(0, marks.count - 1))
@@ -336,6 +339,11 @@ final class PlaybackEngine: NSObject, ObservableObject {
   }
 
   func stop() {
+    // 在线章可能还在解析：作废在途任务，不然解析回来 token 仍匹配，
+    // 会把已经停止（甚至已删除）的书自己播起来
+    loadToken += 1
+    activeLoad = nil
+    resumeAfterLoad = false
     player.pause()
     player.replaceCurrentItem(with: nil)
     fallbackDownloadTask?.cancel()
@@ -473,6 +481,11 @@ final class PlaybackEngine: NSObject, ObservableObject {
     }
     if chapterIndex > 0 {
       let previous = chapterIndex - 1
+      // 章节列表刷新后变短时 chapterIndex 可能越界，别在蓝牙耳机上崩
+      guard book.chapters.indices.contains(previous) else {
+        seek(to: 0)
+        return
+      }
       let count = book.chapters[previous].chapterMarks.count
       open(
         book,
@@ -699,7 +712,7 @@ final class PlaybackEngine: NSObject, ObservableObject {
     )
 
     // 预加载命中：直接装，不用再等一次源接口（切章秒开的关键）
-    if let cached = preloader.take(chapterId: chapter.id) {
+    if let cached = preloader.take(bookId: book.id, chapterId: chapter.id) {
       DLog("preload", "命中预加载 第\(chapter.title)")
       installResolved(
         url: cached.url,
@@ -1001,6 +1014,10 @@ final class PlaybackEngine: NSObject, ObservableObject {
     errorMessage = message
   }
 
+  /// -11828 删缓存重取的计数：同一章最多回源一次，再解不开就是源的问题，
+  /// 不能无限「删缓存 → 重下 63MB → 再解不开」地烧流量直到杀进程
+  private var corruptRetries: [String: Int] = [:]
+
   /// 本地缓存文件解不开（-11828）：删掉这个坏缓存，回源重新解析取流。
   private func discardCorruptCacheAndReload(assetURL: URL) {
     let cached = CachedAudioAlias.cachedFile(for: assetURL)
@@ -1008,11 +1025,19 @@ final class PlaybackEngine: NSObject, ObservableObject {
     if assetURL != cached {
       try? FileManager.default.removeItem(at: assetURL)
     }
-    DLog("player", "缓存文件解不开，已删除坏缓存 \(cached.lastPathComponent)，回源重取")
     guard let context = activeLoad else {
       fail("播放失败：缓存文件损坏")
       return
     }
+    let key = "\(context.book.id)#\(context.chapter.id)"
+    let retried = corruptRetries[key] ?? 0
+    if retried >= 1 {
+      DLog("player", "重取后仍解不开（\(key)），判定为源返回的文件有问题，停止重试")
+      fail("播放失败：音频文件解不开（已重新取过一次仍失败，多半是源的问题）")
+      return
+    }
+    corruptRetries[key] = retried + 1
+    DLog("player", "缓存文件解不开，已删除坏缓存 \(cached.lastPathComponent)，回源重取")
     // 取流阶梯归零，按网络路径重新走一遍
     streamStage = 0
     proxyVariant = 0
@@ -1278,6 +1303,7 @@ final class PlaybackEngine: NSObject, ObservableObject {
     // 之前只监听 FailedToPlayToEndTime，导致「拉不到流」这类失败全程静默 ——
     // 界面只是转圈不动，日志里一个字都没有。
     statusObservation?.invalidate()
+    let observedToken = loadToken
     statusObservation = item.observe(\.status, options: [.initial, .new]) { [weak self] item, _ in
       switch item.status {
       case .readyToPlay:
@@ -1297,20 +1323,23 @@ final class PlaybackEngine: NSObject, ObservableObject {
             + "\(error?.localizedDescription ?? "")"
         )
         DispatchQueue.main.async {
-          self?.readyWatchdog?.invalidate()
+          // 闭包捕获的 item/失败是旧的：async 期间用户可能已经切章，
+          // 别拿旧章的失败打断正在播的新章
+          guard let self, self.loadToken == observedToken else { return }
+          self.readyWatchdog?.invalidate()
           // 认不出容器时先换一种取流方式重试，别直接弹错误
           if error?.code == -11828 {
             // 本地缓存文件解不开：不是取流方式的问题，是缓存坏了。
             // 删掉坏缓存回源重取，别在换档阶梯上空转（同一个文件炸三次毫无意义）
             if let asset = item.asset as? AVURLAsset, asset.url.isFileURL {
-              self?.discardCorruptCacheAndReload(assetURL: asset.url)
+              self.discardCorruptCacheAndReload(assetURL: asset.url)
               return
             }
-            if self?.escalateStreamStage(reason: "容器认不出来(-11828)") == true {
+            if self.escalateStreamStage(reason: "容器认不出来(-11828)") == true {
               return
             }
           }
-          self?.fail(Self.describe(error))
+          self.fail(Self.describe(error))
         }
       case .unknown:
         DLog("player", "item.status=unknown（开始加载）")
@@ -1458,6 +1487,9 @@ final class PlaybackEngine: NSObject, ObservableObject {
   private func checkOutroSkip() {
     guard let book = currentBook, book.skipOutro > 0, !outroHandled, duration > 0 else { return }
     guard chapterIndex + 1 < book.chapters.count else { return }
+    // 「播完本章停止」优先于跳片尾：跳片尾会直接开播下一章，
+    // 用户睡觉时这一章就永远不会自然播完、睡眠定时器也永远不会触发
+    if sleepAtChapterEnd { return }
     // 片尾只在整章的最后一段生效，别每小节尾巴都跳一次
     guard markIndex == max(0, currentMarks.count - 1) else { return }
     guard duration > Double(book.skipOutro) + 5 else { return }

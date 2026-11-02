@@ -29,6 +29,8 @@ struct WebDavBrowseView: View {
   /// 「子文件夹各作为一本书」的扫描进度；total > 0 = 正在扫
   @State private var scanDone = 0
   @State private var scanTotal = 0
+  /// 列目录请求序号：快速进出目录时丢弃过期响应
+  @State private var requestId = 0
 
   private var current: Crumb? { stack.last }
 
@@ -262,6 +264,10 @@ struct WebDavBrowseView: View {
     errorText = nil
     let password = webdav.password(for: server.id)
     let url = target.url
+    // 快速连续进目录时慢响应可能后到，序号对不上的一律丢弃，
+    // 不然界面显示 A 目录的文件、面包屑却是 B 目录
+    requestId += 1
+    let id = requestId
     Task {
       do {
         let list = try await WebDavClient.list(url: url, server: server, password: password)
@@ -270,12 +276,14 @@ struct WebDavBrowseView: View {
           return NaturalSort.compare(left.name, right.name) == .orderedAscending
         }
         await MainActor.run {
+          guard requestId == id else { return }
           items = sorted
           loading = false
         }
       } catch {
         let text = error.localizedDescription
         await MainActor.run {
+          guard requestId == id else { return }
           items = []
           errorText = text
           loading = false

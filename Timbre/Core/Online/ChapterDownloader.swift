@@ -183,10 +183,10 @@ final class ChapterDownloader: NSObject, URLSessionDataDelegate {
       lock.unlock()
       return
     }
-    let handle = self.handle
-    lock.unlock()
-
-    guard let handle else { return }
+    guard let handle = self.handle else {
+      lock.unlock()
+      return
+    }
 
     // 过期链接经常 200 回一个 "{" 或 "<!doctype"：只看第一块就够把它们挡在缓存之外
     if !headChecked {
@@ -195,18 +195,18 @@ final class ChapterDownloader: NSObject, URLSessionDataDelegate {
         // 从中间截断的 UTF-8 会以替换符结尾，预告里没必要留着
         let head = String(decoding: data.prefix(Self.previewBytes), as: UTF8.self)
           .trimmingCharacters(in: CharacterSet(charactersIn: "\u{FFFD}"))
-        handle.closeFile()
-        lock.lock()
         let type = contentType
         lock.unlock()
+        handle.closeFile()
         finish(.failed(.notAudio, head.isEmpty ? "Content-Type: \(type ?? "-")" : head))
         return
       }
     }
 
+    // write 必须在锁内：finish()（cancel 路径）会并发 close 同一个句柄，
+    // 锁外写会撞上已关闭的 FileHandle 直接 ObjC 异常崩溃
     handle.write(data)
 
-    lock.lock()
     written += Int64(data.count)
     let now = Date().timeIntervalSince1970
     let shouldEmit = now - lastEmit >= Self.progressInterval

@@ -41,10 +41,16 @@ final class OnlinePreloader {
 
   // MARK: - 取用
 
+  /// 缓存键带 bookId：不少 jdr 源的章节 id 是「1」「2」这种按集数的短 id，
+  /// 只按 chapterId 键控，换书后 TTL 内会取到上一本书同一集的直链（串台）
+  private func cacheKey(bookId: String, chapterId: String) -> String {
+    "\(bookId)/\(chapterId)"
+  }
+
   /// 取走某章的预加载结果（一次性：用过就删，直链失效时可以重新解析）
-  func take(chapterId: String) -> Stream? {
+  func take(bookId: String, chapterId: String) -> Stream? {
     lock.lock()
-    let entry = cache.removeValue(forKey: chapterId)
+    let entry = cache.removeValue(forKey: cacheKey(bookId: bookId, chapterId: chapterId))
     lock.unlock()
     guard let entry else { return nil }
     guard Date().timeIntervalSince(entry.storedAt) < Self.ttl else { return nil }
@@ -137,7 +143,7 @@ final class OnlinePreloader {
         guard book.chapters.indices.contains(index) else { break }
         let chapter = book.chapters[index]
         if let stream = await resolve(chapter) {
-          self.store(chapterId: chapter.id, stream: stream)
+          self.store(bookId: book.id, chapterId: chapter.id, stream: stream)
           DLog("preload", "预加载完成 第\(index + 1)集 缓存=\(self.cachedCount)")
         } else {
           DLog("preload", "预加载失败 第\(index + 1)集，链条终止")
@@ -167,9 +173,10 @@ final class OnlinePreloader {
     lock.unlock()
   }
 
-  private func store(chapterId: String, stream: Stream) {
+  private func store(bookId: String, chapterId: String, stream: Stream) {
     lock.lock()
-    cache[chapterId] = Entry(url: stream.url, headers: stream.headers, storedAt: Date())
+    cache[cacheKey(bookId: bookId, chapterId: chapterId)] =
+      Entry(url: stream.url, headers: stream.headers, storedAt: Date())
     lock.unlock()
   }
 
@@ -180,7 +187,7 @@ final class OnlinePreloader {
     var ahead = 0
     var index = chapterIndex + 1
     while ahead < limit, book.chapters.indices.contains(index) {
-      guard let entry = cache[book.chapters[index].id],
+      guard let entry = cache[cacheKey(bookId: book.id, chapterId: book.chapters[index].id)],
         Date().timeIntervalSince(entry.storedAt) < Self.ttl
       else { break }
       ahead += 1

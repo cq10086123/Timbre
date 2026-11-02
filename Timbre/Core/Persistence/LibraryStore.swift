@@ -11,9 +11,23 @@ final class LibraryStore: ObservableObject {
 
   // MARK: - 读写
 
+  /// library.json 整体解码失败时置 true：书架此时是空的，
+  /// 任何一次 save() 都会用空数组覆盖完好的旧文件 —— 必须拦下（坏文件已留档）
+  private var loadFailed = false
+
   private func load() {
     guard let data = try? Data(contentsOf: AppPaths.libraryFile) else { return }
-    books = (try? JSONCoding.decoder().decode([Book].self, from: data)) ?? []
+    do {
+      books = try JSONCoding.decoder().decode([Book].self, from: data)
+    } catch {
+      loadFailed = true
+      // 原文件留档，升级 / 半兼容数据可以拿它找回，而不是被空库覆盖
+      let corruptURL = AppPaths.documents.appendingPathComponent(
+        "library.json.corrupt-\(Int(Date().timeIntervalSince1970))"
+      )
+      try? data.write(to: corruptURL)
+      DLog("library", "library.json 解码失败，原文件已留档 \(corruptURL.lastPathComponent)：\(error.localizedDescription)")
+    }
   }
 
   /// delay > 0 时合并高频写入（播放进度每秒都在变）
@@ -28,6 +42,7 @@ final class LibraryStore: ObservableObject {
   }
 
   private func persist() {
+    if loadFailed && books.isEmpty { return }
     guard let data = try? JSONCoding.encoder().encode(books) else { return }
     DispatchQueue.global(qos: .utility).async {
       try? data.write(to: AppPaths.libraryFile, options: .atomic)
@@ -146,8 +161,15 @@ final class LibraryStore: ObservableObject {
       : nil
     if let currentId, ids.contains(currentId) {
       books[i].position.chapterIndex = merged.firstIndex { $0.id == currentId } ?? 0
+    } else if old.isEmpty {
+      // 章节从空到非空（恢复备份的在线书第一次拉齐）：position 里的秒数是
+      // 恢复时写进来的，别清——目标章节由 resolvePendingChapter 对位
     } else {
-      books[i].position = PlaybackPosition()
+      // 那一集从源里没了：章号退回合法范围，章内秒数保留
+      books[i].position.chapterIndex = min(
+        max(0, books[i].position.chapterIndex),
+        max(0, merged.count - 1)
+      )
     }
     if books[i].introSkippedChapter >= merged.count { books[i].introSkippedChapter = -1 }
     save()

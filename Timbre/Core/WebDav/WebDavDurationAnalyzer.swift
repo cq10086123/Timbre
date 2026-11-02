@@ -52,12 +52,14 @@ final class WebDavDurationAnalyzer: ObservableObject {
       running = false
       runNextIfNeeded()
     }
-    let targets = book.chapters.filter { $0.duration <= 0 && $0.remoteURL != nil }
+    // 用书架上的最新数据，别用导入时的快照——同一本书重复触发时不重解已有时长
+    let current = library.book(withId: book.id) ?? book
+    let targets = current.chapters.filter { $0.duration <= 0 && $0.remoteURL != nil }
     guard !targets.isEmpty else { return }
     // 设置中途改了就按本次开跑时的值走，下一本书再生效
     let parallelism = max(1, min(3, settings.settings.webdavImportParallelism))
-    progress[book.id] = (0, targets.count)
-    DLog("webdav", "开始解析章节时长 \(book.title) 共 \(targets.count) 章，并发 \(parallelism)")
+    progress[current.id] = (0, targets.count)
+    DLog("webdav", "开始解析章节时长 \(current.title) 共 \(targets.count) 章，并发 \(parallelism)")
 
     let headers = WebDavClient.authHeaders(server: server, password: password)
     var durations: [String: Double] = [:]
@@ -74,7 +76,7 @@ final class WebDavDurationAnalyzer: ObservableObject {
       while let (id, duration) = await group.next() {
         if let duration, duration > 0 { durations[id] = duration }
         done += 1
-        progress[book.id] = (done, targets.count)
+        progress[current.id] = (done, targets.count)
         if let chapter = iterator.next() {
           group.addTask { (chapter.id, await Self.probe(chapter, headers: headers)) }
         }
@@ -82,8 +84,8 @@ final class WebDavDurationAnalyzer: ObservableObject {
     }
 
     if !durations.isEmpty {
-      library.updateChapterDurations(bookId: book.id, durations: durations)
-      DLog("webdav", "解析完成 \(durations.count)/\(targets.count) 章 → \(book.title)")
+      library.updateChapterDurations(bookId: current.id, durations: durations)
+      DLog("webdav", "解析完成 \(durations.count)/\(targets.count) 章 → \(current.title)")
     }
   }
 

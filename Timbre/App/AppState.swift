@@ -179,6 +179,8 @@ final class AppState: ObservableObject {
   /// 在线书首次打开：拉章节 → 把恢复备份记下的 pendingChapterId 换算成真正的章节数 → 进播放页
   @MainActor
   private func fetchChaptersThenOpen(_ book: Book, chapterIndex: Int?, autoplay: Bool) async {
+    // 快速双击同一本书去重：正在拉就别再排一遍请求和 merge
+    guard refreshingBookId != book.id else { return }
     // 大部头拉章节要几十秒，先给个反馈，别让用户以为点了没反应
     showToast("正在拉取《\(book.title)》的章节…")
     let message = await refreshOnlineChapters(book)

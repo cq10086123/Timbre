@@ -166,6 +166,11 @@ final class OnlineCacheManager: ObservableObject {
   @MainActor
   private func askMetered(bookId: String, title: String, chapters: Int) async -> Bool {
     await withCheckedContinuation { continuation in
+      // 单槽：第二本书的确认请求会顶掉第一本的 continuation。
+      // 被顶掉的必须当场 resume，否则它的 await 永久挂起（continuation 泄漏）
+      if let previous = pendingConfirmation {
+        previous.resume(returning: false)
+      }
       pendingConfirmation = continuation
       meteredConfirmation = OnlineCacheConfirmation(
         bookId: bookId,
