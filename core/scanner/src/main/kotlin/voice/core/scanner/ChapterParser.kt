@@ -49,12 +49,16 @@ internal class ChapterParser(
     val audioFiles = documentFile.walk()
       .transform { if (it.isAudioFile()) emit(it) }
       .toList()
-    return parse(documentFile, audioFiles, Semaphore(1), onProgress)
+    return parse(documentFile, audioFiles, Semaphore(1), onProgress = onProgress)
   }
 
   /**
    * Analyzes [audioFiles] in their natural order and reports the chapters that
    * are known after every batch through [onProgress].
+   *
+   * [analysisPermits] is how many permits of [analysisSemaphore] a single file
+   * analysis takes, which is what turns the user's import parallelism setting
+   * into the real number of files analyzed at the same time.
    *
    * Reporting in order guarantees that a partially imported book always
    * contains the first chapters of the book, so it can already be played while
@@ -71,6 +75,7 @@ internal class ChapterParser(
     documentFile: CachedDocumentFile,
     audioFiles: List<CachedDocumentFile>,
     analysisSemaphore: Semaphore = Semaphore(1),
+    analysisPermits: Int = 1,
     onProgress: suspend (ChapterParseResult) -> Unit = { },
   ): ChapterParseResult {
     val bookId = BookId(documentFile.uri)
@@ -90,7 +95,7 @@ internal class ChapterParser(
         coroutineScope {
           val deferred = batch.map { file ->
             async(Dispatchers.IO) {
-              playbackIoGate.withScannerIoSlot(analysisSemaphore) {
+              playbackIoGate.withScannerIoSlot(analysisSemaphore, analysisPermits) {
                 try {
                   parseChapter(file)
                 } finally {

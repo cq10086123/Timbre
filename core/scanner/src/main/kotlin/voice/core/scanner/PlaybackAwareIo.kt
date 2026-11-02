@@ -1,6 +1,8 @@
 package voice.core.scanner
 
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import voice.core.common.PlaybackIoGate
 
@@ -22,10 +24,19 @@ internal suspend fun <T> PlaybackIoGate.withScannerIoSlot(
   permits: Int = 1,
   block: suspend () -> T,
 ): T = whilePlaybackLoads {
-  repeat(permits) { semaphore.acquire() }
+  // taking more than one permit has to be atomic: two analyses that each grab
+  // a part of their permits can leave the pool split between them, and neither
+  // ever gets the rest. Releases never take this lock, so a waiter cannot be
+  // held up by a holder that is only waiting to finish.
+  acquireLock.withLock {
+    repeat(permits) { semaphore.acquire() }
+  }
   try {
     block()
   } finally {
     repeat(permits) { semaphore.release() }
   }
 }
+
+// only guards the acquire step above, which never runs a block under it
+private val acquireLock = Mutex()

@@ -19,11 +19,13 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
 import voice.core.data.BookId
 import voice.core.data.folders.AudiobookFolders
 import voice.core.data.folders.FolderType
 import voice.core.data.folders.RemoteBookSources
 import voice.core.data.repo.BookRepository
+import voice.core.data.store.AnalysisParallelismStore
 import voice.core.data.store.WebDavAutoRefreshWifiStore
 import voice.core.documentfile.CachedDocumentFile
 import voice.core.logging.api.Logger
@@ -41,6 +43,8 @@ internal constructor(
   private val bookRepo: BookRepository,
   private val scanProgressReporter: ScanProgressReporter,
   @WebDavAutoRefreshWifiStore private val autoRefreshWifiStore: DataStore<Boolean>,
+  @AnalysisParallelismStore private val analysisParallelismStore: DataStore<Int>,
+  @MediaAnalysisSemaphore private val analysisSemaphore: Semaphore,
   private val application: Application,
 ) {
 
@@ -192,7 +196,19 @@ internal constructor(
           // folders must not deactivate the whole library, so the scanner is
           // told and skips the deactivation instead.
           val hasRegisteredFolders = audiobookFolders.hasAnyFolders()
-          val importJob = launch { scanner.scan(folders, hasRegisteredFolders) }
+          // the user's import parallelism decides how many permits one chapter
+          // analysis takes out of the shared analysis semaphore; reading it per
+          // scan keeps a changed setting effective from the next import on
+          val analysisPermits =
+            analysisPermitsFor(analysisParallelismStore.data.first())
+          val importJob = launch {
+            scanner.scan(
+              folders = folders,
+              hasRegisteredFolders = hasRegisteredFolders,
+              analysisSemaphore = analysisSemaphore,
+              analysisPermits = analysisPermits,
+            )
+          }
           while (importJob.isActive) {
             coverScanner.scan(bookRepo.all())
             delay(COVER_LOOKUP_POLL_MILLIS)

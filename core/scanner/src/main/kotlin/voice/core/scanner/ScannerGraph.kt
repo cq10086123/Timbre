@@ -44,15 +44,37 @@ public interface ScannerGraph {
     // slow storage.
     //
     // The user can raise the target to [MAX_IMPORT_PARALLELISM]; operations
-    // then acquire ANALYSIS_PERMITS / target permits each, which scales the
-    // effective concurrency to the target while keeping this single physical
-    // semaphore (kotlinx semaphores cannot change their permit count).
+    // then acquire [analysisPermitsFor] the target permits each, which scales
+    // the effective concurrency to the target while keeping this single
+    // physical semaphore (kotlinx semaphores cannot change their permit count).
+    //
+    // [COVER_PERMITS_RESERVED] stays outside the analysis budget: the cover
+    // pass runs while the import parses, and an analysis that could take every
+    // permit would keep the shelf covers from appearing for a whole batch of
+    // chapters at a time.
     MetadataRetriever.setMaximumParallelRetrievals(MAX_IMPORT_PARALLELISM)
-    return Semaphore(ANALYSIS_PERMITS)
+    return Semaphore(ANALYSIS_PERMITS + COVER_PERMITS_RESERVED)
   }
+}
+
+/**
+ * How many permits a single chapter analysis takes, so that at most [target]
+ * analyses run at the same time. The target is the user's import parallelism
+ * setting; out of range values fall back to the closest supported level.
+ */
+internal fun analysisPermitsFor(target: Int): Int {
+  val parallelism = target.coerceIn(1, MAX_IMPORT_PARALLELISM)
+  require(ANALYSIS_PERMITS % parallelism == 0) {
+    "ANALYSIS_PERMITS ($ANALYSIS_PERMITS) must divide evenly by the import parallelism ($parallelism)"
+  }
+  return ANALYSIS_PERMITS / parallelism
 }
 
 // 6 = MAX_IMPORT_PARALLELISM squared: it divides evenly by every target
 // (6 / 1 = 6, 6 / 2 = 3, 6 / 3 = 2), so multi-permit acquisition yields
 // exactly the chosen concurrency.
 internal const val ANALYSIS_PERMITS = 6
+
+// always left free for the cover pass, which shares this semaphore: covers used
+// to run beside a serial import and must not start waiting for chapter batches
+internal const val COVER_PERMITS_RESERVED = 1

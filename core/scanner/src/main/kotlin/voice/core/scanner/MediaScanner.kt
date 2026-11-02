@@ -41,6 +41,7 @@ internal class MediaScanner(
     folders: Map<FolderType, List<CachedDocumentFile>>,
     hasRegisteredFolders: Boolean = true,
     analysisSemaphore: Semaphore = Semaphore(1),
+    analysisPermits: Int = 1,
   ) {
     // bookshelf model: every registered folder or file is exactly one book,
     // regardless of the (legacy) folder type
@@ -78,7 +79,7 @@ internal class MediaScanner(
         .map { bookFile ->
           async(Dispatchers.IO) {
             bookSemaphore.withPermit {
-              scanBook(bookFile, analysisSemaphore)
+              scanBook(bookFile, analysisSemaphore, analysisPermits)
             }
           }
         }
@@ -89,6 +90,7 @@ internal class MediaScanner(
   private suspend fun scanBook(
     bookFile: CachedDocumentFile,
     analysisSemaphore: Semaphore,
+    analysisPermits: Int,
   ) {
     val bookId = BookId(bookFile.uri)
     var error: BookScanError? = null
@@ -118,7 +120,7 @@ internal class MediaScanner(
         chaptersTotal = audioFiles.size,
       )
       if (audioFiles.isNotEmpty()) {
-        val result = scan(BookEntry(bookFile, audioFiles), analysisSemaphore)
+        val result = scan(BookEntry(bookFile, audioFiles), analysisSemaphore, analysisPermits)
         if (result.failedChapters > 0) {
           error = BookScanError(
             bookId = bookId,
@@ -163,9 +165,15 @@ internal class MediaScanner(
   private suspend fun scan(
     entry: BookEntry,
     analysisSemaphore: Semaphore,
+    analysisPermits: Int,
   ): ChapterParseResult {
     val file = entry.bookFile
-    val parseResult = chapterParser.parse(file, entry.audioFiles, analysisSemaphore) { progress ->
+    val parseResult = chapterParser.parse(
+      file,
+      entry.audioFiles,
+      analysisSemaphore,
+      analysisPermits,
+    ) { progress ->
       // store every batch so the book shows up in the library and can already
       // be played while its remaining chapters are still being analyzed
       storeChapters(file, progress.chapters, progress.firstChapterMetadata, isComplete = false)

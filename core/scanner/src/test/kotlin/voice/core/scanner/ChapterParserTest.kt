@@ -204,6 +204,97 @@ class ChapterParserTest {
     assertEquals(expected = 2, actual = result.await().chapters.size)
   }
 
+  @Test
+  fun analyzesAsManyChaptersAtOnceAsTheImportParallelismAllows() = runBlocking {
+    withTimeout(30_000) { concurrencyOfImport(parallelism = 3) }
+  }
+
+  @Test
+  fun aSingleChapterAtATimeIsRespected() = runBlocking {
+    withTimeout(30_000) { concurrencyOfImport(parallelism = 1) }
+  }
+
+  private suspend fun CoroutineScope.concurrencyOfImport(parallelism: Int) {
+    val audiobook = testFolder.newFolder("audiobook")
+    repeat(8) { index ->
+      testFolder.newFile("audiobook/Chapter ${index + 1}.mp3")
+    }
+
+    val lock = Any()
+    var active = 0
+    var maxActive = 0
+    val reachedTarget = CompletableDeferred<Unit>()
+    val release = CompletableDeferred<Unit>()
+
+    val parser = ChapterParser(
+      chapterRepo = ChapterRepoImpl(
+        mockk {
+          coEvery { chapter(any()) } returns null
+          coEvery { chapters(any()) } returns emptyList()
+          coEvery { insert(any()) } just Runs
+          coEvery { insertAll(any()) } just Runs
+        },
+      ),
+      mediaAnalyzer = mockk {
+        coEvery { analyze(any()) } coAnswers {
+          val file = firstArg<CachedDocumentFile>()
+          synchronized(lock) {
+            active++
+            if (active > maxActive) {
+              maxActive = active
+            }
+            if (active == parallelism) {
+              reachedTarget.complete(Unit)
+            }
+          }
+          try {
+            // hold every analysis until the expected number of them is in
+            // flight: a serial import never reaches it and fails on the
+            // timeout instead of passing on a lucky interleaving
+            release.await()
+          } finally {
+            synchronized(lock) { active-- }
+          }
+          Metadata(
+            duration = 1000,
+            fileName = file.nameWithoutExtension(),
+            artist = null,
+            album = null,
+            chapters = emptyList(),
+            title = null,
+            genre = null,
+            narrator = null,
+            series = null,
+            part = null,
+          )
+        }
+      },
+      playbackIoGate = PlaybackIoGate(),
+      scanProgressReporter = ScanProgressReporter(),
+    )
+
+    val bookFile = FileBasedDocumentFile(audiobook)
+    val audioFiles = bookFile.walk().filter { it.isAudioFile() }.toList()
+    val parsed = CompletableDeferred<ChapterParseResult>()
+    val parseJob = launch(Dispatchers.Default) {
+      parsed.complete(
+        parser.parse(
+          bookFile,
+          audioFiles,
+          Semaphore(ANALYSIS_PERMITS + COVER_PERMITS_RESERVED),
+          analysisPermitsFor(parallelism),
+        ),
+      )
+    }
+
+    reachedTarget.await()
+    release.complete(Unit)
+    parseJob.join()
+    assertEquals(expected = parallelism, actual = maxActive)
+    // every chapter still lands in the book, no matter how many run at once
+    assertEquals(expected = audioFiles.size, actual = parsed.await().chapters.size)
+  }
+
   private fun chapterParser(): ChapterParser {
     return ChapterParser(
       chapterRepo = ChapterRepoImpl(
