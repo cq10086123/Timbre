@@ -17,6 +17,7 @@ import voice.core.data.Book
 import voice.core.data.BookId
 import voice.core.data.backup.BookImportState
 import voice.core.data.backup.ShelfBackupContributor
+import voice.core.data.normalizeRemoteUrl
 import voice.core.data.repo.BookRepository
 import voice.core.logging.api.Logger
 import java.time.Instant
@@ -208,13 +209,39 @@ public class WebDavBackupService(
 
     val local = bookRepository.all()
     val byId = local.associateBy { it.id.value }
+    // Cross-device: an iOS backup writes webdav book ids and chapters as urls
+    // from *its* server address, and the same nas often has a different
+    // host:port per device (lan vs. public). Index the local webdav books by
+    // their folder url and by the decoded path, which is the part that stays
+    // stable across addresses.
+    val byRemoteFolder = mutableMapOf<String, Book>()
+    val byRemotePath = mutableMapOf<String, Book>()
+    for (book in local) {
+      val folder = book.content.chapters.firstOrNull()?.value
+        ?.takeIf { it.startsWith("http://") || it.startsWith("https://") }
+        ?.trimEnd('/')
+        ?.substringBeforeLast('/')
+        ?: continue
+      normalizeRemoteUrl(folder)?.let { url ->
+        byRemoteFolder.putIfAbsent(url, book)
+        byRemoteFolder.putIfAbsent(Uri.decode(url), book)
+      }
+      Uri.parse(folder).path?.takeIf { it.isNotEmpty() }?.let { path ->
+        byRemotePath.putIfAbsent(path, book)
+      }
+    }
     val byFallback = local.groupBy { it.fallbackKey() }
     var restored = 0
     var missingWebDav = 0
     for (entry in payload.books) {
-      // an id is exact and preferred; the name/duration key covers devices
+      // an id is exact and preferred; the remote url/path covers devices that
+      // address the same nas differently; the name/duration key covers devices
       // where the same book got a different uri
-      val book = byId[entry.id] ?: byFallback[entry.fallbackKey()]?.firstOrNull()
+      val book = byId[entry.id]
+        ?: byRemoteFolder[entry.id]
+        ?: Uri.decode(entry.id).let { byRemoteFolder[it] }
+        ?: Uri.parse(entry.id).path?.let { byRemotePath[it] }
+        ?: byFallback[entry.fallbackKey()]?.firstOrNull()
       if (book == null) {
         // a webdav book cannot be recreated here: its chapters come from the
         // server, so it only comes back once its source is registered again
@@ -289,8 +316,11 @@ public class WebDavBackupService(
     entry: WebDavBackupBook,
   ) {
     // the stored chapter may be gone (a file was replaced), in that case the
-    // first chapter is the only position that is safe to write
+    // first chapter is the only position that is safe to write. A backup from
+    // another device stores the chapter as a url of *its* server address, so
+    // compare the decoded path before giving up (lan vs. public address).
     val chapter = book.content.chapters.firstOrNull { it.value == entry.currentChapter }
+      ?: book.content.chapters.firstOrNull { it.value.sameRemoteFile(entry.currentChapter) }
       ?: book.content.chapters.firstOrNull()
       ?: return
     bookRepository.updatePlaybackPosition(
@@ -345,6 +375,18 @@ public class WebDavBackupService(
   /** True for books served over http(s), which is every webdav book. */
   private fun WebDavBackupBook.isRemoteBook(): Boolean {
     return id.startsWith("http://") || id.startsWith("https://")
+  }
+
+  /**
+   * Cross-device chapter match: both sides store the audio file url of the
+   * chapter, but each device may address the server through a different host.
+   * The decoded path is the part that stays equal.
+   */
+  private fun String.sameRemoteFile(other: String): Boolean {
+    if (this == other) return true
+    val a = Uri.parse(this).path ?: return false
+    val b = Uri.parse(other).path ?: return false
+    return a.isNotEmpty() && a == b
   }
 
   /**
