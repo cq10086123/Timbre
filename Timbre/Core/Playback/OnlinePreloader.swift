@@ -29,6 +29,14 @@ final class OnlinePreloader {
   private var chainRunning = false
   /// 旧链条的收尾不能把新链条的标记清掉，用代次区分
   private var chainGeneration = 0
+  /// 上一次链条失败后的冷却截止时间。
+  ///
+  /// 失败时 `chainRunning` 会被清掉，于是**下一个 0.5 秒的 tick 立刻又起一条新链**。
+  /// 实测日志：一章 385 秒的书，播放 20 秒里打了 30 次源接口，全部 429 ——
+  /// 源那边「同一 IP 每 30 秒 1 次」的配额被我们自己打爆，
+  /// 用户手动切章反而被限流（就是「播完跳过一集」那个bug的燃料）。
+  /// 冷却时长直接用设置里的「章节预加载间隔」，不去猜上游返回的重试秒数。
+  private var cooldownUntil: Date?
   /// 上一次记过的判定，避免每 0.5s 刷一条同样的日志把日志冲爆
   private var lastDecision: String?
 
@@ -77,6 +85,7 @@ final class OnlinePreloader {
     chainTask = nil
     chainRunning = false
     chainGeneration += 1
+    // 冷却期不在这里清：源是按 IP 限流的，切章 / 暂停不该让我们有理由马上去再打一次
     lock.unlock()
     task?.cancel()
   }
@@ -109,8 +118,18 @@ final class OnlinePreloader {
       note("预加载等待：已播 \(Int(position))/\(Int(trigger))s")
       return
     }
+    // 冷却期：上一次链条失败后先停手，别每个 tick 重来（源是按 IP 限流的）
+    if let until = cooldownDeadline(), Date() < until {
+      note("预加载冷却中：上一次解析失败，等间隔时间到了再试")
+      return
+    }
 
     let count = max(1, settings.onlinePreloadChapterCount)
+    // 已经是最后一集：没有下一章可预加载，别每个 tick 都白起一条空链条
+    guard book.chapters.indices.contains(chapterIndex + 1) else {
+      note("预加载不适用：已经是最后一集")
+      return
+    }
     let ahead = cachedAhead(book: book, chapterIndex: chapterIndex, limit: count)
     guard ahead < count else {
       note("预加载就绪：前方已缓存 \(ahead)/\(count) 章")
@@ -127,16 +146,17 @@ final class OnlinePreloader {
     lock.unlock()
     guard !alreadyRunning else { return }
 
-    let interval = UInt64(max(1, settings.onlinePreloadIntervalSeconds)) * 1_000_000_000
-    note(
-      "开始预加载：从第 \(chapterIndex + 2) 集起共 \(count) 章，间隔 \(settings.onlinePreloadIntervalSeconds)s"
-    )
+    let intervalSeconds = max(1, settings.onlinePreloadIntervalSeconds)
+    let interval = UInt64(intervalSeconds) * 1_000_000_000
+    note("开始预加载：从第 \(chapterIndex + 2) 集起共 \(count) 章，间隔 \(intervalSeconds)s")
 
     let task = Task { [weak self] in
       guard let self else { return }
+      // 链条是不是以「源报错」收尾的 —— 是的话要进冷却，否则下一个 tick 立刻又来一遍
+      var failed = false
       // 无论正常走完、解析失败还是被取消（切章/暂停），都要把链条标记清掉，
       // 否则 chainRunning 会一直挂在 true，这一章就再也不会重启预加载
-      defer { self.finishChain(generation) }
+      defer { self.finishChain(generation, cooldownSeconds: failed ? intervalSeconds : 0) }
       var index = chapterIndex + 1
       var loaded = 0
       while !Task.isCancelled, loaded < count {
@@ -146,7 +166,8 @@ final class OnlinePreloader {
           self.store(bookId: book.id, chapterId: chapter.id, stream: stream)
           DLog("preload", "预加载完成 第\(index + 1)集 缓存=\(self.cachedCount)")
         } else {
-          DLog("preload", "预加载失败 第\(index + 1)集，链条终止")
+          failed = true
+          DLog("preload", "预加载失败 第\(index + 1)集，链条终止，冷却 \(intervalSeconds)s")
           break
         }
         loaded += 1
@@ -164,11 +185,20 @@ final class OnlinePreloader {
 
   // MARK: - 内部
 
-  private func finishChain(_ generation: Int) {
+  private func cooldownDeadline() -> Date? {
+    lock.lock()
+    defer { lock.unlock() }
+    return cooldownUntil
+  }
+
+  private func finishChain(_ generation: Int, cooldownSeconds: Int = 0) {
     lock.lock()
     if chainGeneration == generation {
       chainTask = nil
       chainRunning = false
+      if cooldownSeconds > 0 {
+        cooldownUntil = Date().addingTimeInterval(Double(cooldownSeconds))
+      }
     }
     lock.unlock()
   }

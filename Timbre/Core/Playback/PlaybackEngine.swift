@@ -61,6 +61,8 @@ final class PlaybackEngine: NSObject, ObservableObject {
   private var pendingResume: Double = 0
   /// 每次加载递增，异步解析回来时校验，避免旧章节覆盖新章节
   private var loadToken = 0
+  /// 这一次加载是什么时候开始的（只看日志：用来量化「按下播放到出声」的耗时）
+  private var loadStartedAt = Date()
   /// resourceLoader.delegate 是 weak，必须由这里强引用住，否则代理立刻失效
   private var proxyLoader: HeaderProxyLoader?
   /// 容器声明方式：0 = com.apple.m4a-audio，1 = public.mpeg-4
@@ -634,6 +636,7 @@ final class PlaybackEngine: NSObject, ObservableObject {
     errorMessage = nil
     pendingResume = resume
     loadToken += 1
+    if !isRetry { loadStartedAt = Date() }
     let token = loadToken
     activeLoad = (book, chapter)
     // 切章/换书先拆掉正在跑的预加载链条，新章从零开始（对齐安卓）
@@ -1006,7 +1009,14 @@ final class PlaybackEngine: NSObject, ObservableObject {
     observePlaybackFailure(item: item)
     applyAudioProcessing(to: item, book: book)
     duration = chapter.duration
-    isLoading = false
+
+    // 网络 item 在真正 readyToPlay 之前不收加载圈。
+    // 之前一装就收：按钮立刻变成「播放中」，声音却要再等几秒才出来（日志实测 7 秒），
+    // 用户看到的就是「点了播放先停顿一下」。本地文件（含缓存/预取）不用等，直接收。
+    let isNetworkItem =
+      book.kind != .local
+      && ((item.asset as? AVURLAsset).map { !$0.url.isFileURL } ?? false)
+    isLoading = isNetworkItem && item.status != .readyToPlay
 
     var target = pendingResume
     if target <= 0.5 {
@@ -1038,12 +1048,7 @@ final class PlaybackEngine: NSObject, ObservableObject {
     // 这一刻起「播放器里响的是什么」才等于游标，记下来供失败回退
     loadedTarget = (book.id, chapterIndex, markIndex)
     // 本地文件（含命中缓存的）不需要盯；只有走网络的才需要判断「是不是解不动」
-    if book.kind != .local,
-      let asset = item.asset as? AVURLAsset,
-      !asset.url.isFileURL
-    {
-      armReadyWatchdog(token: loadToken)
-    }
+    if isNetworkItem { armReadyWatchdog(token: loadToken) }
   }
 
   /// WebDAV 书的章节预取：按设置把后面的几集先拉到本地，断网/慢盘时不至于卡
@@ -1385,13 +1390,18 @@ final class PlaybackEngine: NSObject, ObservableObject {
       switch item.status {
       case .readyToPlay:
         let seconds = item.duration.seconds
+        // 从「按下播放 / 切章」到 item 就绪的真实耗时 —— 用户说「点播放先停顿一下」，
+        // 有了这个数就能分清是源脚本慢、网络慢，还是我们的处理慢
+        let cost = self.map { Date().timeIntervalSince($0.loadStartedAt) } ?? 0
         DLog(
           "player",
-          "item 就绪 时长=\(seconds.isFinite ? String(format: "%.1f", seconds) : "未知")s"
+          "item 就绪 耗时=\(String(format: "%.2f", cost))s"
+            + " 时长=\(seconds.isFinite ? String(format: "%.1f", seconds) : "未知")s"
             + " 已喂入=\(Format.bytes(self?.proxyLoader?.deliveredBytes ?? 0))"
             + " 阶段=\(self?.streamStage ?? 0)"
         )
         self?.readyWatchdog?.invalidate()
+        self?.isLoading = false
       case .failed:
         let error = item.error as NSError?
         DLog(
