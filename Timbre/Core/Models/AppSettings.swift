@@ -115,6 +115,12 @@ struct AppSettings: Codable, Equatable {
   /// 允许在移动网络下预取（在线播放本身的缓存不受这个开关限制）
   var webdavPrefetchOnMetered: Bool = false
 
+  // MARK: WebDAV 导入（安卓 settings.playback.import_parallelism）
+
+  /// 导入并发度：导入后同时解析章节时长的数量（1/2/3）。
+  /// 调大导入更快，但边听边导时切章响应会变慢。
+  var webdavImportParallelism: Int = 1
+
   init() {}
 
   private enum CodingKeys: String, CodingKey {
@@ -125,6 +131,7 @@ struct AppSettings: Codable, Equatable {
     case onlinePreloadIntervalSeconds
     case autoSleepEnabled, autoSleepStartMinute, autoSleepEndMinute
     case webdavCacheMaxBytes, webdavPrefetchMode, webdavPrefetchOnMetered
+    case webdavImportParallelism
   }
 
   init(from decoder: Decoder) throws {
@@ -159,6 +166,8 @@ struct AppSettings: Codable, Equatable {
       try c.decodeIfPresent(WebDavPrefetchMode.self, forKey: .webdavPrefetchMode) ?? .fillBook
     webdavPrefetchOnMetered =
       try c.decodeIfPresent(Bool.self, forKey: .webdavPrefetchOnMetered) ?? false
+    webdavImportParallelism =
+      try c.decodeIfPresent(Int.self, forKey: .webdavImportParallelism) ?? 1
   }
 }
 

@@ -5,6 +5,7 @@ import SwiftUI
 struct WebDavBrowseView: View {
   @EnvironmentObject private var webdav: WebDavStore
   @EnvironmentObject private var library: LibraryStore
+  @EnvironmentObject private var app: AppState
   @Environment(\.dismiss) private var dismiss
 
   var server: WebDavServer
@@ -189,6 +190,18 @@ struct WebDavBrowseView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
+      } else if app.durationAnalyzer.totalProgress.total > 0 {
+        // 导入后的逐章时长解析（导入并发度），书在后台排队解，离开本页也不中断
+        let p = app.durationAnalyzer.totalProgress
+        HStack {
+          Spacer()
+          Text("正在解析章节 \(p.done)/\(p.total) …")
+            .font(AppFont.bodyMedium())
+            .foregroundColor(AppColor.onSurfaceVariant)
+          Spacer()
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
       } else if audioFiles.isEmpty && subdirectories.isEmpty {
         HStack {
           Text("这个目录里没有音频文件")
@@ -318,6 +331,8 @@ struct WebDavBrowseView: View {
         }
       }
     }
+    // 导入后逐章解析时长（导入并发度设置），后台排队跑，离开本页也不中断
+    app.durationAnalyzer.analyze(book: book, server: server, password: password)
     dismiss()
   }
 
@@ -397,6 +412,10 @@ struct WebDavBrowseView: View {
       await MainActor.run {
         for entry in finished {
           self.addOrUpdate(entry.book)
+        }
+        // 每本书排队解析章节时长（一次只解一本，书内按并发度）
+        for entry in finished {
+          self.app.durationAnalyzer.analyze(book: entry.book, server: server, password: password)
         }
         self.scanTotal = 0
         self.dismiss()

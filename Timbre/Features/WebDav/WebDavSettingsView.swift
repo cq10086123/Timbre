@@ -61,16 +61,18 @@ struct WebDavSettingsView: View {
 }
 
 /// 导入书籍配置 —— 对齐安卓 `WebDavImportScreen`：
-/// 书籍文件夹、书籍缓存配置。
+/// 书籍文件夹、导入并发度、书籍缓存配置。
 struct WebDavImportSettingsView: View {
   @EnvironmentObject private var webdav: WebDavStore
   @EnvironmentObject private var library: LibraryStore
+  @EnvironmentObject private var settings: SettingsStore
   @Environment(\.dismiss) private var dismiss
 
   @State private var showServerPicker = false
   @State private var browsing: WebDavServer?
   @State private var showCache = false
   @State private var showNoServer = false
+  @State private var showParallelism = false
 
   var body: some View {
     VStack(spacing: 0) {
@@ -90,11 +92,31 @@ struct WebDavImportSettingsView: View {
             subtitle: "设置缓存上限与章节预取",
             action: { showCache = true }
           )
+          M3ListItem(
+            systemName: "speedometer",
+            title: "导入并发度",
+            subtitle: "同时解析的章节数。调大导入更快，但边听边导时切章响应会变慢。",
+            action: { showParallelism = true }
+          ) {
+            Text("同时 \(settings.settings.webdavImportParallelism) 章")
+              .font(AppFont.bodyMedium())
+              .foregroundColor(AppColor.onSurfaceVariant)
+          }
           Spacer().frame(height: 32)
         }
       }
     }
     .background(AppColor.background.ignoresSafeArea())
+    .alert("导入并发度", isPresented: $showParallelism) {
+      ForEach([1, 2, 3], id: \.self) { level in
+        Button("同时解析 \(level) 章") {
+          settings.settings.webdavImportParallelism = level
+        }
+      }
+      Button("取消", role: .cancel) {}
+    } message: {
+      Text("同时解析的章节数。调大导入更快，但边听边导时切章响应会变慢。")
+    }
     .confirmationDialog(
       "选择服务器",
       isPresented: $showServerPicker,

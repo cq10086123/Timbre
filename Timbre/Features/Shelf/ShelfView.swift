@@ -90,6 +90,12 @@ struct ShelfView: View {
     return extensions.displayName(forSourceId: book.sourceId, fallback: book.sourceName)
   }
 
+  /// WebDAV 导入后的章节时长解析进度，解析中的书在卡片上显示这行小字
+  private func analysisNote(for book: Book) -> String? {
+    guard let p = app.durationAnalyzer.progress[book.id] else { return nil }
+    return "正在解析 \(p.done)/\(p.total) 章"
+  }
+
   private var trimmedQuery: String {
     query.trimmingCharacters(in: .whitespacesAndNewlines)
   }
@@ -397,7 +403,8 @@ struct ShelfView: View {
                     GridBookCard(
                       book: book,
                       width: gridItemWidth,
-                      sourceLabel: sourceLabel(for: book)
+                      sourceLabel: sourceLabel(for: book),
+                      progressNote: analysisNote(for: book)
                     )
                       .contentShape(Rectangle())
                       .onTapGesture { handleTap(book) }
@@ -414,7 +421,11 @@ struct ShelfView: View {
               ForEach(grouped, id: \.category) { group in
                 Section {
                   ForEach(group.books) { book in
-                    ListBookCard(book: book, sourceLabel: sourceLabel(for: book))
+                    ListBookCard(
+                      book: book,
+                      sourceLabel: sourceLabel(for: book),
+                      progressNote: analysisNote(for: book)
+                    )
                       .padding(.horizontal, 8)
                       .contentShape(Rectangle())
                       .onTapGesture { handleTap(book) }
@@ -564,7 +575,11 @@ struct ShelfView: View {
                   .padding(.bottom, 8)
               } else {
                 ForEach(filteredBooks) { book in
-                  ListBookCard(book: book, sourceLabel: sourceLabel(for: book))
+                  ListBookCard(
+                    book: book,
+                    sourceLabel: sourceLabel(for: book),
+                    progressNote: analysisNote(for: book)
+                  )
                     .padding(.horizontal, 8)
                     .onTapGesture {
                       commitSearch()
@@ -636,6 +651,8 @@ struct SourceNameBadge: View {
 struct ListBookCard: View {
   var book: Book
   var sourceLabel: String?
+  /// WebDAV 导入后章节时长解析中的提示（非 nil 时替代剩余时长显示）
+  var progressNote: String? = nil
 
   private var showProgress: Bool { book.progress > 0.05 }
 
@@ -658,7 +675,7 @@ struct ListBookCard: View {
             .lineLimit(2)
             .padding(.top, 1)
           HStack(spacing: 0) {
-            Text(Format.humanDuration(book.remainingSeconds))
+            Text(progressNote ?? Format.humanDuration(book.remainingSeconds))
               .font(AppFont.labelMedium())
               .foregroundColor(AppColor.onSurfaceVariant)
             Spacer(minLength: 8)
@@ -702,6 +719,8 @@ struct GridBookCard: View {
   var book: Book
   var width: CGFloat
   var sourceLabel: String?
+  /// WebDAV 导入后章节时长解析中的提示（非 nil 时替代剩余时长显示）
+  var progressNote: String? = nil
 
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
@@ -717,7 +736,7 @@ struct GridBookCard: View {
         .padding(.top, 4)
 
       HStack(spacing: 0) {
-        Text(Format.humanDuration(book.remainingSeconds))
+        Text(progressNote ?? Format.humanDuration(book.remainingSeconds))
           .font(AppFont.labelMedium())
           .foregroundColor(AppColor.onSurfaceVariant)
         Spacer(minLength: 4)

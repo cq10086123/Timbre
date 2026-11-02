@@ -19,6 +19,9 @@ final class AppState: ObservableObject {
   /// 在线书「缓存整本」的任务与进度
   lazy var cache = OnlineCacheManager(library: library, extensions: extensions)
 
+  /// WebDAV 导入后逐章解析时长（导入并发度 1/2/3，进度可显示）
+  lazy var durationAnalyzer = WebDavDurationAnalyzer(library: library, settings: settings)
+
   /// WebDAV 备份目标（服务器 + 目录 + 上次用的标签）
   let backupTargets = WebDavBackupStore()
   /// 备份 / 恢复
