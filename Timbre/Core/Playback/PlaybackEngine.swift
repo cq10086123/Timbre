@@ -405,6 +405,12 @@ final class PlaybackEngine: NSObject, ObservableObject {
     activeLoad = nil
     readyWatchdog?.invalidate()
     readyWatchdog = nil
+    // 流代理要真的放掉：它被强引用着就永远不会 deinit，
+    // 里面那条 URLSession 会继续拉字节 —— 界面上已经不加载了，后台还在吃流量。
+    // 置 nil 之后 deinit 里的 session.invalidateAndCancel() 才会执行。
+    proxyLoader = nil
+    // 已喂字节数归零，否则下一轮判断「是不是解不动」会拿上一次的计数
+    lastBufferedBytes = 0
     fallbackDownloadTask?.cancel()
     fallbackDownloadTask = nil
     downloadProgress = nil

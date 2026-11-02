@@ -56,8 +56,12 @@ final class LibraryStore: ObservableObject {
 
   private func persist() {
     if loadFailed && books.isEmpty { return }
-    guard let data = try? JSONCoding.encoder().encode(books) else { return }
+    // 主线程只取一次快照（Array 是值类型，这一步是 O(1) 引用拷贝），
+    // 序列化放到后台：几百本书 + 几千章节 encode 一次是几十毫秒级，
+    // 留在主线程就是拖完滑块松手那一下掉帧，书库越大越明显。
+    let snapshot = books
     DispatchQueue.global(qos: .utility).async {
+      guard let data = try? JSONCoding.encoder().encode(snapshot) else { return }
       try? data.write(to: AppPaths.libraryFile, options: .atomic)
     }
   }

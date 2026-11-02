@@ -433,12 +433,16 @@ struct PlayerView: View {
 /// 现在只有这一行跟着帧更新，播放页不再参与。
 private struct ProgressRow: View {
   @ObservedObject var player: PlaybackEngine
-  /// 拖动中的分段内秒数；nil = 跟随播放进度
+  /// 拖动中的**章内绝对秒数**（不是分段内）。拖动期间分段可能推进，
+  /// 存绝对值才不会在松手时拿「新分段起点 + 旧分段偏移」跳到别处。
   @State private var preview: Double?
 
   /// 对齐安卓：进度条显示的是**当前分段内**的位置，
   /// 一个章里有多个分段时，走到头就换下一段，而不是走完整章。
-  private var shown: Double { preview ?? player.unitPosition }
+  private var shown: Double {
+    guard let preview else { return player.unitPosition }
+    return min(max(0, preview - player.unitStart), max(0, player.unitDuration))
+  }
 
   private var fraction: Double {
     let total = player.unitDuration
@@ -459,12 +463,12 @@ private struct ProgressRow: View {
       ExpressiveSlider(
         value: Binding(
           get: { fraction },
-          set: { preview = $0 * player.unitDuration }
+          set: { preview = player.unitStart + $0 * player.unitDuration }
         ),
         onEditingChanged: { editing in
-          if !editing, let seconds = preview {
-            // 拖的是分段内的位置，加回分段起点才是章内绝对位置
-            player.seek(to: player.unitStart + seconds)
+          if !editing, let absolute = preview {
+            // preview 已经是章内绝对位置，直接 seek，不再叠加 unitStart
+            player.seek(to: absolute)
             preview = nil
           }
         }
@@ -531,6 +535,14 @@ struct ExpressiveSlider: View {
             onEditingChanged(false)
           }
       )
+      .onDisappear {
+        // 手势被系统收走（手指滑出视图、弹层被关掉、页面被换掉）时 onEnded 不会来。
+        // 不补这一下，调用方那个「拖动中的预览值」就永远不清 ——
+        // 进度条会一直停在手指离开的位置，再也不跟着播放走。
+        guard dragging else { return }
+        dragging = false
+        onEditingChanged(false)
+      }
     }
     .frame(height: 56)
   }
