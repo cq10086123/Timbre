@@ -24,7 +24,9 @@ struct WebDavSettingsView: View {
             action: { showImport = true }
           )
           M3ListItem(
-            systemName: "arrow.triangle.2.circlepath.icloud",
+            // 安卓 Material 图标是 sync（双环箭头）；带 .icloud 后缀的变体
+            // 在 iOS 16.2 上不存在会渲染成空白，用基础符号保证可见
+            systemName: "arrow.triangle.2.circlepath",
             title: "备份与恢复",
             subtitle: "备份目录、备份书架与恢复",
             action: { showBackup = true }

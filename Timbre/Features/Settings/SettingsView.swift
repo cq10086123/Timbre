@@ -86,14 +86,16 @@ struct SettingsView: View {
           // )
 
           M3ListItem(
-            systemName: "externaldrive.badge.icloud",
+            // 安卓 Material 图标是 language（地球），SF 对应 globe
+            systemName: "globe",
             title: "WebDAV",
             subtitle: "导入书籍、备份与恢复、服务器",
             action: { showWebDavSheet = true }
           )
 
           M3ListItem(
-            systemName: "puzzlepiece",
+            // 安卓 Material 图标是 download（下箭头到横线），SF 对应 arrow.down.to.line
+            systemName: "arrow.down.to.line",
             title: "接口源",
             subtitle: "导入和管理 .jdr 接口源",
             action: { showExtensions = true }
