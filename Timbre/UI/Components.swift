@@ -359,7 +359,7 @@ final class MarqueeLabelView: UIView {
     label.frame = CGRect(x: 0, y: 0, width: textWidth, height: bounds.height)
     CATransaction.commit()
 
-    let next = "\(text)|\(Int(font.pointSize))|\(font.fontWeight.rawValue)"
+    let next = "\(text)|\(font.fontName)|\(Int(font.pointSize))"
       + "|\(Int(bounds.width.rounded()))|\(Int(speed))"
     guard next != signature else { return }
     signature = next
