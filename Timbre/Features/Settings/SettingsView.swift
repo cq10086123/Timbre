@@ -76,12 +76,14 @@ struct SettingsView: View {
 
       ScrollView {
         VStack(spacing: 0) {
-          M3ListItem(
-            systemName: "books.vertical",
-            title: "有声书文件夹",
-            subtitle: "管理扫描有声书的文件夹",
-            action: { showFolderSheet = true }
-          )
+          // 「有声书文件夹」与「最新源分享」按需求隐藏（iOS 不做本地文件夹播放）。
+          // folderSheet 的实现保留在文件底部，恢复显示只需取消注释这两行。
+          // M3ListItem(
+          //   systemName: "books.vertical",
+          //   title: "有声书文件夹",
+          //   subtitle: "管理扫描有声书的文件夹",
+          //   action: { showFolderSheet = true }
+          // )
 
           M3ListItem(
             systemName: "externaldrive.badge.icloud",
@@ -97,15 +99,15 @@ struct SettingsView: View {
             action: { showExtensions = true }
           )
 
-          M3ListItem(
-            systemName: "square.and.arrow.up",
-            title: "最新源分享",
-            action: {
-              if let url = URL(string: "https://github.com/cq10086123/Timbre/tree/main/samples") {
-                UIApplication.shared.open(url)
-              }
-            }
-          )
+          // M3ListItem(
+          //   systemName: "square.and.arrow.up",
+          //   title: "最新源分享",
+          //   action: {
+          //     if let url = URL(string: "https://github.com/cq10086123/Timbre/tree/main/samples") {
+          //       UIApplication.shared.open(url)
+          //     }
+          //   }
+          // )
 
           M3ListItem(
             systemName: "wifi",

@@ -270,6 +270,8 @@ final class AppState: ObservableObject {
       let destination = AppPaths.coversDir.appendingPathComponent(name)
       try? data.write(to: destination)
       await MainActor.run {
+        // 源更新了封面但文件名没变：同路径覆盖写必须让解码缓存失效
+        CoverStore.clear()
         if let index = self.library.index(of: bookId) {
           self.library.books[index].coverFile = "Covers/\(name)"
           self.library.save()
@@ -334,13 +336,19 @@ final class AppState: ObservableObject {
     let name = "\(bookId).\(ext)"
     let destination = AppPaths.coversDir.appendingPathComponent(name)
     do {
-      if FileManager.default.fileExists(atPath: destination.path) {
-        try FileManager.default.removeItem(at: destination)
+      // 换封面换了扩展名（jpg→png）时旧文件会成孤儿，先把同书其他后缀的旧封面清掉
+      let existing = (try? FileManager.default.contentsOfDirectory(
+        at: AppPaths.coversDir, includingPropertiesForKeys: nil)) ?? []
+      for old in existing where
+        old.deletingPathExtension().lastPathComponent == bookId && old.lastPathComponent != name {
+        try? FileManager.default.removeItem(at: old)
       }
       try imageData.write(to: destination, options: .atomic)
     } catch {
       return false
     }
+    // 同路径覆盖写会让 CoverStore 的解码缓存指向旧图，必须失效
+    CoverStore.clear()
     library.setCover(bookId: bookId, coverFile: "Covers/\(name)")
     return true
   }
