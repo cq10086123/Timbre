@@ -203,8 +203,8 @@ final class AppState: ObservableObject {
     guard !Task.isCancelled else { return }
     chapterFetchTask = nil
     guard let updated = library.book(withId: book.id), !updated.chapters.isEmpty else {
-      // 拉失败 / 接口源没了：用对话框说清楚，toast 一闪就没了，用户会以为点了没反应
-      showToast(message)
+      // 拉失败 / 接口源没了：用对话框说清楚，toast 一闪就没了，用户会以为点了没反应。
+      // 只弹一次 —— 书架那边已经挂着 app.errorMessage 的弹窗，再叠一条 toast 就是双份提示
       errorMessage = message
       return
     }

@@ -63,7 +63,9 @@ struct ShelfView: View {
   @EnvironmentObject private var app: AppState
   @EnvironmentObject private var library: LibraryStore
   @EnvironmentObject private var settings: SettingsStore
-  @EnvironmentObject private var player: PlaybackEngine
+  /// 只观察「哪本在播 / 播没播」，不观察引擎本身 ——
+  /// 引擎的 position 每 0.5 秒刷新一次，观察它会让整个书架网格跟着重建
+  @EnvironmentObject private var nowPlaying: NowPlayingSummary
   @EnvironmentObject private var extensions: ExtensionStore
 
   @State private var searchActive = false
@@ -119,7 +121,7 @@ struct ShelfView: View {
 
   /// 悬浮播放键：存在「正在播放中」的书才出现
   private var playTarget: Book? {
-    if let id = player.bookId, let book = library.book(withId: id) { return book }
+    if let id = nowPlaying.bookId, let book = library.book(withId: id) { return book }
     return library.books.first { $0.overviewCategory == .current }
   }
 
@@ -138,12 +140,12 @@ struct ShelfView: View {
 
       if let target = playTarget, !searchActive {
         M3PlayButton(
-          playing: player.isPlaying && player.bookId == target.id,
+          playing: nowPlaying.isPlaying && nowPlaying.bookId == target.id,
           size: 56,
           iconSize: 24
         ) {
-          if player.bookId == target.id {
-            player.togglePlayPause()
+          if nowPlaying.bookId == target.id {
+            app.player.togglePlayPause()
           } else {
             app.openBook(target)
           }
@@ -203,7 +205,7 @@ struct ShelfView: View {
         .environmentObject(library)
         .environmentObject(settings)
         .environmentObject(app.extensions)
-        .environmentObject(player)
+        .environmentObject(app.player)
     }
     .fullScreenCover(isPresented: $app.showSettings) {
       // SettingsView 声明了 @EnvironmentObject extensions（接口源入口），
@@ -214,7 +216,7 @@ struct ShelfView: View {
         .environmentObject(settings)
         .environmentObject(app.extensions)
         .environmentObject(app.webdav)
-        .environmentObject(player)
+        .environmentObject(app.player)
     }
     .sheet(isPresented: $app.showImporter) {
       DocumentPicker { urls in

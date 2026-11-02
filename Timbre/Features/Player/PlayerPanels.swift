@@ -503,6 +503,12 @@ struct BookmarksView: View {
   @State private var editTitle = ""
   /// 打开行尾 ⋮ 菜单的那一条（安卓是 DropdownMenu「编辑 / 删除」）
   @State private var menuIndex: Int?
+  /// 每一行当前所在的 y（滚动时实时刷新），菜单靠它定位。
+  ///
+  /// 故意用引用类型 + @State 存：preference 每滚一帧都变，
+  /// 写进 @State 值类型会让整页跟着重建；写进类的属性不会触发重绘，
+  /// 只在真正要开菜单（menuIndex 变化）时读一次最新值。
+  @State private var rowTops = BookmarkRowTops()
 
   private var book: Book? { player.currentBook }
   private var bookmarks: [Bookmark] { book?.bookmarks ?? [] }
@@ -510,6 +516,8 @@ struct BookmarksView: View {
   /// 安卓 ListItem 两行高度固定，菜单按行号定位即可
   private static let rowHeight: CGFloat = 72
   private static let headerHeight: CGFloat = 64
+  /// 行位置测量用的坐标空间名
+  private static let space = "timbre.bookmarks"
 
   var body: some View {
     VStack(spacing: 0) {
@@ -551,6 +559,10 @@ struct BookmarksView: View {
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
     .background(AppColor.background.ignoresSafeArea())
+    // 行位置靠这个坐标系报上来：菜单以前按「行号 × 行高」硬算，
+    // 列表一滚动菜单就飘到别的行上，点「删除」会删错书签
+    .coordinateSpace(name: Self.space)
+    .onPreferenceChange(BookmarkRowTopKey.self) { rowTops.tops = $0 }
     .overlay(alignment: .topTrailing) {
       if let index = menuIndex, bookmarks.indices.contains(index) {
         M3DropdownMenu(onDismiss: { menuIndex = nil }) {
@@ -564,7 +576,11 @@ struct BookmarksView: View {
             delete(bookmarks[index])
           }
         }
-        .padding(.top, Self.headerHeight + CGFloat(index) * Self.rowHeight + 40)
+        // 没量到（preference 还没上报）时退回旧的算法，至少不会更差
+        .padding(
+          .top,
+          (rowTops.tops[index] ?? (Self.headerHeight + CGFloat(index) * Self.rowHeight)) + 40
+        )
         .padding(.trailing, 16)
       }
     }
@@ -662,6 +678,15 @@ struct BookmarksView: View {
     }
     .padding(.horizontal, 16)
     .frame(height: Self.rowHeight)
+    // 把这一行当前所在的 y 报给外层，菜单才能贴着被点的那一行（滚动也跟着走）
+    .background(
+      GeometryReader { geo in
+        Color.clear.preference(
+          key: BookmarkRowTopKey.self,
+          value: [index: geo.frame(in: .named(BookmarksView.space)).minY]
+        )
+      }
+    )
     .swipeActions(edge: .leading, allowsFullSwipe: true) {
       Button(role: .destructive) {
         delete(bookmark)
@@ -680,4 +705,18 @@ struct BookmarksView: View {
     guard let book else { return }
     library.deleteBookmark(bookId: book.id, bookmarkId: bookmark.id)
   }
+}
+
+/// 书签每一行在页面里的实时 y 位置：菜单按它定位，滚动时不会飘到别的行
+private struct BookmarkRowTopKey: PreferenceKey {
+  static var defaultValue: [Int: CGFloat] = [:]
+
+  static func reduce(value: inout [Int: CGFloat], nextValue: () -> [Int: CGFloat]) {
+    value.merge(nextValue()) { _, new in new }
+  }
+}
+
+/// 行位置的持有者：类实例放进 @State 里，改它的属性不会触发 SwiftUI 重绘
+private final class BookmarkRowTops {
+  var tops: [Int: CGFloat] = [:]
 }

@@ -13,6 +13,7 @@ struct TimbreApp: App {
         .environmentObject(app.extensions)
         .environmentObject(app.webdav)
         .environmentObject(app.player)
+        .environmentObject(app.player.summary)
         .environmentObject(app.cache)
         .tint(AppColor.primary)
         .preferredColorScheme(app.themeColorScheme)
@@ -22,7 +23,6 @@ struct TimbreApp: App {
 
 struct RootView: View {
   @EnvironmentObject private var app: AppState
-  @EnvironmentObject private var player: PlaybackEngine
   @Environment(\.scenePhase) private var scenePhase
 
   var body: some View {
@@ -70,7 +70,7 @@ struct RootView: View {
         Text(app.updateNotice?.releaseNotes ?? "打开发布页查看更新内容")
       }
       .onChange(of: scenePhase) { phase in
-        if phase != .active { player.flush() }
+        if phase != .active { app.player.flush() }
       }
       // 从「文件」「隔空投送」「分享」里用 Timbre 打开 .jdr 时的第二条导入通道
       .onOpenURL { url in

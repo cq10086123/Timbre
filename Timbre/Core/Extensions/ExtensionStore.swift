@@ -119,8 +119,23 @@ struct InstalledSource: Identifiable, Hashable {
 final class ExtensionStore: ObservableObject {
   @Published var extensions: [InstalledExtension] = []
 
+  /// 脚本文本缓存（键 = 脚本文件的绝对路径）。
+  ///
+  /// 播放页每 0.5 秒驱动一次在线预加载，那一步要拿脚本文本去解析直链；
+  /// 之前每次都 `Data(contentsOf:)` 把整个 .js 同步读一遍 —— 主线程上的同步读盘。
+  /// 脚本只在装 / 卸 / 升级时变，缓存住即可，装卸时整体清空。
+  /// 加锁：`OnlineCacheManager` 会在后台任务里读脚本。
+  private let scriptCacheLock = NSLock()
+  private var scriptCache: [String: String] = [:]
+
   init() {
     load()
+  }
+
+  private func invalidateScriptCache() {
+    scriptCacheLock.lock()
+    scriptCache.removeAll()
+    scriptCacheLock.unlock()
   }
 
   // MARK: - 持久化
@@ -206,8 +221,18 @@ final class ExtensionStore: ObservableObject {
     guard let ext = installedExtension(withId: installed.extensionId) else { return nil }
     let url = AppPaths.url(for: ext.folder)
       .appendingPathComponent(installed.meta.script)
+    // 缓存命中就不再碰磁盘（播放中这条路径每 0.5 秒走一次）
+    let key = url.path
+    scriptCacheLock.lock()
+    let cached = scriptCache[key]
+    scriptCacheLock.unlock()
+    if let cached { return cached }
     guard let data = try? Data(contentsOf: url) else { return nil }
-    return String(data: data, encoding: .utf8)
+    guard let text = String(data: data, encoding: .utf8) else { return nil }
+    scriptCacheLock.lock()
+    scriptCache[key] = text
+    scriptCacheLock.unlock()
+    return text
   }
 
   // MARK: - 安装 / 卸载
@@ -262,6 +287,8 @@ final class ExtensionStore: ObservableObject {
     } else {
       extensions.append(record)
     }
+    // 脚本文件刚被重写，缓存里的旧正文必须作废
+    invalidateScriptCache()
     persist()
     return record
   }
@@ -269,6 +296,7 @@ final class ExtensionStore: ObservableObject {
   func remove(_ ext: InstalledExtension) {
     extensions.removeAll { $0.id == ext.id }
     try? FileManager.default.removeItem(at: AppPaths.url(for: ext.folder))
+    invalidateScriptCache()
     persist()
   }
 

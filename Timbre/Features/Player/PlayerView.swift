@@ -55,9 +55,11 @@ struct PlayerView: View {
     }
     .background(AppColor.background.ignoresSafeArea())
     // 安卓 BookPlayLoading：在线书还在组装时先给一个居中的加载圈 ——
-    // 空白页看起来像播放坏掉了，也会把取流失败的错误一起吞掉
+    // 空白页看起来像播放坏掉了，也会把取流失败的错误一起吞掉。
+    // 只在「确实有一本书在装（bookId 有值）」时盖这一层：
+    // bookId 也没了（书被删 / 停止播放）还盖着的话，连左上角的关闭键都被挡住，整页出不去。
     .overlay {
-      if book == nil {
+      if book == nil, player.bookId != nil {
         ZStack {
           AppColor.background.ignoresSafeArea()
           ProgressView()
@@ -342,7 +344,8 @@ struct PlayerView: View {
   /// 现在按「第 N 集 · 章节名 · k/M 段」拼，缺哪段就省哪段。
   private var chapterRowTitle: String {
     guard let book, let chapter = player.currentChapter else { return "" }
-    let marks = chapter.chapterMarks
+    // 走引擎那份缓存，别在这里重新解析一次 markData（这行每 0.5 秒重算一次）
+    let marks = player.currentMarks
     let markName = marks.indices.contains(player.markIndex)
       ? (marks[player.markIndex].name ?? "")
       : ""

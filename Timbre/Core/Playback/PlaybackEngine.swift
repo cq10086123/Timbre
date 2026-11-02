@@ -6,11 +6,25 @@ import UIKit
 /// 播放内核：AVPlayer（苹果原生播放器）+ 后台播放 + 锁屏 / 蓝牙控制
 /// 支持本地文件与接口源直链（带 Referer / Cookie 等请求头）
 final class PlaybackEngine: NSObject, ObservableObject {
-  @Published private(set) var bookId: String?
-  @Published private(set) var chapterIndex: Int = 0
+  /// 轻量「谁在播」摘要。
+  ///
+  /// 书架、设置这些页面只关心「哪本书、播没播」，但它们如果直接声明
+  /// `@EnvironmentObject var player`，就会因为引擎里每 0.5 秒刷新的 `position`
+  /// 而整页重建 —— 播放中滑书架、进设置都会明显掉帧。
+  /// 这三个值变化频率极低，单独放一个对象里给它们观察。
+  let summary = NowPlayingSummary()
+
+  @Published private(set) var bookId: String? {
+    didSet { summary.bookId = bookId }
+  }
+  @Published private(set) var chapterIndex: Int = 0 {
+    didSet { summary.chapterIndex = chapterIndex }
+  }
   /// 章内第几个分段（对齐安卓的 markIndex）—— 播放的最小单位是分段
   @Published private(set) var markIndex: Int = 0
-  @Published private(set) var isPlaying = false
+  @Published private(set) var isPlaying = false {
+    didSet { summary.isPlaying = isPlaying }
+  }
   @Published private(set) var position: Double = 0
   @Published private(set) var duration: Double = 0
   @Published private(set) var isLoading = false
@@ -142,7 +156,20 @@ final class PlaybackEngine: NSObject, ObservableObject {
   }
 
   /// 当前章的所有分段
-  var currentMarks: [ChapterMark] { currentChapter?.chapterMarks ?? [] }
+  ///
+  /// `Chapter.chapterMarks` 是计算属性（去重 + 过滤 + 排序），而 0.5 秒的观察者
+  /// 每 tick 会经 `currentMark` / `unitStart` / `unitDuration` 读它好几次，
+  /// 播放页重绘时还要再读一遍。这里按「章 id + 时长 + 分段条数」缓存当前这一份。
+  var currentMarks: [ChapterMark] {
+    guard let chapter = currentChapter else { return [] }
+    let key = "\(chapter.id)#\(chapter.duration)#\(chapter.markData.count)"
+    if let cached = marksCache, cached.key == key { return cached.marks }
+    let marks = chapter.chapterMarks
+    marksCache = (key, marks)
+    return marks
+  }
+
+  private var marksCache: (key: String, marks: [ChapterMark])?
 
   /// 当前分段。没有 markData 的章节只有一个覆盖整章的分段。
   var currentMark: ChapterMark? {
@@ -315,6 +342,9 @@ final class PlaybackEngine: NSObject, ObservableObject {
       return
     }
     let wasPlaying = isPlaying
+    // 睡眠定时器正在淡出（音量一路降到 0 然后暂停）时用户又按了播放：
+    // 说明他还想听，得把淡出计时器拆掉，否则 8 秒后播放还是会被它停掉
+    stopSleepFade()
     activateAudioSession()
     player.playImmediately(atRate: Float(speed))
     isPlaying = true
@@ -544,11 +574,18 @@ final class PlaybackEngine: NSObject, ObservableObject {
     sleepRemaining = max(0, end.addingTimeInterval(Double(minutes) * 60).timeIntervalSinceNow)
   }
 
+  /// 拆掉睡眠淡出，并把音量还原 —— 淡出跑到一半被打断时音量不能停在半格
+  private func stopSleepFade() {
+    guard fadeTimer != nil else { return }
+    fadeTimer?.invalidate()
+    fadeTimer = nil
+    player.volume = 1
+  }
+
   func cancelSleepTimer() {
     sleepTicker?.invalidate()
     sleepTicker = nil
-    fadeTimer?.invalidate()
-    fadeTimer = nil
+    stopSleepFade()
     sleepTimerEnd = nil
     sleepAtChapterEnd = false
     sleepRemaining = 0
@@ -1686,9 +1723,19 @@ final class PlaybackEngine: NSObject, ObservableObject {
   }
 
   func coverImage(for book: Book) -> UIImage? {
-    guard let cover = book.coverFile else { return nil }
-    let url = AppPaths.url(for: cover)
-    guard let data = try? Data(contentsOf: url) else { return nil }
-    return UIImage(data: data)
+    // 必须走 CoverStore 的 NSCache：这里以前每次都 `Data(contentsOf:)` 读盘 + `UIImage(data:)` 解码，
+    // 而播放页每 0.5 秒重绘一次、`updateNowPlayingInfo()` 还会再调一次 ——
+    // 等于播放时每半秒把整张封面解码一遍，是播放页卡顿与内存抖动的直接来源。
+    CoverStore.image(for: book)
   }
+}
+
+/// 「哪本、第几集、播没播」—— 只放低频变化的三个值。
+///
+/// 由 `PlaybackEngine` 的同名属性在 `didSet` 里同步过来，不额外维护一套逻辑；
+/// 观察它 = 只在换书 / 切章 / 播放暂停时重建，不会跟着 0.5 秒的进度刷新。
+final class NowPlayingSummary: ObservableObject {
+  @Published fileprivate(set) var bookId: String?
+  @Published fileprivate(set) var chapterIndex: Int = 0
+  @Published fileprivate(set) var isPlaying = false
 }

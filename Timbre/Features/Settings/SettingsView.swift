@@ -10,7 +10,8 @@ struct SettingsView: View {
   @EnvironmentObject private var settings: SettingsStore
   @EnvironmentObject private var extensions: ExtensionStore
   @EnvironmentObject private var webdav: WebDavStore
-  @EnvironmentObject private var player: PlaybackEngine
+  // 这里以前挂着一个没用的 @EnvironmentObject var player ——
+  // 它让整个设置页跟着播放进度每 0.5 秒重建一次，删掉（本文件根本没读它）
 
   @State private var showExtensions = false
   @State private var showPlayerSettings = false
