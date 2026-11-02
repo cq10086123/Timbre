@@ -117,6 +117,10 @@ android {
   }
 
   packaging {
+    // deflate the .so files inside the apk: the download size is what users
+    // see (quickjs alone is 1.6mb raw across two abis), and install-time
+    // extraction is a one-off cost nobody notices
+    jniLibs.useLegacyPackaging = true
     with(resources.pickFirsts) {
       add("META-INF/atomicfu.kotlin_module")
       add("META-INF/core.kotlin_module")
