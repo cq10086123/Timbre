@@ -424,24 +424,20 @@ struct PlayerView: View {
 
       Spacer().frame(width: 16)
 
-      ZStack {
+      // 加载中只画环（整集下载时环里带百分比），加载完才显示播放/暂停。
+      // 之前是把百分比直接叠在暂停图标上，两个一起画，糊成一团；
+      // 而且这样一环就是按钮本身，「加载圈吃掉第一次点击」也不会再出现。
+      if player.isLoading {
+        M3PlayButtonLoading(size: 80, progress: player.downloadProgress) {
+          player.togglePlayPause()
+        }
+        .frame(width: 88, height: 88)
+      } else {
         M3PlayButton(playing: player.isPlaying, size: 80, iconSize: 36) {
           player.togglePlayPause()
         }
-        // 安卓的 CircularProgressIndicator 不消费点击，SF 的 ProgressView 会 ——
-        // 之前它就是「第一次点击被加载圈吃掉、要点两次才能播」的元凶
-        if player.isLoading {
-          if let progress = player.downloadProgress {
-            // 终极兜底正在整集下载：显示百分比，别让用户以为又卡死了
-            Text("\(Int(progress * 100))%")
-              .font(AppFont.labelLarge())
-              .foregroundStyle(AppColor.onSurface)
-          } else {
-            M3CircularProgress(size: 88, stroke: 3)
-          }
-        }
+        .frame(width: 88, height: 88)
       }
-      .frame(width: 88, height: 88)
 
       Spacer().frame(width: 16)
 

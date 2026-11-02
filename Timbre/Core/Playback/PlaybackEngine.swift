@@ -350,6 +350,8 @@ final class PlaybackEngine: NSObject, ObservableObject {
     // 睡眠定时器正在淡出（音量一路降到 0 然后暂停）时用户又按了播放：
     // 说明他还想听，得把淡出计时器拆掉，否则 8 秒后播放还是会被它停掉
     stopSleepFade()
+    // 还在加载（解析直链 / 整集下载）时按了播放：装好之后要自己响起来
+    resumeAfterLoad = true
     activateAudioSession()
     player.playImmediately(atRate: Float(speed))
     isPlaying = true
@@ -374,6 +376,9 @@ final class PlaybackEngine: NSObject, ObservableObject {
   func pause(autoRewind: Bool = true) {
     player.pause()
     isPlaying = false
+    // 正在加载（解析直链 / 整集下载 34%）时按了暂停：装好之后别再自己播起来 ——
+    // 几百 MB 的整集下载要几分钟，用户早就按了暂停，结果下载完自己响了
+    resumeAfterLoad = false
     if autoRewind, settings.settings.autoRewindSeconds > 0, position > 1 {
       let target = max(0, position - Double(settings.settings.autoRewindSeconds))
       seek(to: target)

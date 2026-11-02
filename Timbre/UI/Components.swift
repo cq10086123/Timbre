@@ -33,8 +33,67 @@ struct M3PlayButton: View {
   }
 }
 
-// MARK: - 安卓矢量图标按钮（48dp 触摸区）
+/// 播放键的「加载中」形态：同一个圆形底盘上画进度环，整集下载时环里显示百分比。
+///
+/// 之前的做法是把百分比直接叠在播放/暂停图标上（两个都画），糊成一团。
+/// 现在加载期间**只画环、不画播放暂停图形**，加载完再切回普通播放键 ——
+/// 对任何源都一样：网络 item 在 readyToPlay 之前、整集下载期间都走这里。
+struct M3PlayButtonLoading: View {
+  var size: CGFloat = 80
+  var stroke: CGFloat = 3
+  /// nil = 不确定进度（转圈）；0…1 = 整集下载的百分比
+  var progress: Double?
+  var action: () -> Void
 
+  @State private var spin = false
+
+  var body: some View {
+    Button(action: action) {
+      ZStack {
+        Circle().fill(AppColor.primaryContainer)
+        if let progress {
+          Circle()
+            .stroke(AppColor.onPrimaryContainer.opacity(0.16), lineWidth: stroke)
+            .padding(stroke)
+          Circle()
+            .trim(from: 0, to: min(1, max(0.01, progress)))
+            .stroke(
+              AppColor.onPrimaryContainer,
+              style: StrokeStyle(lineWidth: stroke, lineCap: .round)
+            )
+            .rotationEffect(.degrees(-90))
+            .padding(stroke)
+          Text("\(Int((progress * 100).rounded()))%")
+            .font(AppFont.titleMedium())
+            .monospacedDigit()
+            .foregroundColor(AppColor.onPrimaryContainer)
+        } else {
+          Circle()
+            .trim(from: 0, to: 0.78)
+            .stroke(
+              AppColor.onPrimaryContainer,
+              style: StrokeStyle(lineWidth: stroke, lineCap: .round)
+            )
+            .rotationEffect(.degrees(spin ? 360 : 0))
+            .padding(stroke)
+            .onAppear {
+              withAnimation(.linear(duration: 1.1).repeatForever(autoreverses: false)) {
+                spin = true
+              }
+            }
+        }
+      }
+      .frame(width: size, height: size)
+      .contentShape(Circle())
+    }
+    .buttonStyle(.plain)
+    .accessibilityLabel(
+      progress.map { "下载中 \(Int(($0 * 100).rounded()))%" } ?? "加载中"
+    )
+  }
+}
+
+// MARK: - 安卓矢量图标按钮（48dp 触摸区）
 /// 与 `IconButton48` 等价，但画的是安卓那套 `ImageVector`，
 /// 不用 SF Symbols —— 图形与安卓逐点一致。
 struct GlyphButton: View {
