@@ -12,6 +12,10 @@ struct WebDavBackup: Codable {
 
   static let currentVersion = 2
 
+  enum CodingKeys: String, CodingKey {
+    case version, createdAt, books
+  }
+
   /// 默认备份就放在备份目录下，不需要为它单独建一个集合
   static let defaultFileName = ".timbre-backup.json"
   /// 带标签的备份排在默认备份旁边
@@ -64,8 +68,47 @@ struct WebDavBackupBook: Codable {
   /// 换设备后 id 变了时的匹配提示
   var chapterCount: Int
   var totalDurationMs: Int64
+
+  enum CodingKeys: String, CodingKey {
+    case id, name, author, isActive, currentChapter, positionInChapter
+    case lastPlayedAt, playbackSpeed, skipSilence, skipIntro, skipOutro, gain
+    case chapterCount, totalDurationMs
+  }
 }
 
+/// 安卓 kotlinx.serialization 默认不写「值等于默认值」的字段（encodeDefaults=false）：
+/// 顶层 version=2 / extras={} 会被省略，书条目里 skipIntro / skipOutro / gain 经常整个缺席，
+/// author 为 null 时也没有这个键。Swift 合成的 Decodable 对非 Optional 键是强制的
+/// （属性默认值不豁免），直接解码会 keyNotFound。对有默认值的字段全部 decodeIfPresent 兜底。
+extension WebDavBackupBook {
+  init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    id = try c.decode(String.self, forKey: .id)
+    name = try c.decode(String.self, forKey: .name)
+    author = try c.decodeIfPresent(String.self, forKey: .author)
+    isActive = try c.decode(Bool.self, forKey: .isActive)
+    currentChapter = try c.decode(String.self, forKey: .currentChapter)
+    positionInChapter = try c.decode(Int64.self, forKey: .positionInChapter)
+    lastPlayedAt = try c.decode(String.self, forKey: .lastPlayedAt)
+    playbackSpeed = try c.decode(Float.self, forKey: .playbackSpeed)
+    skipSilence = try c.decode(Bool.self, forKey: .skipSilence)
+    skipIntro = try c.decodeIfPresent(Int64.self, forKey: .skipIntro) ?? 0
+    skipOutro = try c.decodeIfPresent(Int64.self, forKey: .skipOutro) ?? 0
+    gain = try c.decodeIfPresent(Float.self, forKey: .gain) ?? 0
+    chapterCount = try c.decode(Int.self, forKey: .chapterCount)
+    totalDurationMs = try c.decode(Int64.self, forKey: .totalDurationMs)
+  }
+}
+
+extension WebDavBackup {
+  init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    version = try c.decodeIfPresent(Int.self, forKey: .version) ?? Self.currentVersion
+    createdAt = try c.decode(String.self, forKey: .createdAt)
+    books = try c.decode([WebDavBackupBook].self, forKey: .books)
+    // 安卓的 extras（书架分区扩展）iOS 暂不消费，未知键直接忽略
+  }
+}
 /// 备份目标：一台服务器 + 用户亲手选的目录。
 ///
 /// 只有服务器还不够 —— 目录必须在设置里明确选过，
