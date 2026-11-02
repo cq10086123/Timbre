@@ -144,10 +144,8 @@ final class WebDavBackupService {
       guard let folder = Self.remoteFolderURL(of: book) else { continue }
       if let normalized = Self.normalizeRemoteUrl(folder) {
         if byRemoteFolder[normalized] == nil { byRemoteFolder[normalized] = book }
-        if let decoded = normalized.removingPercentEncoding ?? normalized,
-          byRemoteFolder[decoded] == nil {
-          byRemoteFolder[decoded] = book
-        }
+        let decoded = normalized.removingPercentEncoding ?? normalized
+        if byRemoteFolder[decoded] == nil { byRemoteFolder[decoded] = book }
       }
       if let path = Self.remotePath(of: folder), byRemotePath[path] == nil {
         byRemotePath[path] = book
