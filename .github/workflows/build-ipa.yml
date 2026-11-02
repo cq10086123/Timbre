@@ -111,27 +111,14 @@ jobs:
           fi
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
 
-      # 注意：Release 附件名不支持中文（会被 GitHub 洗成 default.txt），文件名用 ASCII
-      - name: 生成安装说明
+      - name: 读取版本号
         run: |
-          cat > "install-guide.txt" <<EOF
-          Timbre v${VERSION} 安装说明（双端）
-          ====================================
-
-          【安卓】timbre-v${VERSION}.apk
-            下载后直接安装；系统提示「未知来源」时允许一次即可。
-
-          【iOS】timbre-v${VERSION}-unsigned.ipa（未签名包）
-            无法直接安装，需自行签名，常用方式三选一：
-            1. TrollStore：支持 iOS 14.0～16.6.1（部分 17.0），导入 ipa 直接装；
-            2. AltStore / SideStore / Sideloadly：需配合电脑与 Apple ID，证书 7 天有效需续签；
-            3. 自有开发者账号 / 企业签：用签名工具对此 ipa 签名后安装。
-
-          【说明】
-            - iOS 版为功能验证版，功能以安卓端为准（暂缺引导页、桌面小组件等）；
-            - 未签名 ipa 仅供验证，请勿二次分发；
-            - 源码：安卓在 main 分支，iOS 在 Timbre_b 分支（Timbre-iOS/ 目录）。
-          EOF
+          VERSION=$(sed -n 's/.*MARKETING_VERSION: "\([^"]*\)".*/\1/p' project.yml | head -n1)
+          if [ -z "$VERSION" ]; then
+            echo "从 project.yml 读不到 MARKETING_VERSION"
+            exit 1
+          fi
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
 
       - name: 发布（附加到安卓同名版本的 Release）
         if: startsWith(github.ref, 'refs/tags/')
@@ -143,11 +130,11 @@ jobs:
           mv Timbre-unsigned.ipa "$IPA_NAME"
           if gh release view "v${VERSION}" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             # 安卓已发同名版本：只追加附件，不动 Release 的标题/正文/属性
-            gh release upload "v${VERSION}" "$IPA_NAME" "install-guide.txt" --clobber --repo "$GITHUB_REPOSITORY"
+            gh release upload "v${VERSION}" "$IPA_NAME" --clobber --repo "$GITHUB_REPOSITORY"
             echo "已附加到现有 Release v${VERSION}"
           else
             # 兜底：安卓还没发这个版本时，iOS 自建一个预发布，不抢 Latest
-            gh release create "v${VERSION}" "$IPA_NAME" "install-guide.txt" \
+            gh release create "v${VERSION}" "$IPA_NAME" \
               --prerelease \
               --title "v${VERSION} 验证版（iOS 未签名调试包，禁止下载分发）" \
               --notes "安卓端此版本尚未发布，iOS 包先挂在这里；正式版以安卓端 Release 为准。" \
