@@ -155,12 +155,13 @@ struct SettingsView: View {
             subtitle: appVersion
           )
 
-          M3ListItem(
-            systemName: "doc.text.magnifyingglass",
-            title: "调试日志",
-            subtitle: "已记录 \(DebugLog.shared.count) 条 · 出问题时导出这里的内容发给开发者",
-            action: { showDebugLog = true }
-          )
+          // 开发者功能，正式包不显示。恢复查看：取消注释即可。
+          // M3ListItem(
+          //   systemName: "doc.text.magnifyingglass",
+          //   title: "调试日志",
+          //   subtitle: "已记录 \(DebugLog.shared.count) 条 · 出问题时导出这里的内容发给开发者",
+          //   action: { showDebugLog = true }
+          // )
 
           Spacer().frame(height: 32)
         }
