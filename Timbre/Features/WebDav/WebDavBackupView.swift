@@ -149,7 +149,7 @@ struct WebDavBackupView: View {
       return nil
     case .backupDone(let books, let server, _):
       return "已备份 \(books) 本 → \(server)"
-    case .restoreDone(let restored, let total, let server, _, _):
+    case .restoreDone(let restored, let total, let server, _, _, _):
       return "已从 \(server) 恢复（\(restored)/\(total)）"
     case .text(let message, _):
       return message

@@ -20,12 +20,13 @@ final class AppState: ObservableObject {
   lazy var cache = OnlineCacheManager(library: library, extensions: extensions)
 
   /// WebDAV 导入后逐章解析时长（导入并发度 1/2/3，进度可显示）
-  lazy var durationAnalyzer = WebDavDurationAnalyzer(library: library, settings: settings)
+  /// （初始化在主线程上下文：只有 SwiftUI 视图会碰它）
+  @MainActor lazy var durationAnalyzer = WebDavDurationAnalyzer(library: library, settings: settings)
 
   /// WebDAV 备份目标（服务器 + 目录 + 上次用的标签）
   let backupTargets = WebDavBackupStore()
-  /// 备份 / 恢复
-  lazy var backup = WebDavBackupService(
+  /// 备份 / 恢复（初始化在主线程上下文：只有 SwiftUI 视图会碰它）
+  @MainActor lazy var backup = WebDavBackupService(
     library: library,
     servers: webdav,
     targets: backupTargets,

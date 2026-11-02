@@ -43,7 +43,7 @@ final class WebDavDurationAnalyzer: ObservableObject {
     guard !running, !queue.isEmpty else { return }
     let job = queue.removeFirst()
     running = true
-    Task { await analyze(job.book, server: job.server, password: job.password) }
+    Task { await analyze(book: job.book, server: job.server, password: job.password) }
   }
 
   private func analyze(book: Book, server: WebDavServer, password: String) async {
@@ -95,7 +95,8 @@ final class WebDavDurationAnalyzer: ObservableObject {
   ) async -> Double? {
     guard let remote = chapter.remoteURL, let url = URL(string: remote) else { return nil }
     var options: [String: Any] = [:]
-    if !headers.isEmpty { options[AVURLAssetHTTPRequestsHeadersKey] = headers }
+    // 这个 key 在 iOS SDK 里没有导出成符号，只能按字符串键传（与 PlaybackEngine 同款）
+    if !headers.isEmpty { options["AVURLAssetHTTPHeaderFieldsKey"] = headers }
     let asset = AVURLAsset(url: url, options: options.isEmpty ? nil : options)
     guard let seconds = try? await asset.load(.duration).seconds else { return nil }
     return seconds.isFinite && seconds > 0 ? seconds : nil
