@@ -339,6 +339,10 @@ final class PlaybackEngine: NSObject, ObservableObject {
   }
 
   func play() {
+    // 正在加载（解析直链 / 整集下载）时不能走下面的取流分支：
+    // 那会 `open()` 从头再来一遍，把几百 MB 的下载推倒重下。
+    // 加载中点播放键的语义是「取消」，入口在 `cancelPendingLoad()`。
+    guard !isLoading else { return }
     guard player.currentItem != nil else {
       // 进播放页时只做了准备（没取流），第一次按播放才真正开始加载
       if let book = currentBook {
@@ -384,6 +388,38 @@ final class PlaybackEngine: NSObject, ObservableObject {
       seek(to: target)
     }
     savePosition(force: true)
+    updateNowPlayingInfo()
+  }
+
+  /// 加载中（解析直链 / 整集下载）点播放键 = 放弃这次加载。
+  ///
+  /// 之前这个圆盘的点击还是 `togglePlayPause()`：整集下载阶段 item 还没装上
+  /// （`install` 要等下完），`play()` 里 `currentItem == nil` 直接走 `open()` 从头再来，
+  /// 几百 MB 的下载被自己推倒重下 —— 用户实测「点一下百分比就开始重新下载」。
+  /// 现在明确成「取消」：作废在途任务、把按钮还原成播放键，再点一次才真正重新加载。
+  func cancelPendingLoad() {
+    guard isLoading else { return }
+    DLog("player", "加载中点播放键 → 取消本次加载")
+    // 在途的解析 / 下载都靠 token 自证过期，不用逐个去拆
+    loadToken += 1
+    activeLoad = nil
+    readyWatchdog?.invalidate()
+    readyWatchdog = nil
+    fallbackDownloadTask?.cancel()
+    fallbackDownloadTask = nil
+    downloadProgress = nil
+    resumeAfterLoad = false
+    isLoading = false
+    player.pause()
+    isPlaying = false
+    // item 里可能还是上一集的音频：留着的话再点播放会响上一集，而不是重新加载这一集。
+    // 同一章（只重试取流）就保留原 item，取消掉这次重试即可。
+    if let target = loadedTarget,
+      target.bookId != bookId || target.chapterIndex != chapterIndex
+    {
+      player.replaceCurrentItem(with: nil)
+      loadedTarget = nil
+    }
     updateNowPlayingInfo()
   }
 

@@ -427,9 +427,12 @@ struct PlayerView: View {
       // 加载中只画环（整集下载时环里带百分比），加载完才显示播放/暂停。
       // 之前是把百分比直接叠在暂停图标上，两个一起画，糊成一团；
       // 而且这样一环就是按钮本身，「加载圈吃掉第一次点击」也不会再出现。
+      //
+      // 加载中点这个环 = 取消这次加载。不能给它 togglePlayPause：
+      // 整集下载阶段 item 还没装上，toggle 会走 `open()` 从头再来，几百 MB 推倒重下。
       if player.isLoading {
         M3PlayButtonLoading(size: 80, progress: player.downloadProgress) {
-          player.togglePlayPause()
+          player.cancelPendingLoad()
         }
         .frame(width: 88, height: 88)
       } else {

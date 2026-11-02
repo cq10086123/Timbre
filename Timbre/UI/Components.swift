@@ -88,7 +88,7 @@ struct M3PlayButtonLoading: View {
     }
     .buttonStyle(.plain)
     .accessibilityLabel(
-      progress.map { "下载中 \(Int(($0 * 100).rounded()))%" } ?? "加载中"
+      progress.map { "下载中 \(Int(($0 * 100).rounded()))%，点按取消" } ?? "加载中，点按取消"
     )
   }
 }
