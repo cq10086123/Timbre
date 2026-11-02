@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 // MARK: - 播放键（Material3 FAB，播放中变圆角方块）
 
@@ -269,73 +270,127 @@ struct TimeBadge: View {
 /// 单行文字，放得下就静止，放不下就左右来回滚动。
 /// 安卓播放页标题用的是 `Modifier.basicMarquee()`，直接截断会丢信息，
 /// 所以这里按同样的行为实现：停 1.5s → 滚到底 → 停 1.5s → 回到开头。
-struct MarqueeText: View {
+///
+/// 实现换成 UIKit + CAKeyframeAnimation 的原因（播放中「一卡一卡」）：
+/// 播放进度每 0.5 秒发布一次，播放页整棵 body 跟着重算 —— 纯 SwiftUI 版本靠
+/// `GeometryReader` 量宽 + `.task(id:)` 驱动 `withAnimation(offset:)`，
+/// 父视图一重算就有机会把滚动状态拉回 0（表现为书名突然跳回开头再滚），
+/// 动画本身也在主线程上跟 body 重算抢时间。
+/// CAKeyframeAnimation 跑在渲染服务器上，主线程再忙也不影响它，
+/// 只有「文字 / 字号 / 可用宽度 / 速度」真的变了才重装一次动画。
+struct MarqueeText: UIViewRepresentable {
   var text: String
-  var font: Font = AppFont.headlineMedium()
+  var size: CGFloat = 28
+  var weight: UIFont.Weight = .regular
   var color: Color = AppColor.onSurface
-  var speed: CGFloat = 34  // pt / 秒
+  /// pt / 秒
+  var speed: CGFloat = 34
 
-  @State private var textWidth: CGFloat = 0
-  @State private var offset: CGFloat = 0
-
-  // 有 private 存储属性时自动生成的 memberwise init 也是 private，
-  // 跨文件就构造不出来 —— 这里显式给一个 internal init。
-  init(
-    text: String,
-    font: Font = AppFont.headlineMedium(),
-    color: Color = AppColor.onSurface,
-    speed: CGFloat = 34
-  ) {
-    self.text = text
-    self.font = font
-    self.color = color
-    self.speed = speed
+  func makeUIView(context: Context) -> MarqueeLabelView {
+    MarqueeLabelView()
   }
 
-  var body: some View {
-    GeometryReader { geo in
-      let container = geo.size.width
-      let overflow = max(0, textWidth - container)
+  func updateUIView(_ view: MarqueeLabelView, context: Context) {
+    view.apply(text: text, size: size, weight: weight, color: UIColor(color), speed: speed)
+  }
 
-      Text(text)
-        .font(font)
-        .foregroundColor(color)
-        .lineLimit(1)
-        .fixedSize(horizontal: true, vertical: false)
-        .background(
-          GeometryReader { proxy in
-            Color.clear.preference(key: MarqueeWidthKey.self, value: proxy.size.width)
-          }
-        )
-        .offset(x: overflow > 0 ? offset : 0)
-        .frame(width: container, alignment: .leading)
-        .onPreferenceChange(MarqueeWidthKey.self) { width in
-          if abs(width - textWidth) > 0.5 { textWidth = width }
-        }
-        .task(id: "\(text)|\(Int(container))|\(Int(textWidth))") {
-          // 内容或宽度变了就重来一遍，避免用旧的位移量
-          offset = 0
-          guard overflow > 0, container > 1 else { return }
-          try? await Task.sleep(nanoseconds: 1_500_000_000)
-          while !Task.isCancelled {
-            let duration = Double(overflow) / Double(max(speed, 1)) + 0.4
-            withAnimation(.linear(duration: duration)) { offset = -overflow }
-            try? await Task.sleep(nanoseconds: UInt64((duration + 1.6) * 1_000_000_000))
-            guard !Task.isCancelled else { return }
-            withAnimation(.easeOut(duration: 0.25)) { offset = 0 }
-            try? await Task.sleep(nanoseconds: 500_000_000)
-            guard !Task.isCancelled else { return }
-          }
-        }
-    }
-    .clipped()
+  /// 不自带理想宽度：宽度由外部 `.frame(...)` 决定（书名比屏幕宽时也要能截住）
+  func sizeThatFits(
+    _ proposal: ProposedViewSize,
+    uiView: MarqueeLabelView,
+    context: Context
+  ) -> CGSize? {
+    CGSize(
+      width: proposal.width ?? max(uiView.bounds.width, 1),
+      height: proposal.height ?? uiView.intrinsicContentSize.height
+    )
   }
 }
 
-private struct MarqueeWidthKey: PreferenceKey {
-  static var defaultValue: CGFloat { 0 }
-  static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-    value = max(value, nextValue())
+final class MarqueeLabelView: UIView {
+  private let label = UILabel()
+  private var speed: CGFloat = 34
+  /// 上一次装动画时的「内容指纹」：没变就别重装，否则播放页每秒重绘两次会把滚动打断
+  private var signature = ""
+
+  override init(frame: CGRect) {
+    super.init(frame: frame)
+    backgroundColor = .clear
+    isOpaque = false
+    clipsToBounds = true
+    label.numberOfLines = 1
+    label.lineBreakMode = .byClipping
+    label.backgroundColor = .clear
+    addSubview(label)
+  }
+
+  required init?(coder: NSCoder) {
+    fatalError("init(coder:) has not been implemented")
+  }
+
+  /// 高度按字体行高报，宽度交给外部约束（书名再长也不该撑宽父容器）
+  override var intrinsicContentSize: CGSize {
+    CGSize(
+      width: UIView.noIntrinsicMetric,
+      height: ceil(label.font?.lineHeight ?? 20)
+    )
+  }
+
+  func apply(text: String, size: CGFloat, weight: UIFont.Weight, color: UIColor, speed: CGFloat) {
+    let font = UIFont.systemFont(ofSize: size, weight: weight)
+    if label.text != text { label.text = text }
+    if label.font != font {
+      label.font = font
+      invalidateIntrinsicContentSize()
+    }
+    if label.textColor != color { label.textColor = color }
+    self.speed = speed
+    setNeedsLayout()
+  }
+
+  override func layoutSubviews() {
+    super.layoutSubviews()
+    guard bounds.width > 1, let font = label.font, let text = label.text else { return }
+
+    let textWidth = ceil((text as NSString).size(withAttributes: [.font: font]).width) + 2
+    // label 的 frame 变化会带隐式动画（滚动到一半改宽度会看到文字滑一下），关掉
+    CATransaction.begin()
+    CATransaction.setDisableActions(true)
+    label.frame = CGRect(x: 0, y: 0, width: textWidth, height: bounds.height)
+    CATransaction.commit()
+
+    let next = "\(text)|\(Int(font.pointSize))|\(font.fontWeight.rawValue)"
+      + "|\(Int(bounds.width.rounded()))|\(Int(speed))"
+    guard next != signature else { return }
+    signature = next
+    startScrolling(textWidth: textWidth)
+  }
+
+  private func startScrolling(textWidth: CGFloat) {
+    label.layer.removeAnimation(forKey: "marquee")
+    label.layer.transform = CATransform3DIdentity
+    let overflow = textWidth - bounds.width
+    guard overflow > 2 else { return }
+
+    let scroll = Double(overflow) / Double(max(speed, 1))
+    let hold = 1.5
+    let total = hold + scroll + hold
+    let curve = CAMediaTimingFunction(name: .linear)
+
+    let animation = CAKeyframeAnimation(keyPath: "transform.translation.x")
+    // 停 → 滚到底 → 停；循环回到第 0 帧时自然跳回开头，不需要回滚动画
+    animation.values = [CGFloat(0), 0, -overflow, -overflow]
+    animation.keyTimes = [
+      NSNumber(value: 0),
+      NSNumber(value: hold / total),
+      NSNumber(value: (hold + scroll) / total),
+      NSNumber(value: 1),
+    ]
+    animation.timingFunctions = [curve, curve, curve]
+    animation.duration = total
+    animation.repeatCount = .infinity
+    animation.isRemovedOnCompletion = false
+    label.layer.add(animation, forKey: "marquee")
   }
 }
 
@@ -384,6 +439,76 @@ struct M3AlertDialog<Content: View>: View {
             }
             .buttonStyle(.plain)
           }
+        }
+      }
+      .padding(24)
+      .frame(maxWidth: 320, alignment: .leading)
+      .background(
+        RoundedRectangle(cornerRadius: 28, style: .continuous)
+          .fill(AppColor.surfaceContainerHigh)
+      )
+      .padding(.horizontal, 24)
+    }
+  }
+}
+
+// MARK: - M3 确认对话框（标题 + 正文 + 取消 / 危险动作）
+
+/// 「删除有声书」这类二次确认。
+///
+/// 不用系统 `.confirmationDialog` / `.alert` 的原因（用户报过「删不掉，重启又能删」）：
+/// 长按抽屉刚 dismiss 的那一刻去弹系统弹窗，UIKit 会把这次呈现请求丢掉，
+/// 而 SwiftUI 的状态（`deleteTarget`）已经置上了 —— 绑定 getter 恒为 true，
+/// 之后对同一本书再怎么点都不会有状态变化，于是整个会话里都删不掉，
+/// 只有重启 App（@State 重置）才恢复。自己画的遮罩层不经过呈现机制，不存在这个问题。
+struct M3ConfirmDialog: View {
+  var title: String
+  var message: String
+  var confirmTitle: String = "确定"
+  var dismissTitle: String = "取消"
+  /// 危险动作（删除等）用 error 色文字
+  var destructive: Bool = true
+  var onConfirm: () -> Void
+  var onDismiss: () -> Void
+
+  var body: some View {
+    ZStack {
+      AppColor.scrim
+        .ignoresSafeArea()
+        .onTapGesture { onDismiss() }
+
+      VStack(alignment: .leading, spacing: 0) {
+        Text(title)
+          .font(AppFont.headlineSmall())
+          .foregroundColor(AppColor.onSurface)
+          .fixedSize(horizontal: false, vertical: true)
+        Color.clear.frame(height: 16)
+        Text(message)
+          .font(AppFont.bodyMedium())
+          .foregroundColor(AppColor.onSurfaceVariant)
+          .fixedSize(horizontal: false, vertical: true)
+        Color.clear.frame(height: 20)
+        HStack(spacing: 8) {
+          Spacer(minLength: 0)
+          Button(action: onDismiss) {
+            Text(dismissTitle)
+              .font(AppFont.labelLarge())
+              .foregroundColor(AppColor.primary)
+              .padding(.horizontal, 12)
+              .frame(minWidth: 64, minHeight: 40)
+              .contentShape(Rectangle())
+          }
+          .buttonStyle(.plain)
+
+          Button(action: onConfirm) {
+            Text(confirmTitle)
+              .font(AppFont.labelLarge())
+              .foregroundColor(destructive ? AppColor.error : AppColor.onPrimary)
+              .padding(.horizontal, 16)
+              .frame(minWidth: 64, minHeight: 40)
+              .contentShape(Rectangle())
+          }
+          .buttonStyle(.plain)
         }
       }
       .padding(24)

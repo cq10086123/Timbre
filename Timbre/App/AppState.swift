@@ -168,7 +168,7 @@ final class AppState: ObservableObject {
     // 在线书章节还没就绪（恢复备份只记账不拉章节，对齐安卓「打开时再拉」）：
     // 先拉齐、解析出目标章节，再进播放页
     if book.needsChapterFetch {
-      Task { await fetchChaptersThenOpen(book, chapterIndex: chapterIndex, autoplay: autoplay) }
+      startChapterFetch(book, chapterIndex: chapterIndex, autoplay: autoplay)
       return
     }
     DLog("shelf", "打开播放页 书=\(book.title) 集=\((chapterIndex ?? book.position.chapterIndex) + 1)")
@@ -177,17 +177,35 @@ final class AppState: ObservableObject {
     showPlayer = true
   }
 
+  /// 在线书章节拉取：包一层 Task 以便取消，并把「正在拉」的状态挂到 `chapterFetch`，
+  /// 书架会盖一层进度卡片 —— 之前只有 2.2 秒的 toast，拉 20 秒就是「点了没反应」。
+  func startChapterFetch(_ book: Book, chapterIndex: Int? = nil, autoplay: Bool = false) {
+    // 同一本书正在拉：进度卡片上看得见，不必再排一遍请求
+    if chapterFetch?.bookId == book.id, chapterFetchTask != nil { return }
+    chapterFetchTask?.cancel()
+    chapterFetchTask = Task { @MainActor in
+      await self.fetchChaptersThenOpen(book, chapterIndex: chapterIndex, autoplay: autoplay)
+    }
+  }
+
+  /// 用户在进度卡片上点「取消」：立刻收起卡片，拉取结果回来时按 Task.isCancelled 丢弃
+  func cancelChapterFetch() {
+    chapterFetchTask?.cancel()
+    chapterFetchTask = nil
+    if chapterFetch != nil { chapterFetch = nil }
+    refreshingBookId = nil
+  }
+
   /// 在线书首次打开：拉章节 → 把恢复备份记下的 pendingChapterId 换算成真正的章节数 → 进播放页
   @MainActor
   private func fetchChaptersThenOpen(_ book: Book, chapterIndex: Int?, autoplay: Bool) async {
-    // 快速双击同一本书去重：正在拉就别再排一遍请求和 merge
-    guard refreshingBookId != book.id else { return }
-    // 大部头拉章节要几十秒，先给个反馈，别让用户以为点了没反应
-    showToast("正在拉取《\(book.title)》的章节…")
     let message = await refreshOnlineChapters(book)
+    guard !Task.isCancelled else { return }
+    chapterFetchTask = nil
     guard let updated = library.book(withId: book.id), !updated.chapters.isEmpty else {
-      // 拉失败 / 接口源没了：给个说法，别让用户对着没反应的界面猜
+      // 拉失败 / 接口源没了：用对话框说清楚，toast 一闪就没了，用户会以为点了没反应
       showToast(message)
+      errorMessage = message
       return
     }
     openBook(updated, chapterIndex: chapterIndex, autoplay: autoplay)
@@ -318,6 +336,20 @@ final class AppState: ObservableObject {
 
   // MARK: - 在线书源：刷新章节
 
+  /// 拉取进度。非 nil = 正在拉，书架/播放页据此显示进度卡片
+  struct ChapterFetchStatus: Equatable {
+    /// 本次拉取的标识：取消后重拉时，旧任务回来不能把新进度卡片擦掉
+    var id = UUID()
+    var bookId: String
+    var title: String
+    /// 当前这一步在做什么 —— 用户要能看出卡在哪一步，而不是干等
+    var step: String
+    var startedAt: Date
+  }
+
+  @Published var chapterFetch: ChapterFetchStatus?
+
+  private var chapterFetchTask: Task<Void, Never>?
   @Published var refreshingBookId: String?
 
   /// 重新拉一遍章节列表并合并回书架。返回给用户看的一句话。
@@ -325,13 +357,34 @@ final class AppState: ObservableObject {
   @discardableResult
   func refreshOnlineChapters(_ book: Book) async -> String {
     guard book.kind == .jdr else { return "这本不是在线书源的书" }
+    // 同一本书已经在拉：别并发跑两遍脚本，直接告诉调用方在拉了
+    guard refreshingBookId != book.id else { return "正在拉取《\(book.title)》的章节，请稍候…" }
+
+    refreshingBookId = book.id
+    // 同一个会话里重拉时沿用开始时间，进度卡片的秒数不要重新数
+    let startedAt = chapterFetch?.bookId == book.id ? chapterFetch!.startedAt : Date()
+    var status = ChapterFetchStatus(
+      bookId: book.id,
+      title: book.title,
+      step: "正在检查接口源…",
+      startedAt: startedAt
+    )
+    chapterFetch = status
+    func setStep(_ step: String) {
+      status.step = step
+      chapterFetch = status
+    }
+    defer {
+      if refreshingBookId == book.id { refreshingBookId = nil }
+      if chapterFetch?.id == status.id { chapterFetch = nil }
+    }
+
     guard
       let installed = extensions.source(withId: book.sourceId),
       let script = extensions.scriptText(for: installed)
     else { return "找不到这本书的接口源，可能已经被卸载了" }
 
-    refreshingBookId = book.id
-    defer { refreshingBookId = nil }
+    setStep("正在执行接口源脚本，拉取章节列表…")
     do {
       let fresh = try await ExtensionSourceService.shared.chapters(
         script: script,
@@ -339,7 +392,9 @@ final class AppState: ObservableObject {
         bookId: book.remoteBookId ?? book.id,
         extraJSON: book.sourceExtraJSON
       )
+      if Task.isCancelled { return "已取消" }
       guard !fresh.isEmpty else { return "接口源这次没有返回章节" }
+      setStep("正在写入 \(fresh.count) 集章节…")
       let result = library.mergeChapters(bookId: book.id, fresh: fresh)
       // 恢复备份记下的目标章节现在能对位了，把 pendingChapterId 换算成真正的章节数
       resolvePendingChapter(bookId: book.id)

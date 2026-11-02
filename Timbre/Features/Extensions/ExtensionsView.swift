@@ -37,15 +37,6 @@ struct ExtensionsView: View {
 
       VStack(spacing: 0) {
         topBar
-          .alert("从链接导入", isPresented: $showLinkDialog) {
-            TextField("https://example.com/source.jdr", text: $linkText)
-              .textInputAutocapitalization(.never)
-              .autocorrectionDisabled()
-              .keyboardType(.URL)
-            Button("导入") { importLink() }
-              .disabled(linkText.trimmingCharacters(in: .whitespaces).isEmpty)
-            Button("取消", role: .cancel) { linkText = "" }
-          }
         ScrollView {
           LazyVStack(spacing: 0) {
             importRows
@@ -74,6 +65,40 @@ struct ExtensionsView: View {
           .padding(.bottom, 24)
           .transition(.opacity.combined(with: .move(edge: .bottom)))
       }
+
+      // 链接输入框：用自绘的 OutlinedTextField 对话框，不用系统 alert ——
+      // 系统 alert 的 TextField 在弹出那一拍不渲染预填文字（页面显示空白，
+      // 其实值已经在绑定里，用户以为没填），延一拍也靠不住，直接换实现。
+      if showLinkDialog {
+        M3TextFieldDialog(
+          title: "从链接导入",
+          label: "链接",
+          text: $linkText,
+          confirmTitle: "导入",
+          onConfirm: {
+            showLinkDialog = false
+            importLink()
+          },
+          onDismiss: { showLinkDialog = false }
+        )
+        .transition(.opacity)
+      }
+
+      // 卸载确认也走自绘对话框（系统 confirmationDialog 在本页和系统 alert 抢呈现槽位）
+      if let target = uninstallTarget {
+        M3ConfirmDialog(
+          title: "卸载扩展包",
+          message: "确定卸载「\(target.name)」吗？其源将从搜索中移除；已加入书架的书籍在删除前仍可播放。",
+          confirmTitle: "卸载",
+          onConfirm: {
+            uninstallTarget = nil
+            extensions.remove(target)
+            showToast("已卸载 \(target.name)")
+          },
+          onDismiss: { uninstallTarget = nil }
+        )
+        .transition(.opacity)
+      }
     }
     .animation(.easeInOut(duration: 0.2), value: toast)
     .fileImporter(
@@ -87,25 +112,6 @@ struct ExtensionsView: View {
       case .failure(let error):
         showError("选择文件失败：\(error.localizedDescription)")
       }
-    }
-    // 卸载确认走 confirmationDialog：和上面两个 alert 属于不同呈现类型，不会互相抢
-    .confirmationDialog(
-      "卸载扩展包",
-      isPresented: Binding(
-        get: { uninstallTarget != nil },
-        set: { if !$0 { uninstallTarget = nil } }
-      ),
-      titleVisibility: .visible,
-      presenting: uninstallTarget
-    ) { ext in
-      Button("卸载扩展包", role: .destructive) {
-        extensions.remove(ext)
-        uninstallTarget = nil
-        showToast("已卸载 \(ext.name)")
-      }
-      Button("取消", role: .cancel) { uninstallTarget = nil }
-    } message: { _ in
-      Text("确定卸载该扩展包吗？其源将从搜索中移除；已加入书架的书籍在删除前仍可播放。")
     }
   }
 
@@ -137,13 +143,10 @@ struct ExtensionsView: View {
         title: "从链接导入",
         subtitle: "下载并安装网络上的 .jdr 扩展包",
         action: {
-          // 默认预填项目自带的参考源（仓库 samples/Timbre.jdr 的 GitHub 直链），
-          // 不需要的话清掉换成自己的链接就行
+          // 默认预填项目自带的参考源（仓库 samples/Timbre.jdr 的 jsDelivr 直链），
+          // 不需要的话清掉换成自己的链接就行。对话框是自己的视图，赋值即渲染。
           linkText = Self.defaultSourceURL
-          // iOS 16 的 alert TextField 有个渲染怪癖：同一帧里先赋值再弹出，
-          // 输入框显示成空白（文本其实已经写进去了，所以点导入能正常用）。
-          // 延一拍再弹，让预填的链接看得见。
-          DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { showLinkDialog = true }
+          showLinkDialog = true
         }
       )
       .disabled(busy)

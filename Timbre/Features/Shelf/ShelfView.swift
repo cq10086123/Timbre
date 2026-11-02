@@ -92,6 +92,7 @@ struct ShelfView: View {
 
   /// WebDAV 导入后的章节时长解析进度，解析中的书在卡片上显示这行小字
   private func analysisNote(for book: Book) -> String? {
+    if app.chapterFetch?.bookId == book.id { return "正在拉取章节…" }
     guard let p = app.durationAnalyzer.progress[book.id] else { return nil }
     return "正在解析 \(p.done)/\(p.total) 章"
   }
@@ -154,6 +155,44 @@ struct ShelfView: View {
       // 在线书源的章节弹窗：安卓是 AlertDialog，这里按同一层级居中浮在整页之上
       if let selection = onlineSelection {
         OnlineChaptersDialog(selection: selection, onClose: { onlineSelection = nil })
+          .transition(.opacity)
+      }
+
+      // 删除确认：自己画的遮罩对话框，不走系统 confirmationDialog ——
+      // 抽屉刚 dismiss 时弹系统弹窗会被丢掉，状态却已经置上，于是整个会话都删不掉
+      if let target = deleteTarget {
+        M3ConfirmDialog(
+          title: "删除有声书",
+          message: "将从书架移除《\(target.title)》，音频文件会保留在设备上。",
+          confirmTitle: "删除",
+          onConfirm: {
+            deleteTarget = nil
+            app.delete(target)
+          },
+          onDismiss: { deleteTarget = nil }
+        )
+        .transition(.opacity)
+      }
+
+      // 改名：同样用自绘对话框（系统 alert 的 TextField 预填文字不显示）
+      if let target = renameTarget {
+        M3TextFieldDialog(
+          title: "编辑书名",
+          label: "名称",
+          text: $renameText,
+          onConfirm: {
+            renameTarget = nil
+            app.rename(target, title: renameText, author: target.author)
+          },
+          onDismiss: { renameTarget = nil }
+        )
+        .transition(.opacity)
+      }
+
+      // 在线书章节拉取进度：恢复备份的书第一次打开时要跑一遍接口源脚本，
+      // 之前只有一个 2.2 秒的 toast，拉二十秒就完全是「点了没反应」
+      if let status = app.chapterFetch {
+        ChapterFetchOverlay(status: status) { app.cancelChapterFetch() }
           .transition(.opacity)
       }
     }
@@ -246,35 +285,6 @@ struct ShelfView: View {
     .sheet(item: $cacheTarget) { book in
       OnlineCacheSheet(book: book, onClose: { cacheTarget = nil })
         .environmentObject(app.cache)
-    }
-    .alert("编辑书名", isPresented: Binding(
-      get: { renameTarget != nil },
-      set: { if !$0 { renameTarget = nil } }
-    )) {
-      TextField("名称", text: $renameText)
-      Button("设置") {
-        if let book = renameTarget {
-          app.rename(book, title: renameText, author: book.author)
-        }
-        renameTarget = nil
-      }
-      Button("取消", role: .cancel) { renameTarget = nil }
-    }
-    .confirmationDialog(
-      "删除有声书",
-      isPresented: Binding(
-        get: { deleteTarget != nil },
-        set: { if !$0 { deleteTarget = nil } }
-      ),
-      titleVisibility: .visible
-    ) {
-      Button("删除", role: .destructive) {
-        if let book = deleteTarget { app.delete(book) }
-        deleteTarget = nil
-      }
-      Button("取消", role: .cancel) { deleteTarget = nil }
-    } message: {
-      Text("将从书架移除这本有声书，音频文件会保留在设备上。")
     }
     .overlay {
       if app.isImporting {
@@ -827,5 +837,79 @@ struct BookActionsSheet: View {
   /// 结构固定：2 个主操作 + 删除 + 2 个「标记为…」（当前分类那个不显示）。
   static func sheetHeight(for book: Book) -> CGFloat {
     12.0 + 5.0 * 56.0 + 24.0
+  }
+}
+
+// MARK: - 在线书章节拉取进度
+
+/// 恢复备份的在线书第一次打开时要跑一遍接口源脚本（拉章节列表 → 写入章节），
+/// 大书要十几秒。之前只发一个 2.2 秒的 toast，界面上看起来就是「点了没反应」，
+/// 用户也不知道卡在哪一步 —— 这里把当前步骤、已等待秒数摆出来，并允许取消。
+struct ChapterFetchOverlay: View {
+  var status: AppState.ChapterFetchStatus
+  var onCancel: () -> Void
+
+  private func elapsedText(_ now: Date) -> String {
+    let seconds = max(0, Int(now.timeIntervalSince(status.startedAt)))
+    if seconds >= 12 { return "已等待 \(seconds) 秒 · 接口源脚本较慢，可以继续等或取消" }
+    return "已等待 \(seconds) 秒"
+  }
+
+  var body: some View {
+    ZStack {
+      AppColor.scrim
+        .ignoresSafeArea()
+
+      VStack(alignment: .leading, spacing: 0) {
+        HStack(spacing: 12) {
+          ProgressView()
+            .progressViewStyle(.circular)
+            .tint(AppColor.primary)
+          Text("正在拉取章节")
+            .font(AppFont.titleMedium())
+            .foregroundColor(AppColor.onSurface)
+        }
+        Color.clear.frame(height: 14)
+
+        Text(status.title)
+          .font(AppFont.bodyMedium())
+          .foregroundColor(AppColor.onSurface)
+          .lineLimit(2)
+        Color.clear.frame(height: 6)
+
+        Text(status.step)
+          .font(AppFont.bodySmall())
+          .foregroundColor(AppColor.onSurfaceVariant)
+          .fixedSize(horizontal: false, vertical: true)
+        Color.clear.frame(height: 6)
+
+        TimelineView(.periodic(from: status.startedAt, by: 1)) { context in
+          Text(elapsedText(context.date))
+            .font(AppFont.labelSmall())
+            .foregroundColor(AppColor.onSurfaceVariant)
+        }
+        Color.clear.frame(height: 16)
+
+        HStack(spacing: 8) {
+          Spacer(minLength: 0)
+          Button(action: onCancel) {
+            Text("取消")
+              .font(AppFont.labelLarge())
+              .foregroundColor(AppColor.primary)
+              .padding(.horizontal, 12)
+              .frame(minWidth: 64, minHeight: 40)
+              .contentShape(Rectangle())
+          }
+          .buttonStyle(.plain)
+        }
+      }
+      .padding(24)
+      .frame(maxWidth: 320, alignment: .leading)
+      .background(
+        RoundedRectangle(cornerRadius: 28, style: .continuous)
+          .fill(AppColor.surfaceContainerHigh)
+      )
+      .padding(.horizontal, 24)
+    }
   }
 }

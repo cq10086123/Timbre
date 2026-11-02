@@ -178,7 +178,7 @@ struct PlayerView: View {
       if landscape {
         MarqueeText(
           text: book?.title ?? "",
-          font: AppFont.titleLarge(),
+          size: 22,
           color: AppColor.onSurface
         )
         .frame(height: 28)
@@ -238,7 +238,7 @@ struct PlayerView: View {
       Spacer(minLength: 0)
       MarqueeText(
         text: book?.title ?? "",
-        font: AppFont.headlineMedium(),
+        size: 28,
         color: AppColor.onSurface
       )
       .frame(height: 38)
@@ -296,7 +296,7 @@ struct PlayerView: View {
     // 安卓 nextPreviousVisible / chapterName 都由「整本有多少个播放单元」决定：
     // 只有一个单元时左右箭头和标题都不画（`currentMark.name.takeIf { hasMoreThanOneChapter }`）
     let arrows = (book?.playbackUnitCount ?? 0) > 1
-    let title = arrows ? player.currentUnitTitle : ""
+    let title = arrows ? chapterRowTitle : ""
     return HStack(spacing: 0) {
       if arrows {
         GlyphButton(glyph: .chevronLeft, iconSize: 36, label: "上一节") {
@@ -333,6 +333,39 @@ struct PlayerView: View {
       }
     }
     .padding(.horizontal, 8)
+  }
+
+  /// 章节行标题：以**章节名**为主，而不是接口源塞在 `markData` 里的那串「分段标题」。
+  ///
+  /// 在线书源的 mark 名经常就是专辑全名 / 出品方，直接显示出来既不像章节名，
+  /// 也把真正的第几集信息挤掉了（用户反馈原话：「没有像是章节名称而是一段标题」）。
+  /// 现在按「第 N 集 · 章节名 · k/M 段」拼，缺哪段就省哪段。
+  private var chapterRowTitle: String {
+    guard let book, let chapter = player.currentChapter else { return "" }
+    let marks = chapter.chapterMarks
+    let markName = marks.indices.contains(player.markIndex)
+      ? (marks[player.markIndex].name ?? "")
+      : ""
+    let chapterName = chapter.title.trimmingCharacters(in: .whitespacesAndNewlines)
+
+    var parts: [String] = []
+    if book.chapters.count > 1 {
+      parts.append("第 \(player.chapterIndex + 1) 集")
+    }
+    if book.chapters.count <= 1, marks.count > 1, !markName.isEmpty, markName != book.title {
+      // 整本只有一集（专辑型书源）：分段名才是「这一节」真正的名字
+      parts.append(markName)
+    } else if !chapterName.isEmpty, chapterName != book.title {
+      // 章节名跟书名一模一样（源偷懒）时不再重复一遍
+      parts.append(chapterName)
+    }
+    if marks.count > 1 {
+      parts.append("\(player.markIndex + 1)/\(marks.count) 段")
+    }
+    if parts.isEmpty {
+      return chapterName.isEmpty ? "第 \(player.chapterIndex + 1) 集" : chapterName
+    }
+    return parts.joined(separator: " · ")
   }
 
   // MARK: 进度行
