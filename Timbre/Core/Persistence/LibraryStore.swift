@@ -30,15 +30,28 @@ final class LibraryStore: ObservableObject {
     }
   }
 
-  /// delay > 0 时合并高频写入（播放进度每秒都在变）
+  /// 待落盘的那一次保存。合并式：新的一次会把上一次取消掉。
+  private var pendingSave: DispatchWorkItem?
+
+  /// delay > 0 时合并高频写入（播放进度每秒都在变、拖滑块一帧一次）。
+  ///
+  /// 之前这里是「每调一次就排一个 asyncAfter」——**不去重**。
+  /// 拖倍速滑块 2 秒 ≈ 120 帧，就排了 120 个闭包，1 秒后挤在主线程上
+  /// 同时把整个书库编码成 JSON（几百本书 + 几千章节），于是越拖越卡、松手后还在卡。
+  /// 现在只保留最后一次：拖多久都只编码一次。
   func save(delay: TimeInterval = 0) {
+    pendingSave?.cancel()
     if delay <= 0 {
+      pendingSave = nil
       persist()
-    } else {
-      DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-        self?.persist()
-      }
+      return
     }
+    let work = DispatchWorkItem { [weak self] in
+      self?.pendingSave = nil
+      self?.persist()
+    }
+    pendingSave = work
+    DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
   }
 
   private func persist() {

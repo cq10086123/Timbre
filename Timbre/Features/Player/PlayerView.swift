@@ -15,13 +15,8 @@ struct PlayerView: View {
   @State private var showGain = false
   @State private var showBookmarks = false
   @State private var showOverflow = false
-  @State private var dragValue: Double?
 
   private var book: Book? { player.currentBook }
-
-  /// 进度条上的已播秒数 —— 对齐安卓：显示的是**当前分段内**的位置，
-  /// 一个章里有多个分段时，进度条走到头就换下一段，而不是走完整章。
-  private var displayPosition: Double { dragValue ?? player.unitPosition }
 
   var body: some View {
     GeometryReader { geo in
@@ -374,38 +369,9 @@ struct PlayerView: View {
   // MARK: 进度行
 
   private var sliderRow: some View {
-    HStack(spacing: 0) {
-      // 两段时间固定宽度 + 等宽数字：否则 0:00:00 → 1:23:45 之间宽度变化会把滑块挤得左右跳
-      Text(Format.clockString(displayPosition, duration: player.unitDuration))
-        .font(AppFont.bodyLarge())
-        .monospacedDigit()
-        .foregroundColor(AppColor.onSurface)
-        .lineLimit(1)
-        .fixedSize()
-        .frame(minWidth: 58, alignment: .leading)
-      ExpressiveSlider(
-        value: Binding(
-          get: { dragValue ?? player.unitProgressFraction },
-          set: { dragValue = $0 * player.unitDuration }
-        ),
-        onEditingChanged: { editing in
-          if !editing, let preview = dragValue {
-            // 拖的是分段内的位置，加回分段起点才是章内绝对位置
-            player.seek(to: player.unitStart + preview)
-            dragValue = nil
-          }
-        }
-      )
-      .padding(.horizontal, 8)
-      Text(Format.clockString(player.unitDuration, duration: player.unitDuration))
-        .font(AppFont.bodyLarge())
-        .monospacedDigit()
-        .foregroundColor(AppColor.onSurface)
-        .lineLimit(1)
-        .fixedSize()
-        .frame(minWidth: 58, alignment: .trailing)
-    }
-    .padding(.horizontal, 16)
+    // 拖动状态放在 ProgressRow 内部：留在播放页会让整个 body 每帧重算
+    // （封面、章节抽屉、分段名…全跟着重建），拖起来就是一顿一顿的。
+    ProgressRow(player: player)
   }
 
   // MARK: 播放控制行
@@ -458,11 +424,72 @@ struct PlayerView: View {
   }
 }
 
+// MARK: - 进度条那一行
+
+/// 拖动状态只留在这一行里。
+///
+/// 之前 `dragValue` 是播放页的 `@State`，拖动时每一帧都让整个播放页重算
+/// （封面、章节抽屉、分段名全跟着重建），越拖越沉，最后划不动。
+/// 现在只有这一行跟着帧更新，播放页不再参与。
+private struct ProgressRow: View {
+  @ObservedObject var player: PlaybackEngine
+  /// 拖动中的分段内秒数；nil = 跟随播放进度
+  @State private var preview: Double?
+
+  /// 对齐安卓：进度条显示的是**当前分段内**的位置，
+  /// 一个章里有多个分段时，走到头就换下一段，而不是走完整章。
+  private var shown: Double { preview ?? player.unitPosition }
+
+  private var fraction: Double {
+    let total = player.unitDuration
+    guard total > 0 else { return 0 }
+    return min(1, max(0, shown / total))
+  }
+
+  var body: some View {
+    HStack(spacing: 0) {
+      // 两段时间固定宽度 + 等宽数字：否则 0:00:00 → 1:23:45 之间宽度变化会把滑块挤得左右跳
+      Text(Format.clockString(shown, duration: player.unitDuration))
+        .font(AppFont.bodyLarge())
+        .monospacedDigit()
+        .foregroundColor(AppColor.onSurface)
+        .lineLimit(1)
+        .fixedSize()
+        .frame(minWidth: 58, alignment: .leading)
+      ExpressiveSlider(
+        value: Binding(
+          get: { fraction },
+          set: { preview = $0 * player.unitDuration }
+        ),
+        onEditingChanged: { editing in
+          if !editing, let seconds = preview {
+            // 拖的是分段内的位置，加回分段起点才是章内绝对位置
+            player.seek(to: player.unitStart + seconds)
+            preview = nil
+          }
+        }
+      )
+      .padding(.horizontal, 8)
+      Text(Format.clockString(player.unitDuration, duration: player.unitDuration))
+        .font(AppFont.bodyLarge())
+        .monospacedDigit()
+        .foregroundColor(AppColor.onSurface)
+        .lineLimit(1)
+        .fixedSize()
+        .frame(minWidth: 58, alignment: .trailing)
+    }
+    .padding(.horizontal, 16)
+  }
+}
+
 // MARK: - Material3 Expressive 滑块（16dp 轨道 + 竖条 thumb + 末端圆点）
 
 struct ExpressiveSlider: View {
   @Binding var value: Double
   var onEditingChanged: (Bool) -> Void
+
+  /// 本次手势是否已经发过「开始」信号
+  @State private var dragging = false
 
   var body: some View {
     GeometryReader { geo in
@@ -491,11 +518,16 @@ struct ExpressiveSlider: View {
       .gesture(
         DragGesture(minimumDistance: 0)
           .onChanged { gesture in
-            onEditingChanged(true)
+            // 开始信号只发一次：之前每帧都发，调用方每帧都要判一遍
+            if !dragging {
+              dragging = true
+              onEditingChanged(true)
+            }
             value = min(1, max(0, gesture.location.x / max(width, 1)))
           }
           .onEnded { gesture in
             value = min(1, max(0, gesture.location.x / max(width, 1)))
+            dragging = false
             onEditingChanged(false)
           }
       )

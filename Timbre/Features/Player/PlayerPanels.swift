@@ -358,32 +358,47 @@ private struct ContinuousPressIcon: View {
 struct SpeedSheet: View {
   @ObservedObject var player: PlaybackEngine
 
+  /// 拖动中的归一化预览值。拖动期间**不碰 player**：
+  /// 以前每帧都调 `setSpeed()`，它要改 `@Published speed`、改 `library.books`
+  /// 并落盘、还要刷一次锁屏信息 —— 一秒 60 次的活，滑块直接划不动。
+  @State private var preview: Double?
+
   /// 安卓 `maxSpeed = if (speed < 2F) 2F else 3.5F`
   private var maxSpeed: Double { player.speed < 2 ? 2 : 3.5 }
 
   /// 0.5 … maxSpeed 的归一化位置
-  private var normalized: Double {
+  private var liveFraction: Double {
     let clamped = min(max(player.speed, 0.5), maxSpeed)
     let span = max(maxSpeed - 0.5, 0.0001)
     return (clamped - 0.5) / span
   }
 
+  /// 预览值 → 真实倍速（步进 0.05，对齐安卓 steps = rangeSize / 0.05 - 1）
+  private func speed(fromFraction fraction: Double) -> Double {
+    let raw = 0.5 + min(1, max(0, fraction)) * (maxSpeed - 0.5)
+    return (raw / 0.05).rounded() * 0.05
+  }
+
+  private var shownSpeed: Double {
+    preview.map { speed(fromFraction: $0) } ?? player.speed
+  }
+
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
       // 安卓 DecimalFormat("0.00 x")：AlertDialog 正文色是 onSurfaceVariant
-      Text("播放速度: \(Format.speed(player.speed))")
+      Text("播放速度: \(Format.speed(shownSpeed))")
         .font(AppFont.bodyMedium())
         .foregroundColor(AppColor.onSurfaceVariant)
       ExpressiveSlider(
         value: Binding(
-          get: { normalized },
-          set: { value in
-            // 步进 0.05，落点吸附到刻度上（安卓 steps = rangeSize / 0.05 - 1）
-            let raw = 0.5 + value * (maxSpeed - 0.5)
-            player.setSpeed((raw / 0.05).rounded() * 0.05)
-          }
+          get: { preview ?? liveFraction },
+          set: { preview = $0 }
         ),
-        onEditingChanged: { _ in }
+        onEditingChanged: { editing in
+          guard !editing, let fraction = preview else { return }
+          player.setSpeed(speed(fromFraction: fraction))
+          preview = nil
+        }
       )
     }
   }
@@ -396,28 +411,40 @@ struct SkipIntroOutroSheet: View {
   var book: Book?
   @ObservedObject var library: LibraryStore
 
+  /// 拖动中的预览（0…1）。拖动期间不写库 —— 否则一帧一次整库编码 + 落盘。
+  @State private var introPreview: Double?
+  @State private var outroPreview: Double?
+
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
-      Text(rowTitle("跳过片头", value: intro))
+      Text(rowTitle("跳过片头", value: introShown))
         .font(AppFont.bodyMedium())
         .foregroundColor(AppColor.onSurfaceVariant)
       ExpressiveSlider(
         value: Binding(
-          get: { Double(intro) / Self.maxSeconds },
-          set: { setIntro(Int(($0 * Self.maxSeconds).rounded())) }
+          get: { introPreview ?? Double(intro) / Self.maxSeconds },
+          set: { introPreview = $0 }
         ),
-        onEditingChanged: { _ in }
+        onEditingChanged: { editing in
+          guard !editing, let fraction = introPreview else { return }
+          setIntro(Self.seconds(fromFraction: fraction))
+          introPreview = nil
+        }
       )
       Color.clear.frame(height: 16)
-      Text(rowTitle("跳过片尾", value: outro))
+      Text(rowTitle("跳过片尾", value: outroShown))
         .font(AppFont.bodyMedium())
         .foregroundColor(AppColor.onSurfaceVariant)
       ExpressiveSlider(
         value: Binding(
-          get: { Double(outro) / Self.maxSeconds },
-          set: { setOutro(Int(($0 * Self.maxSeconds).rounded())) }
+          get: { outroPreview ?? Double(outro) / Self.maxSeconds },
+          set: { outroPreview = $0 }
         ),
-        onEditingChanged: { _ in }
+        onEditingChanged: { editing in
+          guard !editing, let fraction = outroPreview else { return }
+          setOutro(Self.seconds(fromFraction: fraction))
+          outroPreview = nil
+        }
       )
     }
   }
@@ -425,8 +452,18 @@ struct SkipIntroOutroSheet: View {
   /// 安卓 SKIP_TIME_MAX_SECONDS = 120
   private static let maxSeconds: Double = 120
 
+  private static func seconds(fromFraction fraction: Double) -> Int {
+    Int((min(1, max(0, fraction)) * maxSeconds).rounded())
+  }
+
   private var intro: Int { book?.skipIntro ?? 0 }
   private var outro: Int { book?.skipOutro ?? 0 }
+  private var introShown: Int {
+    introPreview.map { Self.seconds(fromFraction: $0) } ?? intro
+  }
+  private var outroShown: Int {
+    outroPreview.map { Self.seconds(fromFraction: $0) } ?? outro
+  }
 
   private func rowTitle(_ label: String, value: Int) -> String {
     value == 0 ? "\(label): 关闭" : "\(label): \(value) 秒"
@@ -449,19 +486,29 @@ struct VolumeGainPanel: View {
   @ObservedObject var player: PlaybackEngine
   var book: Book?
 
+  /// 拖动中的预览（0…1）。setLoudnessGain 会重建音频处理链，一帧一次根本扛不住。
+  @State private var preview: Double?
+
   private var gain: Double { book?.loudnessGain ?? 0 }
+  private var shownGain: Double {
+    preview.map { min(1, max(0, $0)) * Self.maxGain } ?? gain
+  }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
-      Text("音量提升: \(String(format: "%.1f", gain)) dB")
+      Text("音量提升: \(String(format: "%.1f", shownGain)) dB")
         .font(AppFont.bodyMedium())
         .foregroundColor(AppColor.onSurfaceVariant)
       ExpressiveSlider(
         value: Binding(
-          get: { gain / Self.maxGain },
-          set: { player.setLoudnessGain($0 * Self.maxGain) }
+          get: { preview ?? gain / Self.maxGain },
+          set: { preview = $0 }
         ),
-        onEditingChanged: { _ in }
+        onEditingChanged: { editing in
+          guard !editing, let fraction = preview else { return }
+          player.setLoudnessGain(min(1, max(0, fraction)) * Self.maxGain)
+          preview = nil
+        }
       )
     }
   }
