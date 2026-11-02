@@ -188,7 +188,9 @@ enum WebDavRestoreResult {
     serverName: String,
     label: String?,
     /// 备份里有、本机没有的 WebDAV 书：它们的章节来自服务器，得先重新添加书源
-    missingWebDav: Int
+    missingWebDav: Int,
+    /// 本机有这本书但章节还没就绪（空列表），进度没法合上 —— 对齐安卓的失败提示
+    incomplete: Int
   )
   case noServer
   case noFolder

@@ -188,6 +188,9 @@ struct Book: Codable, Identifiable, Hashable {
   var lastPlayedAt: Date?
   /// 是否已经读过音频文件里的内嵌章节。读不到也算读过，别每次启动重扫一遍
   var marksScanned: Bool
+  /// 在线书恢复备份时记下的目标章节 id。章节还没拉齐时无法换算成章节数，
+  /// 先记在这里，打开播放页拉齐章节后再解析成 position.chapterIndex
+  var pendingChapterId: String?
 
   init(
     id: String = UUID().uuidString,
@@ -212,7 +215,8 @@ struct Book: Codable, Identifiable, Hashable {
     introSkippedChapter: Int = -1,
     webdavServerId: String? = nil,
     lastPlayedAt: Date? = nil,
-    marksScanned: Bool = false
+    marksScanned: Bool = false,
+    pendingChapterId: String? = nil
   ) {
     self.id = id
     self.title = title
@@ -237,13 +241,14 @@ struct Book: Codable, Identifiable, Hashable {
     self.webdavServerId = webdavServerId
     self.lastPlayedAt = lastPlayedAt
     self.marksScanned = marksScanned
+    self.pendingChapterId = pendingChapterId
   }
 
   private enum CodingKeys: String, CodingKey {
     case id, title, author, kind, folder, coverFile, chapters, addedAt, position
     case bookmarks, skipIntro, skipOutro, speed, sourceId, sourceName, remoteBookId, sourceExtraJSON
     case introSkippedChapter, webdavServerId, lastPlayedAt, marksScanned
-    case loudnessGain, skipSilence
+    case loudnessGain, skipSilence, pendingChapterId
   }
 
   init(from decoder: Decoder) throws {
@@ -271,6 +276,16 @@ struct Book: Codable, Identifiable, Hashable {
     webdavServerId = try c.decodeIfPresent(String.self, forKey: .webdavServerId)
     lastPlayedAt = try c.decodeIfPresent(Date.self, forKey: .lastPlayedAt)
     marksScanned = try c.decodeIfPresent(Bool.self, forKey: .marksScanned) ?? false
+    pendingChapterId = try c.decodeIfPresent(String.self, forKey: .pendingChapterId)
+  }
+
+  /// 在线书章节还没就绪：列表是空的，或者恢复备份记下的目标章节不在列表里。
+  /// 打开播放页前要先拉齐章节（对齐安卓「恢复只记账、打开时再拉」）。
+  var needsChapterFetch: Bool {
+    guard kind == .jdr else { return false }
+    if chapters.isEmpty { return true }
+    guard let pending = pendingChapterId, !pending.isEmpty else { return false }
+    return !chapters.contains { $0.id == pending }
   }
 
   /// 已听百分比（0...1），时长未知时按已播章节数估算

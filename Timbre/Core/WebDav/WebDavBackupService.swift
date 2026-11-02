@@ -167,6 +167,7 @@ final class WebDavBackupService {
     }
 
     var restored = 0
+    var incomplete = 0
     var missingWebDav = 0
     for entry in payload.books {
       let entryFolder = Self.remotePath(of: entry.id) ?? entry.id
@@ -185,25 +186,34 @@ final class WebDavBackupService {
         }
         continue
       }
-      apply(entry, to: &book)
-      library.update(book)
-      restored += 1
+      if apply(entry, to: &book) {
+        library.update(book)
+        restored += 1
+      } else {
+        // 本机有这本书但章节还没就绪（导入没完成）：不静默吞掉，
+        // 对齐安卓——明说这本书的进度没有合上
+        incomplete += 1
+        DLog("webdav", "「\(entry.name)」章节还没就绪，进度未恢复（等导入完成后再恢复一次）")
+      }
     }
 
     // 在线书：安卓 extras.online。不在 books 里，单独按 source::bookId 上架。
+    // 只记账不拉章节（对齐安卓：章节第一次打开时才从接口源拉）。
     let onlineEntries = payload.extras?["online"] ?? []
-    let onlineRestored = await restoreOnline(onlineEntries)
+    let onlineRestored = restoreOnline(onlineEntries)
 
     let cleanLabel = label?.trimmingCharacters(in: .whitespacesAndNewlines)
     DLog(
-      "webdav", "恢复完成 \(restored + onlineRestored)/\(payload.books.count + onlineEntries.count) 本，缺 WebDAV \(missingWebDav) 本"
+      "webdav",
+      "恢复完成 \(restored + onlineRestored)/\(payload.books.count + onlineEntries.count) 本，缺 WebDAV \(missingWebDav) 本，章节未就绪 \(incomplete) 本"
     )
     return .success(
       restored: restored + onlineRestored,
       total: payload.books.count + onlineEntries.count,
       serverName: resolved.location.serverName,
       label: (cleanLabel?.isEmpty ?? true) ? nil : cleanLabel,
-      missingWebDav: missingWebDav
+      missingWebDav: missingWebDav,
+      incomplete: incomplete
     )
   }
 
@@ -307,9 +317,11 @@ final class WebDavBackupService {
     )
   }
 
-  /// 存着的那一集可能已经没了（文件被换掉），那时只有第一章的位置是安全的
-  private func apply(_ entry: WebDavBackupBook, to book: inout Book) {
-    guard !book.chapters.isEmpty else { return }
+  /// 存着的那一集可能已经没了（文件被换掉），那时只有第一章的位置是安全的。
+  /// 返回 false = 这本书章节还没就绪，进度没法合上。
+  @discardableResult
+  private func apply(_ entry: WebDavBackupBook, to book: inout Book) -> Bool {
+    guard !book.chapters.isEmpty else { return false }
     // 优先按本端章节 id 对（iOS↔iOS）；跨端时安卓的 currentChapter 是音频文件 URL，
     // 对本端 remoteURL（完整 URL 或解码路径，主机地址内网外网不同也能对上）
     let index =
@@ -331,6 +343,7 @@ final class WebDavBackupService {
     book.loudnessGain = Double(entry.gain)
     // 写完位置会被盖成「现在」，把备份里的时间写回去才能保住最近播放的排序
     book.lastPlayedAt = playedAt ?? book.lastPlayedAt
+    return true
   }
 
   // MARK: - 在线书（extras.online，对齐安卓 OnlineShelfBackupContributor）
@@ -371,40 +384,25 @@ final class WebDavBackupService {
     )
   }
 
-  /// 恢复 extras.online：按 source::bookId 上架，章节现场从接口源拉。
-  /// 章节 id 由书源脚本给出，两端同源，所以 currentChapterId 能直接对位。
+  /// 恢复 extras.online：只把书记回书架（source::bookId + 目标章节 id + 进度 + 偏好），
+  /// **不现场拉章节** —— 对齐安卓 OnlineShelfBackupContributor：章节列表不在备份里，
+  /// 也不在恢复时拉，而是第一次打开这本书时才从接口源拉
+  /// （打开路径走 Book.needsChapterFetch → AppState 拉齐后解析 pendingChapterId）。
   /// 返回恢复成功的本数。
-  private func restoreOnline(_ entries: [OnlineBackupEntry]) async -> Int {
+  private func restoreOnline(_ entries: [OnlineBackupEntry]) -> Int {
     guard !entries.isEmpty else { return 0 }
     var restored = 0
     for entry in entries {
       guard let sourceId = entry.source, !sourceId.isEmpty,
-        let remoteBookId = entry.bookId, !remoteBookId.isEmpty,
-        let installed = resolveOnlineSource(withId: sourceId),
-        let script = extensions.scriptText(for: installed)
+        let remoteBookId = entry.bookId, !remoteBookId.isEmpty
       else {
-        DLog("webdav", "在线书「\(entry.title ?? "-")」跳过：找不到接口源 \(entry.source ?? "-")")
+        DLog("webdav", "在线书「\(entry.title ?? "-")」跳过：source / bookId 缺失")
         continue
       }
-      let chapters: [Chapter]
-      do {
-        chapters = try await ExtensionSourceService.shared.chapters(
-          script: script,
-          allowInsecure: installed.allowInsecure,
-          bookId: remoteBookId,
-          extraJSON: nil
-        )
-      } catch {
-        DLog("webdav", "在线书「\(entry.title ?? remoteBookId)」拉章节失败：\(error.localizedDescription)")
-        continue
-      }
-      guard !chapters.isEmpty else { continue }
-
-      // 已在书架上（同源 + 同书 id）只合并进度；不在才新建
+      // 已在书架上（同源 + 同书 id）合并进度；不在才新建
       if var existing = library.books.first(where: {
         $0.kind == .jdr && $0.sourceId == sourceId && $0.remoteBookId == remoteBookId
       }) {
-        if existing.chapters.isEmpty { existing.chapters = chapters }
         applyOnline(entry, to: &existing)
         library.update(existing)
       } else {
@@ -412,18 +410,24 @@ final class WebDavBackupService {
           title: entry.title ?? "",
           author: entry.author ?? "",
           kind: .jdr,
-          chapters: chapters,
+          chapters: [],
           addedAt: Self.millisToDate(entry.addedAt) ?? Date(),
+          position: PlaybackPosition(
+            chapterIndex: 0,
+            seconds: max(0, Double(entry.positionInChapter ?? 0) / 1000),
+            updatedAt: Self.millisToDate(entry.addedAt)
+          ),
           skipIntro: max(0, Int(entry.skipIntro ?? 0) / 1000),
           skipOutro: max(0, Int(entry.skipOutro ?? 0) / 1000),
           speed: Double(entry.playbackSpeed ?? 0) > 0 ? Double(entry.playbackSpeed ?? 1) : 1.0,
           loudnessGain: Double(entry.gain ?? 0),
           skipSilence: entry.skipSilence ?? false,
           sourceId: sourceId,
-          sourceName: installed.displayName,
-          remoteBookId: remoteBookId
+          // 源已卸载也照常上架（对齐安卓），打开时再报「找不到接口源」
+          sourceName: extensions.source(withId: sourceId)?.displayName,
+          remoteBookId: remoteBookId,
+          pendingChapterId: entry.currentChapterId?.isEmpty == false ? entry.currentChapterId : nil
         )
-        applyOnline(entry, to: &book)
         restoreCover(entry, into: &book)
         library.add(book)
       }
@@ -432,17 +436,32 @@ final class WebDavBackupService {
     return restored
   }
 
-  /// 在线书进度合并：章节按 currentChapterId 对位
+  /// 在线书进度合并。章节列表在手且能对上备份的目标章节就直接定位；
+  /// 对不上（列表为空或过时）先记账 pendingChapterId，打开时拉齐章节再换算。
   private func applyOnline(_ entry: OnlineBackupEntry, to book: inout Book) {
-    guard !book.chapters.isEmpty else { return }
-    let index =
-      book.chapters.firstIndex { $0.id == entry.currentChapterId }
-      ?? min(max(0, book.position.chapterIndex), book.chapters.count - 1)
-    book.position = PlaybackPosition(
-      chapterIndex: index,
-      seconds: max(0, Double(entry.positionInChapter ?? 0) / 1000),
-      updatedAt: Self.millisToDate(entry.addedAt)
-    )
+    let seconds = max(0, Double(entry.positionInChapter ?? 0) / 1000)
+    let playedAt = Self.millisToDate(entry.addedAt)
+    if let pending = entry.currentChapterId, !pending.isEmpty,
+      let index = book.chapters.firstIndex(where: { $0.id == pending })
+    {
+      book.position = PlaybackPosition(chapterIndex: index, seconds: seconds, updatedAt: playedAt)
+      book.pendingChapterId = nil
+    } else {
+      book.pendingChapterId =
+        entry.currentChapterId?.isEmpty == false ? entry.currentChapterId : nil
+      book.position = PlaybackPosition(
+        chapterIndex: book.position.chapterIndex,
+        seconds: seconds,
+        updatedAt: playedAt
+      )
+    }
+    let speed = Double(entry.playbackSpeed ?? 0)
+    if speed > 0 { book.speed = speed }
+    // 安卓侧单位是毫秒，iOS 的 skipIntro/skipOutro 是秒，必须换算
+    book.skipIntro = max(0, Int(entry.skipIntro ?? 0) / 1000)
+    book.skipOutro = max(0, Int(entry.skipOutro ?? 0) / 1000)
+    book.skipSilence = entry.skipSilence ?? book.skipSilence
+    book.loudnessGain = Double(entry.gain ?? 0)
   }
 
   /// 封面：base64 写进 Covers/ 并挂到书上
@@ -459,13 +478,6 @@ final class WebDavBackupService {
     }
     book.coverFile = "Covers/\(name)"
     CoverStore.clear()
-  }
-
-  /// 按备份里的 source 找接口源；找不到且本机只启用了一个源时兜底用唯一源
-  private func resolveOnlineSource(withId id: String) -> InstalledSource? {
-    if let found = extensions.source(withId: id) { return found }
-    let enabled = extensions.enabledSources
-    return enabled.count == 1 ? enabled[0] : nil
   }
 
   private static func millisToDate(_ millis: Int64?) -> Date? {

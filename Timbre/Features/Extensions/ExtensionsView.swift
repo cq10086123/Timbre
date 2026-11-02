@@ -140,7 +140,10 @@ struct ExtensionsView: View {
           // 默认预填项目自带的参考源（仓库 samples/Timbre.jdr 的 GitHub 直链），
           // 不需要的话清掉换成自己的链接就行
           linkText = Self.defaultSourceURL
-          showLinkDialog = true
+          // iOS 16 的 alert TextField 有个渲染怪癖：同一帧里先赋值再弹出，
+          // 输入框显示成空白（文本其实已经写进去了，所以点导入能正常用）。
+          // 延一拍再弹，让预填的链接看得见。
+          DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { showLinkDialog = true }
         }
       )
       .disabled(busy)

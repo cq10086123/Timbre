@@ -10,7 +10,10 @@ struct WebDavBackupView: View {
     case idle
     case busy
     case backupDone(books: Int, server: String, label: String?)
-    case restoreDone(restored: Int, total: Int, server: String, label: String?, missingWebDav: Int)
+    case restoreDone(
+      restored: Int, total: Int, server: String, label: String?, missingWebDav: Int,
+      incomplete: Int
+    )
     case text(String, Bool)  // 文案, 是否是错误
   }
 
@@ -45,7 +48,14 @@ struct WebDavBackupView: View {
   }
 
   private var restoreMissingWebDav: Int? {
-    if case .restoreDone(_, _, _, _, let missing) = status, missing > 0 { return missing }
+    if case .restoreDone(_, _, _, _, let missing, _) = status, missing > 0 { return missing }
+    return nil
+  }
+
+  private var restoreIncomplete: Int? {
+    if case .restoreDone(_, _, _, _, _, let incomplete) = status, incomplete > 0 {
+      return incomplete
+    }
     return nil
   }
 
@@ -88,6 +98,17 @@ struct WebDavBackupView: View {
           if let missing = restoreMissingWebDav {
             Text(
               "有 \(missing) 本 WebDAV 书籍还没导入进来，需先重新添加对应书源并等扫描完成，再恢复一次才能合上进度"
+            )
+            .font(AppFont.bodySmall())
+            .foregroundColor(AppColor.primary)
+            .padding(.horizontal, 16)
+            .padding(.bottom, 8)
+            .fixedSize(horizontal: false, vertical: true)
+          }
+
+          if let incomplete = restoreIncomplete {
+            Text(
+              "有 \(incomplete) 本书的章节还没就绪（本地章节是空的），这次没有合上进度——等这本书的章节导入完成后，再恢复一次即可"
             )
             .font(AppFont.bodySmall())
             .foregroundColor(AppColor.primary)
@@ -231,13 +252,14 @@ struct WebDavBackupView: View {
     Task {
       let result = await app.backup.restore(label: label)
       switch result {
-      case .success(let restored, let total, let server, let usedLabel, let missing):
+      case .success(let restored, let total, let server, let usedLabel, let missing, let incomplete):
         status = .restoreDone(
           restored: restored,
           total: total,
           server: server,
           label: usedLabel,
-          missingWebDav: missing
+          missingWebDav: missing,
+          incomplete: incomplete
         )
       case .noServer:
         status = .text("请先添加一个 WebDAV 服务器", true)

@@ -161,10 +161,30 @@ final class AppState: ObservableObject {
   /// 打开播放页。默认**不自动播放** —— 安卓点书架上的书只是 `goTo(Playback(bookId))`，
   /// 播放要等用户按播放键；只有「播这一集」这种明确意图才传 `autoplay: true`。
   func openBook(_ book: Book, chapterIndex: Int? = nil, autoplay: Bool = false) {
+    // 在线书章节还没就绪（恢复备份只记账不拉章节，对齐安卓「打开时再拉」）：
+    // 先拉齐、解析出目标章节，再进播放页
+    if book.needsChapterFetch {
+      Task { await fetchChaptersThenOpen(book, chapterIndex: chapterIndex, autoplay: autoplay) }
+      return
+    }
     DLog("shelf", "打开播放页 书=\(book.title) 集=\((chapterIndex ?? book.position.chapterIndex) + 1)")
     let index = chapterIndex ?? (book.position.isStarted ? book.position.chapterIndex : 0)
     player.open(book, chapterIndex: index, autoplay: autoplay)
     showPlayer = true
+  }
+
+  /// 在线书首次打开：拉章节 → 把恢复备份记下的 pendingChapterId 换算成真正的章节数 → 进播放页
+  @MainActor
+  private func fetchChaptersThenOpen(_ book: Book, chapterIndex: Int?, autoplay: Bool) async {
+    // 大部头拉章节要几十秒，先给个反馈，别让用户以为点了没反应
+    showToast("正在拉取《\(book.title)》的章节…")
+    let message = await refreshOnlineChapters(book)
+    guard let updated = library.book(withId: book.id), !updated.chapters.isEmpty else {
+      // 拉失败 / 接口源没了：给个说法，别让用户对着没反应的界面猜
+      showToast(message)
+      return
+    }
+    openBook(updated, chapterIndex: chapterIndex, autoplay: autoplay)
   }
 
   func playChapter(bookId: String, index: Int) {
@@ -315,10 +335,35 @@ final class AppState: ObservableObject {
       )
       guard !fresh.isEmpty else { return "接口源这次没有返回章节" }
       let result = library.mergeChapters(bookId: book.id, fresh: fresh)
+      // 恢复备份记下的目标章节现在能对位了，把 pendingChapterId 换算成真正的章节数
+      resolvePendingChapter(bookId: book.id)
       if result.added > 0 { return "已刷新，新增 \(result.added) 集，共 \(result.total) 集" }
       return "已刷新，共 \(result.total) 集（没有新增）"
     } catch {
       return "刷新失败：\(error.localizedDescription)"
+    }
+  }
+
+  /// 恢复备份时在线书只记了 pendingChapterId（章节没拉齐无法换算章节数），
+  /// 章节拉齐后在这里把 position.chapterIndex 解析出来。
+  /// 对不上也要把记账清掉，否则打开路径会判定「章节没就绪」反复重拉。
+  @MainActor
+  private func resolvePendingChapter(bookId: String) {
+    guard var book = library.book(withId: bookId),
+      let pending = book.pendingChapterId, !pending.isEmpty
+    else { return }
+    book.pendingChapterId = nil
+    if let index = book.chapters.firstIndex(where: { $0.id == pending }) {
+      book.position = PlaybackPosition(
+        chapterIndex: index,
+        seconds: max(0, book.position.seconds),
+        updatedAt: book.position.updatedAt
+      )
+      library.update(book)
+      DLog("shelf", "恢复的目标章节已对位 集=\(index + 1) 起=\(Int(book.position.seconds))s")
+    } else {
+      library.update(book)
+      DLog("shelf", "恢复记下的章节 \(pending) 在最新列表里找不到，退回恢复时的位置")
     }
   }
 
