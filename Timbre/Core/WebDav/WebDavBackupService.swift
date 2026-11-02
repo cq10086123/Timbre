@@ -134,6 +134,25 @@ final class WebDavBackupService {
     let local = library.books
     var byId: [String: Book] = [:]
     for book in local where byId[book.id] == nil { byId[book.id] = book }
+    // 跨端匹配：安卓备份里 WebDAV 书的 id 是目录 URL（去尾斜杠、百分号编码）。
+    // 本机 WebDAV 书的目录 URL 从章节 remoteURL 的上级目录推导，与 book.id 的格式无关。
+    // 同一台 NAS 常有内网/外网两套地址（host:port 不同、路径相同），
+    // 所以完整 URL 之外再按「解码后的路径」建一份索引。
+    var byRemoteFolder: [String: Book] = [:]
+    var byRemotePath: [String: Book] = [:]
+    for book in local where book.kind == .webdav {
+      guard let folder = Self.remoteFolderURL(of: book) else { continue }
+      if let normalized = Self.normalizeRemoteUrl(folder) {
+        if byRemoteFolder[normalized] == nil { byRemoteFolder[normalized] = book }
+        if let decoded = normalized.removingPercentEncoding ?? normalized,
+          byRemoteFolder[decoded] == nil {
+          byRemoteFolder[decoded] = book
+        }
+      }
+      if let path = Self.remotePath(of: folder), byRemotePath[path] == nil {
+        byRemotePath[path] = book
+      }
+    }
     var byFallback: [String: Book] = [:]
     for book in local where byFallback[Self.fallbackKey(book)] == nil {
       byFallback[Self.fallbackKey(book)] = book
@@ -142,7 +161,16 @@ final class WebDavBackupService {
     var restored = 0
     var missingWebDav = 0
     for entry in payload.books {
-      guard var book = byId[entry.id] ?? byFallback[Self.fallbackKey(entry)] else {
+      let entryFolder = Self.remotePath(of: entry.id) ?? entry.id
+      var matched =
+        byId[entry.id]
+        ?? byRemoteFolder[entry.id]
+        ?? byRemotePath[entryFolder]
+        ?? byFallback[Self.fallbackKey(entry)]
+      if matched == nil, let decoded = entry.id.removingPercentEncoding {
+        matched = byRemoteFolder[decoded]
+      }
+      guard var book = matched else {
         // WebDAV 书没法在这儿凭空造出来：章节来自服务器，得先把书源加回来
         if entry.id.hasPrefix("http://") || entry.id.hasPrefix("https://") {
           missingWebDav += 1
@@ -234,14 +262,24 @@ final class WebDavBackupService {
     let index = book.chapters.isEmpty
       ? 0
       : min(max(0, book.position.chapterIndex), book.chapters.count - 1)
-    let chapterId = book.chapters.indices.contains(index) ? book.chapters[index].id : ""
+    let chapter = book.chapters.indices.contains(index) ? book.chapters[index] : nil
+    var id = book.id
+    var currentChapter = chapter?.id ?? ""
+    // 跨端一致的键：WebDAV 书在安卓那边 id 就是目录 URL（去尾斜杠），
+    // currentChapter 就是音频文件 URL。按这个格式写，备份才能两端互相恢复。
+    if book.kind == .webdav, let chapter,
+      let fileURL = chapter.remoteURL.flatMap({ URL(string: $0) }) {
+      let folder = fileURL.deletingLastPathComponent().absoluteString
+      if let normalized = Self.normalizeRemoteUrl(folder) { id = normalized }
+      currentChapter = fileURL.absoluteString
+    }
     let lastPlayed = book.lastPlayedAt ?? book.position.updatedAt ?? book.addedAt
     return WebDavBackupBook(
-      id: book.id,
+      id: id,
       name: book.title,
       author: book.author.isEmpty ? nil : book.author,
       isActive: true,
-      currentChapter: chapterId,
+      currentChapter: currentChapter,
       positionInChapter: Int64((max(0, book.position.seconds) * 1000).rounded()),
       lastPlayedAt: Self.isoString(lastPlayed),
       playbackSpeed: Float(book.speed),
@@ -257,7 +295,12 @@ final class WebDavBackupService {
   /// 存着的那一集可能已经没了（文件被换掉），那时只有第一章的位置是安全的
   private func apply(_ entry: WebDavBackupBook, to book: inout Book) {
     guard !book.chapters.isEmpty else { return }
-    let index = book.chapters.firstIndex { $0.id == entry.currentChapter } ?? 0
+    // 优先按本端章节 id 对（iOS↔iOS）；跨端时安卓的 currentChapter 是音频文件 URL，
+    // 对本端 remoteURL（完整 URL 或解码路径，主机地址内网外网不同也能对上）
+    let index =
+      book.chapters.firstIndex { $0.id == entry.currentChapter }
+      ?? book.chapters.firstIndex { Self.chapterMatches($0, entryChapter: entry.currentChapter) }
+      ?? 0
     let seconds = max(0, Double(entry.positionInChapter) / 1000)
     let playedAt = Self.date(from: entry.lastPlayedAt)
     book.position = PlaybackPosition(
@@ -272,6 +315,50 @@ final class WebDavBackupService {
     book.loudnessGain = Double(entry.gain)
     // 写完位置会被盖成「现在」，把备份里的时间写回去才能保住最近播放的排序
     book.lastPlayedAt = playedAt ?? book.lastPlayedAt
+  }
+
+  // MARK: - 跨端 URL 对齐（对齐安卓 RemoteUrl.normalizeRemoteUrl / WebDAV 书 id 语义）
+
+  /// 安卓 `normalizeRemoteUrl`：http(s) 目录 URL 去掉尾斜杠（"http://" 本身保留）
+  static func normalizeRemoteUrl(_ value: String) -> String? {
+    guard let sep = value.range(of: "://") else { return value }
+    let scheme = value[..<sep.lowerBound]
+    guard scheme.lowercased() == "http" || scheme.lowercased() == "https" else { return value }
+    if value.contains("?") || value.contains("#") { return value }
+    var trimmed = value
+    while trimmed.hasSuffix("/") { trimmed.removeLast() }
+    let minLength = value.distance(from: value.startIndex, to: sep.upperBound)
+    return trimmed.count <= minLength ? value : trimmed
+  }
+
+  /// 书的 WebDAV 目录 URL：从章节 remoteURL 的上级目录推导。
+  /// 与 book.id 的格式无关，老版本导入的书照样能参与跨端匹配。
+  static func remoteFolderURL(of book: Book) -> String? {
+    guard
+      let remote = book.chapters.first(where: { $0.remoteURL != nil })?.remoteURL,
+      let fileURL = URL(string: remote)
+    else { return nil }
+    return fileURL.deletingLastPathComponent().absoluteString
+  }
+
+  /// URL 的解码路径（去掉 scheme 和主机）。同一 NAS 内网/外网地址不同、路径相同，
+  /// 路径才是跨地址稳定的部分。
+  static func remotePath(of urlText: String) -> String? {
+    guard let url = URL(string: urlText), !url.path.isEmpty else { return nil }
+    return url.path.removingPercentEncoding ?? url.path
+  }
+
+  /// 跨端章节匹配：安卓 currentChapter 是音频文件 URL（百分号编码），
+  /// 本端 remoteURL 同源；两边主机可能内网/外网不同，最后按解码路径对。
+  static func chapterMatches(_ chapter: Chapter, entryChapter: String) -> Bool {
+    guard let remote = chapter.remoteURL else { return false }
+    if remote == entryChapter { return true }
+    if (remote.removingPercentEncoding ?? remote)
+      == (entryChapter.removingPercentEncoding ?? entryChapter) {
+      return true
+    }
+    guard let a = remotePath(of: remote), let b = remotePath(of: entryChapter) else { return false }
+    return a == b
   }
 
   private static func fallbackKey(_ book: Book) -> String {
