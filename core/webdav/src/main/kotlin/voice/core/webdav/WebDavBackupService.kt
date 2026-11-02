@@ -222,7 +222,7 @@ public class WebDavBackupService(
         ?.trimEnd('/')
         ?.substringBeforeLast('/')
         ?: continue
-      normalizeRemoteUrl(folder)?.let { url ->
+      normalizeRemoteUrl(folder).let { url ->
         byRemoteFolder.putIfAbsent(url, book)
         byRemoteFolder.putIfAbsent(Uri.decode(url), book)
       }
