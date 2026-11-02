@@ -25,7 +25,8 @@ final class AppState: ObservableObject {
   lazy var backup = WebDavBackupService(
     library: library,
     servers: webdav,
-    targets: backupTargets
+    targets: backupTargets,
+    extensions: extensions
   )
 
   @Published var showPlayer = false

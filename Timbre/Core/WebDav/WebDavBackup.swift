@@ -9,11 +9,14 @@ struct WebDavBackup: Codable {
   var version: Int = currentVersion
   var createdAt: String
   var books: [WebDavBackupBook]
+  /// 书架分区扩展。安卓的在线书在 extras["online"] 里（OnlineShelfBackupContributor），
+  /// 恢复时按 source::bookId 重新上架，章节现场从接口源拉。
+  var extras: [String: [OnlineBackupEntry]]?
 
   static let currentVersion = 2
 
   enum CodingKeys: String, CodingKey {
-    case version, createdAt, books
+    case version, createdAt, books, extras
   }
 
   /// 默认备份就放在备份目录下，不需要为它单独建一个集合
@@ -106,8 +109,32 @@ extension WebDavBackup {
     version = try c.decodeIfPresent(Int.self, forKey: .version) ?? Self.currentVersion
     createdAt = try c.decode(String.self, forKey: .createdAt)
     books = try c.decode([WebDavBackupBook].self, forKey: .books)
-    // 安卓的 extras（书架分区扩展）iOS 暂不消费，未知键直接忽略
+    // 安卓 extras：只认 online 分区，其他分区忽略
+    extras = try c.decodeIfPresent([String: [OnlineBackupEntry]].self, forKey: .extras)
   }
+}
+
+/// 安卓 extras["online"] 里的一本在线书（对齐 OnlineShelfBackupContributor.OnlineBackupBook）。
+/// 单位与安卓一致：addedAt/positionInChapter/skipIntro/skipOutro 都是毫秒。
+/// 全部可选：安卓 encodeDefaults=false 时缺键、以及老备份缺分区都不炸。
+struct OnlineBackupEntry: Codable {
+  var source: String?
+  var bookId: String?
+  var title: String?
+  var author: String?
+  var cover: String?
+  /// 封面的远程地址（coverImage 缺失时的兜底）
+  var coverUrl: String?
+  /// 封面文件 base64（≤512KB 才会带）
+  var coverImage: String?
+  var addedAt: Int64?
+  var currentChapterId: String?
+  var positionInChapter: Int64?
+  var skipIntro: Int64?
+  var skipOutro: Int64?
+  var skipSilence: Bool?
+  var playbackSpeed: Float?
+  var gain: Float?
 }
 /// 备份目标：一台服务器 + 用户亲手选的目录。
 ///
