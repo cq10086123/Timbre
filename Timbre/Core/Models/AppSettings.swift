@@ -97,6 +97,14 @@ struct AppSettings: Codable, Equatable {
   var onlinePreloadChapterCount: Int = 2
   /// 章节预加载间隔（1–600，默认 50）
   var onlinePreloadIntervalSeconds: Int = 50
+  /// 预加载时顺带把整集音频存到本地（写入手动缓存同一个目录）
+  var onlinePreloadCacheEnabled: Bool = true
+  /// 只缓存不短于该秒数的章节（默认 600 = 10 分钟）；更短的预告、片头不占空间
+  var onlinePreloadCacheMinSeconds: Int = 600
+  /// 预加载缓存占用的上限，0 = 不限制
+  var onlinePreloadCacheMaxBytes: Int64 = 2 * 1024 * 1024 * 1024
+  /// 只在 Wi-Fi 下下载预加载缓存（移动网络仍照旧只解析直链）
+  var onlinePreloadCacheWifiOnly: Bool = true
 
   // MARK: 自动睡眠定时器（安卓 SleepTimerPreference）
 
@@ -129,6 +137,8 @@ struct AppSettings: Codable, Equatable {
     case autoRefreshWifi, btSkipChapter
     case onlinePreloadEnabled, onlinePreloadTriggerSeconds, onlinePreloadChapterCount
     case onlinePreloadIntervalSeconds
+    case onlinePreloadCacheEnabled, onlinePreloadCacheMinSeconds
+    case onlinePreloadCacheMaxBytes, onlinePreloadCacheWifiOnly
     case autoSleepEnabled, autoSleepStartMinute, autoSleepEndMinute
     case webdavCacheMaxBytes, webdavPrefetchMode, webdavPrefetchOnMetered
     case webdavImportParallelism
@@ -156,6 +166,15 @@ struct AppSettings: Codable, Equatable {
       try c.decodeIfPresent(Int.self, forKey: .onlinePreloadChapterCount) ?? 2
     onlinePreloadIntervalSeconds =
       try c.decodeIfPresent(Int.self, forKey: .onlinePreloadIntervalSeconds) ?? 50
+    onlinePreloadCacheEnabled =
+      try c.decodeIfPresent(Bool.self, forKey: .onlinePreloadCacheEnabled) ?? true
+    onlinePreloadCacheMinSeconds =
+      try c.decodeIfPresent(Int.self, forKey: .onlinePreloadCacheMinSeconds) ?? 600
+    onlinePreloadCacheMaxBytes =
+      try c.decodeIfPresent(Int64.self, forKey: .onlinePreloadCacheMaxBytes)
+      ?? 2 * 1024 * 1024 * 1024
+    onlinePreloadCacheWifiOnly =
+      try c.decodeIfPresent(Bool.self, forKey: .onlinePreloadCacheWifiOnly) ?? true
     autoSleepEnabled = try c.decodeIfPresent(Bool.self, forKey: .autoSleepEnabled) ?? false
     autoSleepStartMinute =
       try c.decodeIfPresent(Int.self, forKey: .autoSleepStartMinute) ?? 1320
@@ -208,6 +227,14 @@ enum DurationText {
 
   /// 每章间隔 50 秒
   static func interval(_ value: Int) -> String { "每章间隔 \(value) 秒" }
+
+  /// 不短于 10 分钟（预加载缓存的最短时长门槛）
+  static func atLeast(_ seconds: Int) -> String {
+    if seconds <= 0 { return "不限" }
+    if seconds % 60 == 0 { return "不短于 \(seconds / 60) 分钟" }
+    if seconds > 60 { return "不短于 \(seconds / 60) 分 \(seconds % 60) 秒" }
+    return "不短于 \(seconds) 秒"
+  }
 }
 
 /// 沙盒内固定路径

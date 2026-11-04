@@ -718,9 +718,9 @@ final class PlaybackEngine: NSObject, ObservableObject {
       return
     }
 
-    // 手动缓存过这一集：直接播本地文件，断网也能听
+    // 手动缓存或预加载缓存过这一集：直接播本地文件，断网也能听
     if book.kind == .jdr, let cached = cachedChapterFile(book: book, chapter: chapter) {
-      DLog("player", "命中手动缓存 第\(chapter.title)")
+      DLog("player", "命中本地缓存 第\(chapter.title)")
       // `.audio` 后缀系统认不出（-11828），按文件头嗅探真实格式播硬链接别名
       install(
         item: AVPlayerItem(url: CachedAudioAlias.playableURL(for: cached)),
@@ -1262,7 +1262,10 @@ final class PlaybackEngine: NSObject, ObservableObject {
         chapterId: chapter.id
       )
     else { return nil }
-    return OnlineChapterFileCache.file(source: source, bookId: book.id, chapterId: chapter.id)
+    let url = OnlineChapterFileCache.file(source: source, bookId: book.id, chapterId: chapter.id)
+    // 碰一下修改时间：预加载缓存超限时按「最久没碰过」淘汰，别把正在听的当最旧的
+    OnlinePreloadIndex.touch(url)
+    return url
   }
 
   private func resolveRemote(
@@ -1308,6 +1311,11 @@ final class PlaybackEngine: NSObject, ObservableObject {
       duration: duration,
       playing: isPlaying,
       settings: settings.settings,
+      persistDuration: { [weak self] chapterId, seconds in
+        Task { @MainActor in
+          self?.persistPreloadedDuration(chapterId: chapterId, seconds: seconds)
+        }
+      },
       resolve: { [weak self] chapter in
         guard let self else { return nil }
         return try? await self.resolveRemote(chapter: chapter, context: remote)
@@ -1560,6 +1568,21 @@ final class PlaybackEngine: NSObject, ObservableObject {
     library.books[index].chapters[chapterIndex].duration = seconds
     library.save(delay: 1)
     DLog("player", "记录章节时长 \(Int(seconds))s 第\(chapterIndex + 1)集")
+  }
+
+  /// 预加载时探测到某一集的时长，写回书架。
+  ///
+  /// 探测要真的向服务器要一次文件头，记下来以后就不用再问；章节抽屉里的
+  /// 「每集多久」也从这里补上（这些集还没播过，`persistChapterDuration` 没机会跑）。
+  private func persistPreloadedDuration(chapterId: String, seconds: Double) {
+    guard seconds > 1, let bookId, let index = library.index(of: bookId) else { return }
+    guard
+      let chapterIndex = library.books[index].chapters.firstIndex(where: { $0.id == chapterId })
+    else { return }
+    guard abs(library.books[index].chapters[chapterIndex].duration - seconds) > 1 else { return }
+    library.books[index].chapters[chapterIndex].duration = seconds
+    library.save(delay: 1)
+    DLog("preload", "记录预加载探测时长 \(Int(seconds))s \(chapterId)")
   }
 
   /// 把 AVFoundation 的错误翻成听得懂的话

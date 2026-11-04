@@ -93,6 +93,8 @@ final class OnlinePreloader {
   // MARK: - 驱动
 
   /// 播放中每秒调用一次（挂在播放器的时间观察者上，不另起计时器）。
+  ///
+  /// `persistDuration`：预加载时探测到的章节时长回写给调用方（下次不用再问服务器）。
   func tick(
     book: Book,
     chapterIndex: Int,
@@ -100,6 +102,7 @@ final class OnlinePreloader {
     duration: Double,
     playing: Bool,
     settings: AppSettings,
+    persistDuration: ((String, Double) -> Void)? = nil,
     resolve: @escaping (Chapter) async -> Stream?
   ) {
     guard settings.onlinePreloadEnabled, playing else {
@@ -162,9 +165,19 @@ final class OnlinePreloader {
       while !Task.isCancelled, loaded < count {
         guard book.chapters.indices.contains(index) else { break }
         let chapter = book.chapters[index]
-        if let stream = await resolve(chapter) {
+        // 这一集已经整段存在手机上了：不用再问源要地址，省一次配额（源是按 IP 限流的）
+        if self.isCachedOnDisk(book: book, chapter: chapter) {
+          DLog("preload", "第\(index + 1)集已在本地，跳过解析")
+        } else if let stream = await resolve(chapter) {
           self.store(bookId: book.id, chapterId: chapter.id, stream: stream)
           DLog("preload", "预加载完成 第\(index + 1)集 缓存=\(self.cachedCount)")
+          await self.cacheToDiskIfNeeded(
+            book: book,
+            chapter: chapter,
+            stream: stream,
+            settings: settings,
+            persistDuration: persistDuration
+          )
         } else {
           failed = true
           DLog("preload", "预加载失败 第\(index + 1)集，链条终止，冷却 \(intervalSeconds)s")
@@ -210,19 +223,113 @@ final class OnlinePreloader {
     lock.unlock()
   }
 
-  /// 当前章之后连续缓存了几章（中间断掉就停，安卓同样只看连续的）
+  // MARK: - 存到本地
+
+  /// 预加载的第二步：把这集整段音频下到手机上。
+  ///
+  /// 写的是「手动缓存」那套目录（`OnlineChapterFileCache`），所以播放命中本地文件、
+  /// 「已缓存 X 集」统计、清除缓存都不用另写一套。额外只在 `OnlinePreloadIndex`
+  /// 记一笔「这集是自动下的」，容量满了优先淘汰它们。
+  ///
+  /// 这里失败只是「没缓存成」：直链已经预加载好了，切章照常秒开，不能影响播放。
+  private func cacheToDiskIfNeeded(
+    book: Book,
+    chapter: Chapter,
+    stream: Stream,
+    settings: AppSettings,
+    persistDuration: ((String, Double) -> Void)?
+  ) async {
+    guard settings.onlinePreloadCacheEnabled else { return }
+    // 移动网络：用户没允许就只解析地址，不花流量下整集
+    if settings.onlinePreloadCacheWifiOnly && NetworkStatus.isExpensive {
+      DLog("preload", "跳过本地缓存：当前是移动网络 第\(chapter.title)")
+      return
+    }
+
+    let source = OnlineChapterFileCache.sourceSegment(sourceId: book.sourceId)
+    guard
+      !OnlineChapterFileCache.isCached(
+        source: source,
+        bookId: book.id,
+        chapterId: chapter.id
+      )
+    else { return }
+
+    let headers = HeaderProxyLoader.mergedHeaders(stream.headers)
+    let minSeconds = Double(max(0, settings.onlinePreloadCacheMinSeconds))
+    var seconds = chapter.duration
+    if seconds <= 0 {
+      // 源没给时长（新书常见）：向直链所在的服务器问一次，拿不到就按未知处理
+      seconds = await AudioDurationProbe.duration(url: stream.url, headers: headers) ?? 0
+      if seconds > 0 { persistDuration?(chapter.id, seconds) }
+    }
+    guard seconds >= minSeconds else {
+      DLog(
+        "preload",
+        "跳过本地缓存 第\(chapter.title)：时长 \(Int(seconds))s 短于 \(Int(minSeconds))s"
+      )
+      return
+    }
+
+    let outcome = await ChapterDownloader.download(
+      url: stream.url,
+      headers: headers,
+      tmpURL: OnlineChapterFileCache.tmpFile(
+        source: source,
+        bookId: book.id,
+        chapterId: chapter.id
+      ),
+      fileURL: OnlineChapterFileCache.file(
+        source: source,
+        bookId: book.id,
+        chapterId: chapter.id
+      ),
+      onProgress: { _, _ in }
+    )
+
+    switch outcome {
+    case .stored:
+      OnlinePreloadIndex.markAuto(source: source, bookId: book.id, chapterId: chapter.id)
+      DLog("preload", "已存到本地 第\(chapter.title) 共 \(Int(seconds))s")
+      OnlinePreloadIndex.evictIfNeeded(maxBytes: settings.onlinePreloadCacheMaxBytes)
+    case .failed(let reason, let detail):
+      DLog("preload", "存本地失败 第\(chapter.title)：\(reason.text) \(detail ?? "-")")
+    }
+  }
+
+  /// 当前章之后连续缓存了几章（中间断掉就停，安卓同样只看连续的）。
+  ///
+  /// 「缓存了」包含两种情况：内存里的直链（TTL 内）和已经整段存在手机上的文件 ——
+  /// 后者播放时直接命中本地，压根不需要直链。
   private func cachedAhead(book: Book, chapterIndex: Int, limit: Int) -> Int {
     lock.lock()
-    defer { lock.unlock() }
+    let snapshot = cache
+    lock.unlock()
+    let now = Date()
     var ahead = 0
     var index = chapterIndex + 1
     while ahead < limit, book.chapters.indices.contains(index) {
-      guard let entry = cache[cacheKey(bookId: book.id, chapterId: book.chapters[index].id)],
-        Date().timeIntervalSince(entry.storedAt) < Self.ttl
+      let chapter = book.chapters[index]
+      if isCachedOnDisk(book: book, chapter: chapter) {
+        ahead += 1
+        index += 1
+        continue
+      }
+      guard let entry = snapshot[cacheKey(bookId: book.id, chapterId: chapter.id)],
+        now.timeIntervalSince(entry.storedAt) < Self.ttl
       else { break }
       ahead += 1
       index += 1
     }
     return ahead
+  }
+
+  /// 这一集是不是已经整段存在手机上了
+  private func isCachedOnDisk(book: Book, chapter: Chapter) -> Bool {
+    OnlineChapterFileCache.isCached(
+      source: OnlineChapterFileCache.sourceSegment(sourceId: book.sourceId),
+      bookId: book.id,
+      chapterId: chapter.id
+    )
   }
 }

@@ -133,7 +133,10 @@ final class OnlineCacheManager: ObservableObject {
 
     let source = OnlineChapterFileCache.sourceSegment(sourceId: book.sourceId)
     let cleared = await Task.detached(priority: .utility) {
-      OnlineChapterFileCache.clearBook(source: source, bookId: bookId)
+      let result = OnlineChapterFileCache.clearBook(source: source, bookId: bookId)
+      // 目录没了，名单里的条目也一起作废，免得淘汰逻辑删到别的东西
+      OnlinePreloadIndex.forgetBook(source: source, bookId: bookId)
+      return result
     }.value
     DLog("cache", "清除缓存 书=\(book.title) 删除目录=\(cleared)")
     return cleared
@@ -319,6 +322,8 @@ final class OnlineCacheManager: ObservableObject {
           consecutiveFailures = 0
           setMark(bookId, generation, offset, .cached)
           updateState(bookId, generation) { $0.done = done }
+          // 用户手动缓存下来的这一集，从此不算「自动缓存」，超限淘汰不许动它
+          OnlinePreloadIndex.forget(source: source, bookId: bookId, chapterId: chapter.id)
         case .failed(let reason, let detail):
           failed += 1
           consecutiveFailures += 1
