@@ -38,7 +38,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.timbre.ios
         INFOPLIST_FILE: Support/Info.plist
         MARKETING_VERSION: "1.0.0"
-        CURRENT_PROJECT_VERSION: "9"
+        CURRENT_PROJECT_VERSION: "10"
         TARGETED_DEVICE_FAMILY: "1,2"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
@@ -52,6 +52,12 @@ targets:
         # 构建指纹：CI 会用真实 commit / 时间覆盖，本地编译显示 dev
         TIMBRE_COMMIT: "dev"
         TIMBRE_BUILD_DATE: "dev"
+      configs:
+        # XcodeGen 不会像 Xcode 模板那样自动加 DEBUG 宏。代码里用 `#if DEBUG`
+        # 藏调试入口（设置页的「调试日志」），这里不配的话 Debug 构建也看不到日志。
+        # Release 不加，所以正式包永远不显示调试功能
+        Debug:
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG
 
 schemes:
   Timbre:

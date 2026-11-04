@@ -158,13 +158,17 @@ struct SettingsView: View {
             subtitle: appVersion
           )
 
-          // 调试阶段先保留日志入口，正式收口时再隐藏
+#if DEBUG
+          // 调试入口只在 Debug 构建里出现：正式包（Release）不该让用户看到调试功能。
+          // DebugLog 本身照常记录，排查时出一个 Debug 包仍能导出日志；
+          // Release 包下面那个 fullScreenCover 因为没有触发点，永远不会弹出
           M3ListItem(
             systemName: "doc.text.magnifyingglass",
             title: "调试日志",
             subtitle: "已记录 \(DebugLog.shared.count) 条 · 出问题时导出这里的内容发给开发者",
             action: { showDebugLog = true }
           )
+#endif
 
           Spacer().frame(height: 32)
         }
