@@ -99,12 +99,14 @@ jobs:
           # 鸿蒙版占位包：安卓 + iOS + 鸿蒙三端共用一个 Release，这里先放一个说明包，
           # 上线后换成 .hap。GitHub 自动生成的 Source code (zip/tar.gz) 删不掉，
           # 所以资产栏固定是「apk + ipa + 鸿蒙 + 2 份源码」
+          # 文件名用英文：中文名上传后下载链接会被整段 URL 编码，不好复制
+          HMOS_ASSET="harmony-coming-soon.zip"
           printf '%s\n' \
             "鸿蒙版（HarmonyOS）正在开发中，敬请期待。" \
             "上线后会在这里提供安装包，关注 Releases 页面即可。" \
             > hmos-note.txt
-          rm -f "鸿蒙即将上线.zip"
-          zip -qj "鸿蒙即将上线.zip" hmos-note.txt
+          rm -f "$HMOS_ASSET"
+          zip -qj "$HMOS_ASSET" hmos-note.txt
           rm -f hmos-note.txt
 
           if [ -n "$INPUT_NOTES" ]; then
@@ -112,14 +114,14 @@ jobs:
             printf '%s' "$INPUT_NOTES" > "$NOTES_FILE"
             gh release create "v${{ inputs.versionName }}" \
               "timbre-v${{ inputs.versionName }}.apk" \
-              "鸿蒙即将上线.zip" \
+              "$HMOS_ASSET" \
               --title "Timbre v${{ inputs.versionName }}" \
               --notes-file "$NOTES_FILE" \
               --target "$GITHUB_SHA" $EXTRA
           else
             gh release create "v${{ inputs.versionName }}" \
               "timbre-v${{ inputs.versionName }}.apk" \
-              "鸿蒙即将上线.zip" \
+              "$HMOS_ASSET" \
               --title "Timbre v${{ inputs.versionName }}" \
               --generate-notes \
               --target "$GITHUB_SHA" $EXTRA
