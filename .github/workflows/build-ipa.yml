@@ -4,9 +4,15 @@ on:
   push:
     # iOS 代码在 Timbre_b 分支，main 是安卓工程，不要在那里触发
     branches: [Timbre_b]
-    # ios-v* 触发发布：IPA 会挂到安卓同名版本（v3.6.3）的 Release 上，双端同包下载
-    tags: ["v*", "ios-v*"]
+    # 打 ios-v3.6.3 这类 tag 也会发布。**不能**用 v3.6.3：那个 tag 指向 main 上的
+    # 安卓 commit，而那上面没有本文件，GitHub 只会去 tag 指向的 commit 找 workflow
+    tags: ["ios-v*"]
   workflow_dispatch:
+    inputs:
+      version:
+        description: '要附加到的版本号，须与安卓 Release 的 tag 一致（如 3.6.3）。留空 = 只编译、不发布'
+        required: false
+        default: ''
 
 permissions:
   contents: write
@@ -33,10 +39,42 @@ jobs:
           fi
           xcodegen --version
 
+      - name: 解析版本号
+        id: ver
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          # 版本号只认一个真源头：手动触发时填的那个（与安卓 versionName 一致）。
+          # 这样 project.yml 不用每次发版都改，避免「两处版本号忘了同步」。
+          V=""
+          PUBLISH=0
+          if [ -n "$INPUT_VERSION" ]; then
+            V="$INPUT_VERSION"
+            PUBLISH=1
+          fi
+          if [ -z "$V" ] && [[ "$GITHUB_REF" == refs/tags/ios-v* ]]; then
+            V="${GITHUB_REF#refs/tags/ios-v}"
+            PUBLISH=1
+          fi
+          # 没有发布意图（普通 push）：按 project.yml 编译，只出 artifact
+          if [ -z "$V" ]; then
+            V=$(sed -n 's/.*MARKETING_VERSION: "\([^"]*\)".*/\1/p' project.yml | head -n1)
+          fi
+          if [ -z "$V" ]; then
+            echo "取不到版本号"
+            exit 1
+          fi
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "publish=$PUBLISH" >> "$GITHUB_OUTPUT"
+          echo "版本号 $V（发布=$PUBLISH）"
+
       - name: 生成 Xcode 工程
         run: xcodegen generate
 
       - name: 编译（关闭签名）
+        env:
+          VERSION_INPUT: ${{ steps.ver.outputs.version }}
         run: |
           set -o pipefail
           xcodebuild \
@@ -47,6 +85,7 @@ jobs:
             -destination 'generic/platform=iOS' \
             -derivedDataPath build \
             ONLY_ACTIVE_ARCH=NO \
+            MARKETING_VERSION="$VERSION_INPUT" \
             TIMBRE_COMMIT="$(git rev-parse --short=8 HEAD)" \
             TIMBRE_BUILD_DATE="$(TZ=Asia/Shanghai date +%Y%m%d-%H%M)" \
             CODE_SIGNING_ALLOWED=NO \
@@ -100,41 +139,37 @@ jobs:
           path: Timbre-unsigned.ipa
           if-no-files-found: error
 
-      # 以下仅推 tag 时执行：把 IPA 和安装说明挂到安卓同名版本的 Release
-      # （iOS 版本号在 project.yml 里跟随安卓，如 3.6.3 → 安卓 Release 的 tag 是 v3.6.3）
-      - name: 读取版本号
-        run: |
-          VERSION=$(sed -n 's/.*MARKETING_VERSION: "\([^"]*\)".*/\1/p' project.yml | head -n1)
-          if [ -z "$VERSION" ]; then
-            echo "从 project.yml 读不到 MARKETING_VERSION"
-            exit 1
-          fi
-          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
-
-      - name: 读取版本号
-        run: |
-          VERSION=$(sed -n 's/.*MARKETING_VERSION: "\([^"]*\)".*/\1/p' project.yml | head -n1)
-          if [ -z "$VERSION" ]; then
-            echo "从 project.yml 读不到 MARKETING_VERSION"
-            exit 1
-          fi
-          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
-
+      # 以下只在「有发布意图」时执行（手动触发填了版本号，或打了 ios-v* tag）：
+      # 把 IPA 和鸿蒙占位包挂到安卓同名版本的 Release，双端在同一个页面下载
       - name: 发布（附加到安卓同名版本的 Release）
-        if: startsWith(github.ref, 'refs/tags/')
+        if: steps.ver.outputs.publish == '1'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          VERSION="${{ steps.ver.outputs.version }}"
           IPA_NAME="timbre-v${VERSION}-unsigned.ipa"
           mv Timbre-unsigned.ipa "$IPA_NAME"
+
+          # 鸿蒙版占位包：安卓 + iOS + 鸿蒙三端共用一个 Release，这里先放一个说明包，
+          # 上线后换成 .hap。注意 GitHub 自动生成的 Source code (zip/tar.gz) 两份删不掉，
+          # 所以资产栏固定是「apk + ipa + 鸿蒙 + 2 份源码」
+          printf '%s\n' \
+            "鸿蒙版（HarmonyOS）正在开发中，敬请期待。" \
+            "上线后会在这里提供安装包，关注 Releases 页面即可。" \
+            > hmos-note.txt
+          rm -f "鸿蒙即将上线.zip"
+          zip -qj "鸿蒙即将上线.zip" hmos-note.txt
+          rm -f hmos-note.txt
+
           if gh release view "v${VERSION}" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             # 安卓已发同名版本：只追加附件，不动 Release 的标题/正文/属性
-            gh release upload "v${VERSION}" "$IPA_NAME" --clobber --repo "$GITHUB_REPOSITORY"
+            gh release upload "v${VERSION}" "$IPA_NAME" "鸿蒙即将上线.zip" \
+              --clobber --repo "$GITHUB_REPOSITORY"
             echo "已附加到现有 Release v${VERSION}"
           else
             # 兜底：安卓还没发这个版本时，iOS 自建一个预发布，不抢 Latest
-            gh release create "v${VERSION}" "$IPA_NAME" \
+            gh release create "v${VERSION}" "$IPA_NAME" "鸿蒙即将上线.zip" \
               --prerelease \
               --title "v${VERSION} 验证版（iOS 未签名调试包，禁止下载分发）" \
               --notes "安卓端此版本尚未发布，iOS 包先挂在这里；正式版以安卓端 Release 为准。" \
