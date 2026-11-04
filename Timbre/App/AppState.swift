@@ -69,19 +69,41 @@ final class AppState: ObservableObject {
 
   /// 启动后调用（调用方先 delay 10 秒，对齐安卓 CHECK_DELAY_MS）。
   /// 公告每次启动都查；更新每天最多查一次。
+  ///
+  /// 必须标 `@MainActor`：`announcementText` / `updateNotice` 都是 `@Published`，
+  /// 而 Swift 5.7 起非隔离的 async 函数**不再跑在调用者的 actor 上**，会切到全局
+  /// 执行器（后台线程）跑（SE-0338）。在后台线程改 `@Published`，SwiftUI 收不到
+  /// 变更通知 —— 表现就是「公告明明拉下来了，却怎么都不弹窗」，而且时有时无。
+  @MainActor
   func checkRemoteNotices() async {
-    if let text = await RemoteNotices.fetchAnnouncement(),
-      RemoteNotices.fingerprint(text) != RemoteNotices.dismissedAnnouncementFingerprint
-    {
-      announcementText = text
+    if let text = await RemoteNotices.fetchAnnouncement() {
+      let fingerprint = RemoteNotices.fingerprint(text)
+      if fingerprint == RemoteNotices.dismissedAnnouncementFingerprint {
+        DLog("notice", "公告拉到了但点过「不再提示」，这次不弹（\(text.count) 字）")
+      } else {
+        DLog("notice", "公告拉到 \(text.count) 字，弹窗")
+        announcementText = text
+      }
+    } else {
+      DLog("notice", "公告没拉到：三个端点都没响应或内容为空")
     }
 
     let today = RemoteNotices.today
-    guard today - RemoteNotices.lastCheckDay >= 1 else { return }
+    guard today - RemoteNotices.lastCheckDay >= 1 else {
+      DLog("notice", "更新今天已查过，跳过")
+      return
+    }
     // 请求前先记日期：今天离线的设备不要每次启动都重试（对齐安卓）
     RemoteNotices.lastCheckDay = today
-    guard let latest = await RemoteNotices.fetchLatestUpdate() else { return }
-    guard RemoteNotices.isNewer(current: currentAppVersion, latest: latest.versionName) else { return }
+    guard let latest = await RemoteNotices.fetchLatestUpdate() else {
+      DLog("notice", "update.json 没拉到")
+      return
+    }
+    guard RemoteNotices.isNewer(current: currentAppVersion, latest: latest.versionName) else {
+      DLog("notice", "已是最新：本机 \(currentAppVersion)，main \(latest.versionName)")
+      return
+    }
+    DLog("notice", "发现新版本 \(latest.versionName)")
     updateNotice = UpdateNotice(
       versionName: latest.versionName,
       releaseNotes: latest.releaseNotes,
@@ -294,6 +316,11 @@ final class AppState: ObservableObject {
     return try await installExtension(data: data)
   }
 
+  /// 落库这一步必须回主线程：`extensions.install` 会改 `ExtensionStore` 的
+  /// `@Published` 列表，而这个方法是非隔离 async（调用链一路 await 过来，
+  /// 早就不在 MainActor 上了），后台线程改 `@Published` 装完源列表不刷新。
+  /// 解压那步仍然在 `Task.detached` 里，没占主线程。
+  @MainActor
   private func installExtension(data: Data) async throws -> InstalledExtension {
     guard !data.isEmpty else { throw ExtensionInstallError.emptyFile }
     // 解压 + 校验可能上百毫秒，离开主线程
