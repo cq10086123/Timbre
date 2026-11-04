@@ -441,6 +441,8 @@ final class PlaybackEngine: NSObject, ObservableObject {
     fallbackDownloadTask?.cancel()
     fallbackDownloadTask = nil
     downloadProgress = nil
+    // 预加载链条可能正在整集下载：停止后立刻拆掉，别在后台接着花流量
+    preloader.cancelChain()
     isPlaying = false
     position = 0
     duration = 0
@@ -1262,10 +1264,7 @@ final class PlaybackEngine: NSObject, ObservableObject {
         chapterId: chapter.id
       )
     else { return nil }
-    let url = OnlineChapterFileCache.file(source: source, bookId: book.id, chapterId: chapter.id)
-    // 碰一下修改时间：预加载缓存超限时按「最久没碰过」淘汰，别把正在听的当最旧的
-    OnlinePreloadIndex.touch(url)
-    return url
+    return OnlineChapterFileCache.file(source: source, bookId: book.id, chapterId: chapter.id)
   }
 
   private func resolveRemote(
@@ -1311,9 +1310,13 @@ final class PlaybackEngine: NSObject, ObservableObject {
       duration: duration,
       playing: isPlaying,
       settings: settings.settings,
-      persistDuration: { [weak self] chapterId, seconds in
+      persistDuration: { [weak self] bookId, chapterId, seconds in
         Task { @MainActor in
-          self?.persistPreloadedDuration(chapterId: chapterId, seconds: seconds)
+          self?.persistPreloadedDuration(
+            bookId: bookId,
+            chapterId: chapterId,
+            seconds: seconds
+          )
         }
       },
       resolve: { [weak self] chapter in
@@ -1572,10 +1575,12 @@ final class PlaybackEngine: NSObject, ObservableObject {
 
   /// 预加载时探测到某一集的时长，写回书架。
   ///
-  /// 探测要真的向服务器要一次文件头，记下来以后就不用再问；章节抽屉里的
-  /// 「每集多久」也从这里补上（这些集还没播过，`persistChapterDuration` 没机会跑）。
-  private func persistPreloadedDuration(chapterId: String, seconds: Double) {
-    guard seconds > 1, let bookId, let index = library.index(of: bookId) else { return }
+  /// 必须用回调带回来的 `bookId` 定位，不能用 `self.bookId`：回调是异步落到主线程的，
+  /// 那时用户可能已经切到别的书，而 jdr 源的章节 id 大量是 "1"、"2" 这种短 id，
+  /// 在另一本书里同样存在 —— 按当前书定位就会把时长写到别人身上，且
+  /// `mergeChapters` 会把非 0 时长保留下来，刷新列表也擦不掉。
+  private func persistPreloadedDuration(bookId: String, chapterId: String, seconds: Double) {
+    guard seconds > 1, let index = library.index(of: bookId) else { return }
     guard
       let chapterIndex = library.books[index].chapters.firstIndex(where: { $0.id == chapterId })
     else { return }

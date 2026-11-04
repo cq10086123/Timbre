@@ -111,6 +111,30 @@ enum OnlineChapterFileCache {
     )
   }
 
+  /// 清掉下载中断留下的临时文件。
+  ///
+  /// 正常失败会自己删 `.tmp`，但进程被系统杀掉时来不及 —— 一集几十 MB，攒几次就上百 MB。
+  /// 只删一小时前就没动过的，正在下载的不碰。
+  static func purgeStaleTmpFiles(maxAge: TimeInterval = 3600) {
+    guard
+      let enumerator = FileManager.default.enumerator(
+        at: OnlineChapterFileCache.root,
+        includingPropertiesForKeys: [.contentModificationDateKey],
+        options: [.skipsHiddenFiles]
+      )
+    else { return }
+    let deadline = Date().addingTimeInterval(-maxAge)
+    var removed = 0
+    for case let url as URL in enumerator {
+      guard url.pathExtension == "tmp" else { continue }
+      let values = try? url.resourceValues(forKeys: [.contentModificationDateKey])
+      let modified = values?.contentModificationDate ?? .distantPast
+      guard modified < deadline else { continue }
+      if (try? FileManager.default.removeItem(at: url)) != nil { removed += 1 }
+    }
+    if removed > 0 { DLog("cache", "清掉 \(removed) 个中断的临时文件") }
+  }
+
   /// 从书的 `sourceId`（形如 `jdr:<包 id>`）里取出安卓意义上的 source 段
   static func sourceSegment(sourceId: String?) -> String {
     guard let sourceId, !sourceId.isEmpty else { return "unknown" }

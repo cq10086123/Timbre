@@ -25,6 +25,12 @@ final class OnlinePreloader {
 
   private let lock = NSLock()
   private var cache: [String: Entry] = [:]
+  /// 已经确认整段存在手机上的章节（键同 `cacheKey`）。
+  ///
+  /// `tick` 每 0.5 秒都要判断前方几章在不在本地，不能每次都去碰文件系统：
+  /// 一次判断要算目录、逐字节安全化文件名、再 stat，全压在主线程的播放回调上。
+  /// 缓存文件存下来就不会自己消失，所以这里记一次就够（清缓存/换书时清空）。
+  private var diskReady: Set<String> = []
   private var chainTask: Task<Void, Never>?
   private var chainRunning = false
   /// 旧链条的收尾不能把新链条的标记清掉，用代次区分
@@ -76,6 +82,7 @@ final class OnlinePreloader {
     cancelChain()
     lock.lock()
     cache.removeAll()
+    diskReady.removeAll()
     lock.unlock()
   }
 
@@ -95,6 +102,8 @@ final class OnlinePreloader {
   /// 播放中每秒调用一次（挂在播放器的时间观察者上，不另起计时器）。
   ///
   /// `persistDuration`：预加载时探测到的章节时长回写给调用方（下次不用再问服务器）。
+  /// 带上 bookId 一起回传 —— 回调是异步落到主线程的，那时用户可能已经切到别的书，
+  /// 光凭 chapterId 定位会写错书（jdr 源的章节 id 大量是 "1"、"2" 这种短 id）。
   func tick(
     book: Book,
     chapterIndex: Int,
@@ -102,7 +111,7 @@ final class OnlinePreloader {
     duration: Double,
     playing: Bool,
     settings: AppSettings,
-    persistDuration: ((String, Double) -> Void)? = nil,
+    persistDuration: ((String, String, Double) -> Void)? = nil,
     resolve: @escaping (Chapter) async -> Stream?
   ) {
     guard settings.onlinePreloadEnabled, playing else {
@@ -165,10 +174,13 @@ final class OnlinePreloader {
       while !Task.isCancelled, loaded < count {
         guard book.chapters.indices.contains(index) else { break }
         let chapter = book.chapters[index]
+        // 只有真的打了源接口才需要节流；已在本地的集不该白占一个等待时间
+        var fetched = false
         // 这一集已经整段存在手机上了：不用再问源要地址，省一次配额（源是按 IP 限流的）
         if self.isCachedOnDisk(book: book, chapter: chapter) {
           DLog("preload", "第\(index + 1)集已在本地，跳过解析")
         } else if let stream = await resolve(chapter) {
+          fetched = true
           self.store(bookId: book.id, chapterId: chapter.id, stream: stream)
           DLog("preload", "预加载完成 第\(index + 1)集 缓存=\(self.cachedCount)")
           await self.cacheToDiskIfNeeded(
@@ -185,7 +197,7 @@ final class OnlinePreloader {
         }
         loaded += 1
         index += 1
-        if loaded < count {
+        if loaded < count, fetched {
           try? await Task.sleep(nanoseconds: interval)
         }
       }
@@ -237,7 +249,7 @@ final class OnlinePreloader {
     chapter: Chapter,
     stream: Stream,
     settings: AppSettings,
-    persistDuration: ((String, Double) -> Void)?
+    persistDuration: ((String, String, Double) -> Void)?
   ) async {
     guard settings.onlinePreloadCacheEnabled else { return }
     // 移动网络：用户没允许就只解析地址，不花流量下整集
@@ -258,39 +270,49 @@ final class OnlinePreloader {
     let headers = HeaderProxyLoader.mergedHeaders(stream.headers)
     let minSeconds = Double(max(0, settings.onlinePreloadCacheMinSeconds))
     var seconds = chapter.duration
-    if seconds <= 0 {
-      // 源没给时长（新书常见）：向直链所在的服务器问一次，拿不到就按未知处理
-      seconds = await AudioDurationProbe.duration(url: stream.url, headers: headers) ?? 0
-      if seconds > 0 { persistDuration?(chapter.id, seconds) }
+    // NaN 也算未知：下面要 Int(seconds)，非有限值直接转到「问服务器」那条路
+    var durationKnown = seconds.isFinite && seconds > 0
+    if !durationKnown {
+      // 源没给时长（新书常见）：向直链所在的服务器问一次
+      if let probed = await AudioDurationProbe.duration(url: stream.url, headers: headers) {
+        seconds = probed
+        durationKnown = true
+        persistDuration?(book.id, chapter.id, probed)
+      }
     }
-    guard seconds >= minSeconds else {
+    // 问不到时长就直接下 —— 宁可多存一集，也不要因为查不到就永远不缓存
+    if durationKnown, seconds < minSeconds {
       DLog(
         "preload",
         "跳过本地缓存 第\(chapter.title)：时长 \(Int(seconds))s 短于 \(Int(minSeconds))s"
       )
       return
     }
+    if !durationKnown {
+      DLog("preload", "时长未知，照常缓存 第\(chapter.title)")
+    }
 
+    let fileURL = OnlineChapterFileCache.file(
+      source: source,
+      bookId: book.id,
+      chapterId: chapter.id
+    )
+    // 用自己的临时名：用户同时点「缓存书籍」下同一集时，两个下载不能写同一个临时文件，
+    // 否则字节交错写进同一份文件，转正后就是一个坏文件
     let outcome = await ChapterDownloader.download(
       url: stream.url,
       headers: headers,
-      tmpURL: OnlineChapterFileCache.tmpFile(
-        source: source,
-        bookId: book.id,
-        chapterId: chapter.id
-      ),
-      fileURL: OnlineChapterFileCache.file(
-        source: source,
-        bookId: book.id,
-        chapterId: chapter.id
-      ),
+      tmpURL: fileURL.appendingPathExtension("preload.tmp"),
+      fileURL: fileURL,
       onProgress: { _, _ in }
     )
 
     switch outcome {
     case .stored:
       OnlinePreloadIndex.markAuto(source: source, bookId: book.id, chapterId: chapter.id)
-      DLog("preload", "已存到本地 第\(chapter.title) 共 \(Int(seconds))s")
+      markDiskReady(cacheKey(bookId: book.id, chapterId: chapter.id))
+      let durationText = durationKnown ? " 共 \(Int(seconds))s" : "（时长未知）"
+      DLog("preload", "已存到本地 第\(chapter.title)\(durationText)")
       OnlinePreloadIndex.evictIfNeeded(maxBytes: settings.onlinePreloadCacheMaxBytes)
     case .failed(let reason, let detail):
       DLog("preload", "存本地失败 第\(chapter.title)：\(reason.text) \(detail ?? "-")")
@@ -326,10 +348,23 @@ final class OnlinePreloader {
 
   /// 这一集是不是已经整段存在手机上了
   private func isCachedOnDisk(book: Book, chapter: Chapter) -> Bool {
-    OnlineChapterFileCache.isCached(
+    let key = cacheKey(bookId: book.id, chapterId: chapter.id)
+    lock.lock()
+    let known = diskReady.contains(key)
+    lock.unlock()
+    if known { return true }
+    let cached = OnlineChapterFileCache.isCached(
       source: OnlineChapterFileCache.sourceSegment(sourceId: book.sourceId),
       bookId: book.id,
       chapterId: chapter.id
     )
+    if cached { markDiskReady(key) }
+    return cached
+  }
+
+  private func markDiskReady(_ key: String) {
+    lock.lock()
+    diskReady.insert(key)
+    lock.unlock()
   }
 }

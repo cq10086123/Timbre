@@ -238,7 +238,7 @@ struct PlayerSettingsView: View {
       settings.settings.onlinePreloadCacheMaxBytes = Int64(mb) * 1024 * 1024
       // 上限调小以后立刻生效，不用等到下一次预加载
       let maxBytes = settings.settings.onlinePreloadCacheMaxBytes
-      Task.detached(priority: .utility) {
+      _ = Task.detached(priority: .utility) {
         OnlinePreloadIndex.evictIfNeeded(maxBytes: maxBytes)
       }
     }

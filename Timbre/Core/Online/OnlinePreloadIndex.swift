@@ -13,6 +13,13 @@ enum OnlinePreloadIndex {
 
   private static let fileName = ".preload-index.json"
 
+  /// 刚下完的文件在这么多秒内不参与淘汰。
+  ///
+  /// 不设这个保护的话，遇到「手动缓存自己就超过上限」的情况（手动缓存不受上限约束，
+  /// 很容易几十集上十 GB）会变成：下一集 → 超限 → 删掉刚下这一集 → 下一集再来一遍，
+  /// 流量全白烧，一集都存不下来。
+  private static let protectWindow: TimeInterval = 600
+
   private static let lock = NSLock()
   private static var loaded = false
   private static var autoKeys: Set<String> = []
@@ -21,10 +28,11 @@ enum OnlinePreloadIndex {
     OnlineChapterFileCache.root.appendingPathComponent(fileName)
   }
 
-  private static func relativePath(of url: URL) -> String {
-    let rootPath = OnlineChapterFileCache.root.path + "/"
-    guard url.path.hasPrefix(rootPath) else { return url.lastPathComponent }
-    return String(url.path.dropFirst(rootPath.count))
+  private static func relativePath(of url: URL, rootPath: String? = nil) -> String {
+    // rootPath 可以由调用方算好传进来：循环里逐个问 root 会连带每次 ensure 的 fileExists
+    let prefix = rootPath ?? (OnlineChapterFileCache.root.path + "/")
+    guard url.path.hasPrefix(prefix) else { return url.lastPathComponent }
+    return String(url.path.dropFirst(prefix.count))
   }
 
   private static func key(source: String, bookId: String, chapterId: String) -> String {
@@ -70,8 +78,12 @@ enum OnlinePreloadIndex {
 
   // MARK: - 容量
 
-  /// 超过上限就按「最久没碰过」删自动缓存，直到降到上限的八成。
+  /// 超过上限就按「最久以前下载的」删自动缓存，直到降到上限的八成。
   /// 手动缓存的章节文件一律跳过 —— 那是用户自己点的，不该被自动清掉。
+  ///
+  /// 排序用文件修改时间（= 下载完成时间），不去碰访问时间：播放时改 mtime 会让
+  /// `CachedAudioAlias` 每次都觉得别名过期、反复删了重建，硬链接失败时还要同步
+  /// 复制整个文件 —— 那是在主线程上发生的。
   @discardableResult
   static func evictIfNeeded(maxBytes: Int64) -> Int {
     guard maxBytes > 0 else { return 0 }
@@ -84,12 +96,18 @@ enum OnlinePreloadIndex {
     let keys = autoKeys
     lock.unlock()
 
+    let rootPath = OnlineChapterFileCache.root.path + "/"
+    let protectAfter = Date().addingTimeInterval(-Self.protectWindow)
     let target = Int64(Double(maxBytes) * 0.8)
     var removed = 0
     for entry in files.sorted(by: { $0.modified < $1.modified }) {
       guard total > target else { break }
-      guard keys.contains(relativePath(of: entry.url)) else { continue }
+      // 刚写进来的先留着，否则会「刚下完就删」，白白烧流量
+      guard entry.modified < protectAfter else { continue }
+      guard keys.contains(relativePath(of: entry.url, rootPath: rootPath)) else { continue }
       guard (try? FileManager.default.removeItem(at: entry.url)) != nil else { continue }
+      // 硬链接别名（`.mp3` / `.m4a` …）还指着同一份数据，不一起删空间释放不掉
+      removeAliases(of: entry.url)
       total -= entry.size
       removed += 1
     }
@@ -99,15 +117,27 @@ enum OnlinePreloadIndex {
     return removed
   }
 
-  /// 播放命中本地文件时把修改时间往前推，淘汰时才分得清「最近还在听」。
-  static func touch(_ url: URL) {
-    try? FileManager.default.setAttributes(
-      [.modificationDate: Date()],
-      ofItemAtPath: url.path
-    )
-  }
-
   // MARK: - 内部
+
+  /// 删掉 `CachedAudioAlias` 为这一集建的播放别名（`.mp3` / `.m4a` …）。
+  ///
+  /// 别名优先是硬链接，和原件共用同一份数据：只删 `.audio` 原件的话 inode 还被别名
+  /// 引用着，空间一点没释放；复制兜底建出来的别名更是白占一整份。
+  private static func removeAliases(of fileURL: URL) {
+    let directory = fileURL.deletingLastPathComponent()
+    let stem = fileURL.deletingPathExtension().lastPathComponent
+    guard
+      let names = try? FileManager.default.contentsOfDirectory(atPath: directory.path)
+    else { return }
+    for name in names {
+      let candidate = directory.appendingPathComponent(name)
+      // 去掉后缀再比对，避免「1」把「1.2」的别名也删了
+      guard candidate.deletingPathExtension().lastPathComponent == stem else { continue }
+      let ext = candidate.pathExtension
+      guard ext != OnlineChapterFileCache.fileExtension, ext != "tmp" else { continue }
+      try? FileManager.default.removeItem(at: candidate)
+    }
+  }
 
   private struct Entry {
     var url: URL

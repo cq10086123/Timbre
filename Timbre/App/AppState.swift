@@ -232,6 +232,8 @@ final class AppState: ObservableObject {
       Task { @MainActor in cache.cancel(bookId: bookId) }
       Task.detached(priority: .utility) {
         OnlineChapterFileCache.clearBook(source: source, bookId: bookId)
+        // 目录删了，自动缓存的名单也一起作废
+        OnlinePreloadIndex.forgetBook(source: source, bookId: bookId)
       }
     }
     library.delete(book)

@@ -29,6 +29,10 @@ struct RootView: View {
     ShelfView()
       // 冷启动的书架自动刷新：只刷 WebDAV 书，受「仅 Wi-Fi 下自动刷新」约束
       .task {
+        // 进程被杀时来不及删的临时文件（一集几十 MB）在后台清一遍
+        _ = Task.detached(priority: .background) {
+          OnlineChapterFileCache.purgeStaleTmpFiles()
+        }
         // 老库补齐：把 m4b 里的内嵌章节读成 markData
         await app.backfillChapterMarks()
         // 没有 封面 的 WebDAV 书补封面（目录图片 / 内嵌 artwork）
