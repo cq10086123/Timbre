@@ -60,11 +60,15 @@ struct RootView: View {
       } message: {
         Text(app.announcementText ?? "")
       }
-      // 更新弹窗：main 的 update.json 写啥就弹啥（版本号 + 发布说明）
+      // 更新弹窗：main 的 update.json 写啥就弹啥（版本号 + 发布说明）。
+      //
+      // 加 `app.announcementText == nil` 是为了排队：同一条视图链上挂两个 .alert 时，
+      // 两个都 isPresented == true 只有一个能出来（后声明的赢），更新会静默把公告顶掉。
+      // 现在公告优先，用户把它关掉之后更新才允许弹。
       .alert(
         app.updateNotice.map { "发现新版本 \($0.versionName)" } ?? "发现新版本",
         isPresented: Binding(
-          get: { app.updateNotice != nil },
+          get: { app.updateNotice != nil && app.announcementText == nil },
           set: { if !$0 { app.updateNotice = nil } }
         )
       ) {
