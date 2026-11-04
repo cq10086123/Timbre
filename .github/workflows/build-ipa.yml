@@ -59,7 +59,11 @@ jobs:
           fi
           # 没有发布意图（普通 push）：按 project.yml 编译，只出 artifact
           if [ -z "$V" ]; then
-            V=$(sed -n 's/.*MARKETING_VERSION: "\([^"]*\)".*/\1/p' project.yml | head -n1)
+            # 这里不能用 `sed ... | head -n1`：开了 pipefail 之后，head 取到第一行就关管道，
+            # sed 收到 SIGPIPE 返回 141，整个命令替换被判失败，set -e 直接把这一步干掉
+            # （2026-11-04 实际挂在这，构建 status=failure）
+            V=$(sed -n 's/.*MARKETING_VERSION: "\([^"]*\)".*/\1/p' project.yml)
+            V="${V%%$'\n'*}"
           fi
           if [ -z "$V" ]; then
             echo "取不到版本号"
