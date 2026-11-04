@@ -42,36 +42,39 @@ jobs:
       - name: 解析版本号
         id: ver
         env:
+          # push 触发时没有 inputs 上下文，这个 env 会是**未定义**而不是空串。
+          # 下面一律用 ${VAR:-} 取默认值，否则 set -u 会直接以 unbound variable 退出
+          # （2026-11-04 连续两次构建就是这么挂在第 5 步的）
           INPUT_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          # 版本号只认一个真源头：手动触发时填的那个（与安卓 versionName 一致）。
-          # 这样 project.yml 不用每次发版都改，避免「两处版本号忘了同步」。
-          V=""
+          V="${INPUT_VERSION:-}"
           PUBLISH=0
-          if [ -n "$INPUT_VERSION" ]; then
-            V="$INPUT_VERSION"
+          if [ -n "$V" ]; then
             PUBLISH=1
           fi
-          if [ -z "$V" ] && [[ "$GITHUB_REF" == refs/tags/ios-v* ]]; then
-            V="${GITHUB_REF#refs/tags/ios-v}"
-            PUBLISH=1
-          fi
+          # 打 ios-v3.6.3 这类 tag 也发布。用 case 而不是 [[ ]]，不依赖 bash 扩展语法
+          case "${GITHUB_REF:-}" in
+            refs/tags/ios-v*)
+              if [ -z "$V" ]; then
+                V="${GITHUB_REF#refs/tags/ios-v}"
+                PUBLISH=1
+              fi
+              ;;
+          esac
           # 没有发布意图（普通 push）：按 project.yml 编译，只出 artifact
           if [ -z "$V" ]; then
-            # 这里不能用 `sed ... | head -n1`：开了 pipefail 之后，head 取到第一行就关管道，
-            # sed 收到 SIGPIPE 返回 141，整个命令替换被判失败，set -e 直接把这一步干掉
-            # （2026-11-04 实际挂在这，构建 status=failure）
-            V=$(sed -n 's/.*MARKETING_VERSION: "\([^"]*\)".*/\1/p' project.yml)
-            V="${V%%$'\n'*}"
+            # 不用 sed|head：开了 pipefail 之后 head 取到第一行就关管道，sed 收 SIGPIPE
+            # 返回 141，命令替换被判失败，set -e 同样会把这步干掉
+            V=$(awk -F'"' '/MARKETING_VERSION:/ {print $2; exit}' project.yml 2>/dev/null || true)
           fi
           if [ -z "$V" ]; then
-            echo "取不到版本号"
+            echo "::error::取不到版本号：project.yml 里没有 MARKETING_VERSION"
             exit 1
           fi
           echo "version=$V" >> "$GITHUB_OUTPUT"
           echo "publish=$PUBLISH" >> "$GITHUB_OUTPUT"
-          echo "版本号 $V（发布=$PUBLISH）"
+          echo "版本号=$V publish=$PUBLISH"
 
       - name: 生成 Xcode 工程
         run: xcodegen generate
