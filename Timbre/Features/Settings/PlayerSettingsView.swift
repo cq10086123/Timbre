@@ -75,27 +75,33 @@ struct PlayerSettingsView: View {
             M3Switch(isOn: $settings.settings.onlinePreloadCacheEnabled)
           }
 
-          if settings.settings.onlinePreloadCacheEnabled {
-            valueRow(
-              "缓存最短时长",
-              DurationText.atLeast(settings.settings.onlinePreloadCacheMinSeconds),
-              valueFont: AppFont.bodyLarge()
-            ) { dialog = .cacheMinDuration }
+          // 下面三项常显，不再藏在上面那个开关的 `if` 里：
+          // 藏起来的话，开关一旦是关的（或者用户压根没打开过这一页），
+          // 他根本不知道「超过多少时长才缓存」这个设置存在。
+          // 开关关着时置灰、点不动，但值照样能看见
+          valueRow(
+            "缓存最短时长",
+            DurationText.atLeast(settings.settings.onlinePreloadCacheMinSeconds),
+            valueFont: AppFont.bodyLarge(),
+            enabled: settings.settings.onlinePreloadCacheEnabled
+          ) { dialog = .cacheMinDuration }
 
-            valueRow(
-              "缓存空间上限",
-              Format.bytes(settings.settings.onlinePreloadCacheMaxBytes),
-              valueFont: AppFont.bodyLarge()
-            ) { dialog = .cacheMaxBytes }
+          valueRow(
+            "缓存空间上限",
+            Format.bytes(settings.settings.onlinePreloadCacheMaxBytes),
+            valueFont: AppFont.bodyLarge(),
+            enabled: settings.settings.onlinePreloadCacheEnabled
+          ) { dialog = .cacheMaxBytes }
 
-            M3ListItem(
-              systemName: nil,
-              title: "仅在 Wi-Fi 下缓存",
-              subtitle: "移动数据下仍照旧只预解析地址，不下载音频文件。"
-            ) {
-              M3Switch(isOn: $settings.settings.onlinePreloadCacheWifiOnly)
-            }
+          M3ListItem(
+            systemName: nil,
+            title: "仅在 Wi-Fi 下缓存",
+            subtitle: "移动数据下仍照旧只预解析地址，不下载音频文件。"
+          ) {
+            M3Switch(isOn: $settings.settings.onlinePreloadCacheWifiOnly)
           }
+          .disabled(!settings.settings.onlinePreloadCacheEnabled)
+          .opacity(settings.settings.onlinePreloadCacheEnabled ? 1 : 0.4)
 
           M3ListItem(
             systemName: nil,
@@ -135,6 +141,7 @@ struct PlayerSettingsView: View {
     _ title: String,
     _ value: String,
     valueFont: Font = AppFont.bodyMedium(),
+    enabled: Bool = true,
     action: @escaping () -> Void
   ) -> some View {
     Button(action: action) {
@@ -155,6 +162,8 @@ struct PlayerSettingsView: View {
       .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
+    .disabled(!enabled)
+    .opacity(enabled ? 1 : 0.4)
   }
 
   // MARK: - 滑块对话框
