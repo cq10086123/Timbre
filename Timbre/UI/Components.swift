@@ -597,6 +597,104 @@ struct M3ConfirmDialog: View {
   }
 }
 
+// MARK: - M3 长正文对话框（公告 / 更新说明）
+
+/// 公告、更新说明这类整段文字不能用系统 `.alert`：
+/// iOS 的 alert message 字号固定 13pt、用的是次级灰，十几行压下来就是一团看不清的小字
+/// （用户反馈「下面字体显示不清楚、看不见」）。
+/// 这里自己画一个：标题 22pt、正文 16pt 主文字色、行距放宽，超过 320pt 内部可滚动。
+struct M3ReadingDialog: View {
+  var title: String
+  var message: String
+  /// 底部按钮，按数组顺序从左往右排；`emphasized` 的那个是主操作（右起第一个）
+  var actions: [DialogAction]
+  /// 点遮罩关闭，语义同「知道了」
+  var onDismiss: () -> Void
+
+  /// 正文实测高度：短公告按内容高度收，长公告顶到 320 后内部滚动。
+  /// 不量的话 ScrollView 会吃掉整块可用高度，短公告下面留一大片空白。
+  @State private var bodyHeight: CGFloat = 0
+  private static let maxBodyHeight: CGFloat = 320
+
+  struct DialogAction: Identifiable {
+    var id: String { title }
+    var title: String
+    var emphasized: Bool = false
+    var handler: () -> Void
+  }
+
+  var body: some View {
+    ZStack {
+      AppColor.scrim
+        .ignoresSafeArea()
+        .onTapGesture { onDismiss() }
+
+      VStack(alignment: .leading, spacing: 0) {
+        Text(title)
+          .font(AppFont.titleLarge())
+          .foregroundColor(AppColor.onSurface)
+          .fixedSize(horizontal: false, vertical: true)
+
+        Color.clear.frame(height: 12)
+
+        ScrollView(.vertical) {
+          Text(message)
+            .font(AppFont.bodyLarge())
+            .foregroundColor(AppColor.onSurface)
+            .lineSpacing(6)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+              GeometryReader { proxy in
+                Color.clear.preference(
+                  key: ReadingBodyHeightKey.self,
+                  value: proxy.size.height
+                )
+              }
+            )
+        }
+        .frame(height: min(max(bodyHeight, 1), Self.maxBodyHeight))
+        .onPreferenceChange(ReadingBodyHeightKey.self) { bodyHeight = $0 }
+
+        Color.clear.frame(height: 8)
+        HStack(spacing: 8) {
+          Spacer(minLength: 0)
+          ForEach(actions) { action in
+            Button {
+              action.handler()
+            } label: {
+              Text(action.title)
+                .font(AppFont.labelLarge())
+                .foregroundColor(action.emphasized ? AppColor.onPrimary : AppColor.primary)
+                .padding(.horizontal, action.emphasized ? 20 : 12)
+                .frame(minWidth: 64, minHeight: 40)
+                .background(
+                  Capsule().fill(action.emphasized ? AppColor.primary : Color.clear)
+                )
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+          }
+        }
+      }
+      .padding(24)
+      .frame(maxWidth: 340, alignment: .leading)
+      .background(
+        RoundedRectangle(cornerRadius: 28, style: .continuous)
+          .fill(AppColor.surfaceContainerHigh)
+      )
+      .padding(.horizontal, 24)
+    }
+  }
+}
+
+private struct ReadingBodyHeightKey: PreferenceKey {
+  static var defaultValue: CGFloat = 0
+  static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+    value = max(value, nextValue())
+  }
+}
+
 // MARK: - M3 下拉菜单（对齐安卓 DropdownMenu）
 
 /// 安卓播放页的「更多」是 `DropdownMenu`：surfaceContainer 底、圆角 4、

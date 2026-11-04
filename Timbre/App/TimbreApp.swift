@@ -47,35 +47,40 @@ struct RootView: View {
         try? await Task.sleep(nanoseconds: 10_000_000_000)
         await app.checkRemoteNotices()
       }
-      // 公告弹窗：main 的 announcement.txt 写啥就弹啥
-      .alert(
-        "公告",
-        isPresented: Binding(
-          get: { app.announcementText != nil },
-          set: { if !$0 { app.announcementText = nil } }
-        )
-      ) {
-        Button("知道了") { app.acknowledgeAnnouncement() }
-        Button("不再提示") { app.neverShowAnnouncement() }
-      } message: {
-        Text(app.announcementText ?? "")
-      }
-      // 更新弹窗：main 的 update.json 写啥就弹啥（版本号 + 发布说明）。
+      // 公告 / 更新：main 的 announcement.txt 与 update.json 写啥就弹啥。
       //
-      // 加 `app.announcementText == nil` 是为了排队：同一条视图链上挂两个 .alert 时，
-      // 两个都 isPresented == true 只有一个能出来（后声明的赢），更新会静默把公告顶掉。
-      // 现在公告优先，用户把它关掉之后更新才允许弹。
-      .alert(
-        app.updateNotice.map { "发现新版本 \($0.versionName)" } ?? "发现新版本",
-        isPresented: Binding(
-          get: { app.updateNotice != nil && app.announcementText == nil },
-          set: { if !$0 { app.updateNotice = nil } }
-        )
-      ) {
-        Button("取消", role: .cancel) { app.dismissUpdateNotice() }
-        Button("去更新") { app.openUpdatePage() }
-      } message: {
-        Text(app.updateNotice?.releaseNotes ?? "打开发布页查看更新内容")
+      // 不用系统 `.alert`：它的 message 字号固定 13pt、还是次级灰，公告十几行压下来
+      // 就是一片看不清的小字（用户反馈「下面字体显示不清楚，看不见」）。
+      // 换成自绘的 M3ReadingDialog：正文 16pt 主文字色、行距放开、太长可滚动。
+      //
+      // 两个共用这一层 overlay，排队是天然的：公告优先，用户关掉之后更新才出现。
+      // （之前同一条视图链挂两个 `.alert`，后声明的会把公告静默顶掉。）
+      .overlay {
+        if let text = app.announcementText {
+          M3ReadingDialog(
+            title: "公告",
+            message: text,
+            actions: [
+              M3ReadingDialog.DialogAction(title: "不再提示") { app.neverShowAnnouncement() },
+              M3ReadingDialog.DialogAction(title: "知道了", emphasized: true) {
+                app.acknowledgeAnnouncement()
+              },
+            ],
+            onDismiss: { app.acknowledgeAnnouncement() }
+          )
+        } else if let notice = app.updateNotice {
+          M3ReadingDialog(
+            title: "发现新版本 \(notice.versionName)",
+            message: notice.releaseNotes ?? "打开发布页查看更新内容",
+            actions: [
+              M3ReadingDialog.DialogAction(title: "取消") { app.dismissUpdateNotice() },
+              M3ReadingDialog.DialogAction(title: "去更新", emphasized: true) {
+                app.openUpdatePage()
+              },
+            ],
+            onDismiss: { app.dismissUpdateNotice() }
+          )
+        }
       }
       .onChange(of: scenePhase) { phase in
         // 前后台边界记一条：排查「锁屏能不能继续缓存」时靠它对齐日志时间轴
