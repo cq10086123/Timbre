@@ -149,27 +149,29 @@ jobs:
           set -euo pipefail
           VERSION="${{ steps.ver.outputs.version }}"
           IPA_NAME="timbre-v${VERSION}-unsigned.ipa"
+          HMOS_ASSET="harmony-coming-soon.zip"
           mv Timbre-unsigned.ipa "$IPA_NAME"
 
           # 鸿蒙版占位包：安卓 + iOS + 鸿蒙三端共用一个 Release，这里先放一个说明包，
           # 上线后换成 .hap。注意 GitHub 自动生成的 Source code (zip/tar.gz) 两份删不掉，
           # 所以资产栏固定是「apk + ipa + 鸿蒙 + 2 份源码」
+          # 文件名用英文：中文名上传后下载链接会被整段 URL 编码，不好复制
           printf '%s\n' \
             "鸿蒙版（HarmonyOS）正在开发中，敬请期待。" \
             "上线后会在这里提供安装包，关注 Releases 页面即可。" \
             > hmos-note.txt
-          rm -f "鸿蒙即将上线.zip"
-          zip -qj "鸿蒙即将上线.zip" hmos-note.txt
+          rm -f "$HMOS_ASSET"
+          zip -qj "$HMOS_ASSET" hmos-note.txt
           rm -f hmos-note.txt
 
           if gh release view "v${VERSION}" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             # 安卓已发同名版本：只追加附件，不动 Release 的标题/正文/属性
-            gh release upload "v${VERSION}" "$IPA_NAME" "鸿蒙即将上线.zip" \
+            gh release upload "v${VERSION}" "$IPA_NAME" "$HMOS_ASSET" \
               --clobber --repo "$GITHUB_REPOSITORY"
             echo "已附加到现有 Release v${VERSION}"
           else
             # 兜底：安卓还没发这个版本时，iOS 自建一个预发布，不抢 Latest
-            gh release create "v${VERSION}" "$IPA_NAME" "鸿蒙即将上线.zip" \
+            gh release create "v${VERSION}" "$IPA_NAME" "$HMOS_ASSET" \
               --prerelease \
               --title "v${VERSION} 验证版（iOS 未签名调试包，禁止下载分发）" \
               --notes "安卓端此版本尚未发布，iOS 包先挂在这里；正式版以安卓端 Release 为准。" \
