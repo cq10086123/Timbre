@@ -250,6 +250,7 @@ struct M3ListItem<Trailing: View>: View {
 extension M3ListItem where Trailing == EmptyView {
   init(
     systemName: String? = nil,
+    imageName: String? = nil,
     title: String,
     subtitle: String? = nil,
     tint: Color = AppColor.onSurface,
@@ -257,6 +258,7 @@ extension M3ListItem where Trailing == EmptyView {
   ) {
     self.init(
       systemName: systemName,
+      imageName: imageName,
       title: title,
       subtitle: subtitle,
       tint: tint,
