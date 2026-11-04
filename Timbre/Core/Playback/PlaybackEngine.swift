@@ -103,17 +103,23 @@ final class PlaybackEngine: NSObject, ObservableObject {
   private let audioProcessor = AudioProcessor()
   /// 在线书源播放地址预加载（「播放器设置」里的那三个数值 + 开关）
   private let preloader = OnlinePreloader()
+  /// 「手动缓存正在跑哪几本书」。自动缓存遇到这本书就让路，两边不抢同一批接口配额。
+  /// 传进来而不是让引擎去问在线缓存管理器：引擎在非主线程的播放回调里驱动预加载，
+  /// 那边是 `@MainActor` 的可观察对象，跨线程读它的状态会撞隔离检查。
+  private let cacheActivity: ManualCacheActivity
 
   init(
     library: LibraryStore,
     settings: SettingsStore,
     extensions: ExtensionStore,
-    webdav: WebDavStore
+    webdav: WebDavStore,
+    cacheActivity: ManualCacheActivity
   ) {
     self.library = library
     self.settings = settings
     self.extensions = extensions
     self.webdav = webdav
+    self.cacheActivity = cacheActivity
     super.init()
     player.automaticallyWaitsToMinimizeStalling = true
     // 卡住时最重要的是知道「在等什么」：网络慢、缓冲空、还是解码卡住，处理方式完全不同
@@ -1318,6 +1324,9 @@ final class PlaybackEngine: NSObject, ObservableObject {
             seconds: seconds
           )
         }
+      },
+      isManualCaching: { [weak self] bookId in
+        self?.cacheActivity.isBusy(bookId) ?? false
       },
       resolve: { [weak self] chapter in
         guard let self else { return nil }

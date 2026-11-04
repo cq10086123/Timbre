@@ -25,6 +25,7 @@ final class OnlineCacheManager: ObservableObject {
 
   private let library: LibraryStore
   private let extensions: ExtensionStore
+  private let activity: ManualCacheActivity
 
   private var tasks: [String: Task<Void, Never>] = [:]
   /// 每次 start / cancel / clear 都会把代数 +1：旧任务看到代数不对就立刻收手
@@ -33,9 +34,14 @@ final class OnlineCacheManager: ObservableObject {
   private var attempts: [String: Int] = [:]
   private var pendingConfirmation: CheckedContinuation<Bool, Never>?
 
-  init(library: LibraryStore, extensions: ExtensionStore) {
+  init(
+    library: LibraryStore,
+    extensions: ExtensionStore,
+    activity: ManualCacheActivity
+  ) {
     self.library = library
     self.extensions = extensions
+    self.activity = activity
   }
 
   @MainActor
@@ -192,6 +198,11 @@ final class OnlineCacheManager: ObservableObject {
     count: Int,
     delaySeconds: Int
   ) async {
+    // 这一轮从开始到结束都占着这本书：自动预加载看到就让路，别两边一起打源接口。
+    // 放在 run 里用 defer 收尾，是因为这里有十几个提前 return 的分支，逐个写容易漏
+    activity.begin(bookId)
+    defer { activity.end(bookId) }
+
     guard isCurrent(bookId, generation) else { return }
     guard let book = library.book(withId: bookId) else {
       stop(bookId, generation, .noChapterList)
@@ -576,6 +587,41 @@ enum CacheEngineError: LocalizedError {
     switch self {
     case .noSource: return "接口源未启用或已被删除"
     }
+  }
+}
+
+/// 「手动缓存正在跑哪几本书」的线程安全快照。
+///
+/// 需要它的原因：`OnlineCacheManager` 的状态是 `@MainActor` 的，而播放引擎在
+/// 非主线程的播放回调里驱动自动预加载 —— 那边读不到 `states`。
+/// 这个类只做一件事：记下哪几本书正在手动缓存，让自动预加载知道什么时候让路。
+///
+/// 用计数而不是布尔：新任务顶掉旧任务时，旧的收尾不能把新的「正在忙」标记抹掉。
+final class ManualCacheActivity {
+
+  private let lock = NSLock()
+  private var books: [String: Int] = [:]
+
+  func begin(_ bookId: String) {
+    lock.lock()
+    books[bookId, default: 0] += 1
+    lock.unlock()
+  }
+
+  func end(_ bookId: String) {
+    lock.lock()
+    if let count = books[bookId], count > 1 {
+      books[bookId] = count - 1
+    } else {
+      books.removeValue(forKey: bookId)
+    }
+    lock.unlock()
+  }
+
+  func isBusy(_ bookId: String) -> Bool {
+    lock.lock()
+    defer { lock.unlock() }
+    return books[bookId] != nil
   }
 }
 

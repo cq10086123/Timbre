@@ -43,6 +43,14 @@ final class OnlinePreloader {
   /// 用户手动切章反而被限流（就是「播完跳过一集」那个bug的燃料）。
   /// 冷却时长直接用设置里的「章节预加载间隔」，不去猜上游返回的重试秒数。
   private var cooldownUntil: Date?
+  /// 自动缓存失败过的章节，冷却期内不再重试（键同 `cacheKey`）。
+  ///
+  /// 链条只在「整集解析不出直链」时停手，下载失败是继续下一集的 —— 于是失败的那集
+  /// 会被下一个 tick 重新走一遍「解析 → 下载 → 失败」。源 404 或者一直超时的集，
+  /// 就会每隔一两分钟白占一次源配额、白烧几十 MB 流量直到用户听完这一章。
+  /// 记一笔冷却，半小时内不再碰它（成功的集反过来要把冷却清掉）。
+  private var diskCooldown: [String: Date] = [:]
+  private static let diskCooldownSeconds: TimeInterval = 30 * 60
   /// 上一次记过的判定，避免每 0.5s 刷一条同样的日志把日志冲爆
   private var lastDecision: String?
 
@@ -104,6 +112,9 @@ final class OnlinePreloader {
   /// `persistDuration`：预加载时探测到的章节时长回写给调用方（下次不用再问服务器）。
   /// 带上 bookId 一起回传 —— 回调是异步落到主线程的，那时用户可能已经切到别的书，
   /// 光凭 chapterId 定位会写错书（jdr 源的章节 id 大量是 "1"、"2" 这种短 id）。
+  ///
+  /// `isManualCaching`：这本书是不是正在「缓存整本」。两个下载器同时打同一本书，
+  /// 只是把源配额对半分（还是同一批有配额限制的接口），让手动缓存先走完。
   func tick(
     book: Book,
     chapterIndex: Int,
@@ -112,11 +123,19 @@ final class OnlinePreloader {
     playing: Bool,
     settings: AppSettings,
     persistDuration: ((String, String, Double) -> Void)? = nil,
+    isManualCaching: ((String) -> Bool)? = nil,
     resolve: @escaping (Chapter) async -> Stream?
   ) {
     guard settings.onlinePreloadEnabled, playing else {
       cancelChain()
       note(settings.onlinePreloadEnabled ? "预加载待命：当前未在播放" : "预加载待命：开关已关闭")
+      return
+    }
+    // 手动缓存正在下这本书：让路。它的进度条是用户主动点出来的，比自动缓存重要，
+    // 而且两边都在解同一批接口，同时跑只会一起被限流
+    if isManualCaching?(book.id) == true {
+      cancelChain()
+      note("预加载让路：这本书正在手动缓存")
       return
     }
 
@@ -252,11 +271,19 @@ final class OnlinePreloader {
     persistDuration: ((String, String, Double) -> Void)?
   ) async {
     guard settings.onlinePreloadCacheEnabled else { return }
+    // 链条已经被取消（切章 / 暂停 / 让路给手动缓存）：别再开一个新的下载。
+    // 源脚本跑在 JavaScriptCore 里，不响应 Task 取消 —— 取消后 `await resolve` 照样
+    // 会返回，链条会一路走到这里白下一整集（几十 MB），而那集用户可能早就不听了
+    if Task.isCancelled { return }
     // 移动网络：用户没允许就只解析地址，不花流量下整集
     if settings.onlinePreloadCacheWifiOnly && NetworkStatus.isExpensive {
       DLog("preload", "跳过本地缓存：当前是移动网络 第\(chapter.title)")
       return
     }
+
+    let key = cacheKey(bookId: book.id, chapterId: chapter.id)
+    // 这一集刚才下失败了：冷却期内不再重试，省一次源配额和几十 MB 流量
+    if isDiskCoolingDown(key) { return }
 
     let source = OnlineChapterFileCache.sourceSegment(sourceId: book.sourceId)
     guard
@@ -274,7 +301,13 @@ final class OnlinePreloader {
     var durationKnown = seconds.isFinite && seconds > 0
     if !durationKnown {
       // 源没给时长（新书常见）：向直链所在的服务器问一次
-      if let probed = await AudioDurationProbe.duration(url: stream.url, headers: headers) {
+      //
+      // DASH 分片（.m4s）例外：时长索引散在 moof 里，`AVURLAsset` 读不出来，
+      // 探测必然白等满 8 秒超时才放弃 —— 那 8 秒里链条什么也没干。
+      // 这类秒级切片的集本来就很短，探测也换不来「别缓存」这个结论，直接下。
+      if stream.url.pathExtension.lowercased() == "m4s" {
+        DLog("preload", "分片音轨不探测时长 第\(chapter.title)")
+      } else if let probed = await AudioDurationProbe.duration(url: stream.url, headers: headers) {
         seconds = probed
         durationKnown = true
         persistDuration?(book.id, chapter.id, probed)
@@ -299,6 +332,8 @@ final class OnlinePreloader {
     )
     // 用自己的临时名：用户同时点「缓存书籍」下同一集时，两个下载不能写同一个临时文件，
     // 否则字节交错写进同一份文件，转正后就是一个坏文件
+    let startedAt = Date()
+    DLog("preload", "开始下载 第\(chapter.title)")
     let outcome = await ChapterDownloader.download(
       url: stream.url,
       headers: headers,
@@ -306,16 +341,32 @@ final class OnlinePreloader {
       fileURL: fileURL,
       onProgress: { _, _ in }
     )
-
+    let elapsed = String(format: "%.1f", Date().timeIntervalSince(startedAt))
+    // 上面这两条日志是「锁屏能不能缓存」的判断依据：后台听一小时，日志里应该每隔
+    // 一段就有一条耗时几秒到几十秒的「下载结束 成功」；全是失败说明后台被系统掐了
+    // 网络，得改用 background URLSession（由系统 daemon 接管，App 被回收也能下完）。
     switch outcome {
     case .stored:
+      DLog("preload", "下载结束 成功 第\(chapter.title) 耗时 \(elapsed)s")
+      clearDiskCooldown(key)
       OnlinePreloadIndex.markAuto(source: source, bookId: book.id, chapterId: chapter.id)
-      markDiskReady(cacheKey(bookId: book.id, chapterId: chapter.id))
-      let durationText = durationKnown ? " 共 \(Int(seconds))s" : "（时长未知）"
-      DLog("preload", "已存到本地 第\(chapter.title)\(durationText)")
-      OnlinePreloadIndex.evictIfNeeded(maxBytes: settings.onlinePreloadCacheMaxBytes)
+      // 淘汰会真的删文件，`diskReady` 里的「已经在本机」记录跟着作废：
+      // 不清掉的话预加载会一直以为前方那几章还在，再也不补下（播放时才发现要回源）。
+      // 顺序无所谓 —— 刚下的这集在 `protectWindow` 里，不会被这一轮淘汰掉
+      if OnlinePreloadIndex.evictIfNeeded(maxBytes: settings.onlinePreloadCacheMaxBytes) > 0 {
+        forgetDiskReady()
+      }
+      markDiskReady(key)
     case .failed(let reason, let detail):
-      DLog("preload", "存本地失败 第\(chapter.title)：\(reason.text) \(detail ?? "-")")
+      DLog(
+        "preload",
+        "下载结束 失败 第\(chapter.title) 耗时 \(elapsed)s：\(reason.text) \(detail ?? "-")"
+      )
+      // 切章 / 暂停 / 让路导致的取消不算「下失败」：那是我们主动撤的，
+      // 用户回头再听这一集时该照常重试
+      if !Task.isCancelled {
+        markDiskCooldown(key)
+      }
     }
   }
 
@@ -365,6 +416,36 @@ final class OnlinePreloader {
   private func markDiskReady(_ key: String) {
     lock.lock()
     diskReady.insert(key)
+    lock.unlock()
+  }
+
+  /// 淘汰删掉了文件之后调用：内存里那些「已经在本机」的记录全部作废，
+  /// 下次判断重新回文件系统问一遍（只在真发生淘汰时付这点代价）
+  private func forgetDiskReady() {
+    lock.lock()
+    diskReady.removeAll()
+    lock.unlock()
+  }
+
+  private func isDiskCoolingDown(_ key: String) -> Bool {
+    lock.lock()
+    defer { lock.unlock() }
+    guard let until = diskCooldown[key] else { return false }
+    if Date() < until { return true }
+    // 过期了就顺手清掉，别让字典越长越大
+    diskCooldown.removeValue(forKey: key)
+    return false
+  }
+
+  private func markDiskCooldown(_ key: String) {
+    lock.lock()
+    diskCooldown[key] = Date().addingTimeInterval(Self.diskCooldownSeconds)
+    lock.unlock()
+  }
+
+  private func clearDiskCooldown(_ key: String) {
+    lock.lock()
+    diskCooldown.removeValue(forKey: key)
     lock.unlock()
   }
 }

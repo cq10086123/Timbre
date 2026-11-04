@@ -74,6 +74,12 @@ struct RootView: View {
         Text(app.updateNotice?.releaseNotes ?? "打开发布页查看更新内容")
       }
       .onChange(of: scenePhase) { phase in
+        // 前后台边界记一条：排查「锁屏能不能继续缓存」时靠它对齐日志时间轴
+        switch phase {
+        case .active: DLog("life", "回到前台")
+        case .background: DLog("life", "进入后台")
+        default: DLog("life", "失去活动状态")
+        }
         if phase != .active { app.player.flush() }
       }
       // 从「文件」「隔空投送」「分享」里用 Timbre 打开 .jdr 时的第二条导入通道

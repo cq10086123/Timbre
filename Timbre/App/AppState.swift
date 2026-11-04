@@ -9,15 +9,24 @@ final class AppState: ObservableObject {
   let extensions = ExtensionStore()
   let webdav = WebDavStore()
 
+  /// 「手动缓存正在跑哪几本书」。播放引擎和在线缓存管理器共用这一份，
+  /// 自动预加载靠它判断要不要给手动缓存让路（线程安全，跨隔离域共享）
+  let cacheActivity = ManualCacheActivity()
+
   lazy var player = PlaybackEngine(
     library: library,
     settings: settings,
     extensions: extensions,
-    webdav: webdav
+    webdav: webdav,
+    cacheActivity: cacheActivity
   )
 
   /// 在线书「缓存整本」的任务与进度
-  lazy var cache = OnlineCacheManager(library: library, extensions: extensions)
+  lazy var cache = OnlineCacheManager(
+    library: library,
+    extensions: extensions,
+    activity: cacheActivity
+  )
 
   /// WebDAV 导入后逐章解析时长（导入并发度 1/2/3，进度可显示）
   /// （初始化在主线程上下文：只有 SwiftUI 视图会碰它）

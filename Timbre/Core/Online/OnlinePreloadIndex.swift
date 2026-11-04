@@ -169,19 +169,44 @@ enum OnlinePreloadIndex {
     return entries
   }
 
+  /// 索引文件的结构。
+  ///
+  /// 带版本号是因为这份名单决定「哪些文件可以被淘汰」：一旦格式变了却静默解析失败，
+  /// 名单会变空，所有已有的自动缓存都会被当成「手动缓存」而永远不被淘汰 ——
+  /// 空间只增不减，用户只能手动清整本。宁可作废重建，也不要静默失忆。
+  private struct IndexFile: Codable {
+    var version: Int
+    var keys: [String]
+  }
+
+  private static let indexVersion = 1
+
   /// 调用方必须已持锁
   private static func loadIfNeeded() {
     guard !loaded else { return }
     loaded = true
-    guard let data = try? Data(contentsOf: indexFile),
-      let names = try? JSONDecoder().decode([String].self, from: data)
-    else { return }
-    autoKeys = Set(names)
+    guard let data = try? Data(contentsOf: indexFile) else { return }
+
+    if let file = try? JSONDecoder().decode(IndexFile.self, from: data),
+      file.version == indexVersion
+    {
+      autoKeys = Set(file.keys)
+      return
+    }
+    // 旧格式（裸数组）·升级时迁移，别把老用户已经下好的自动缓存全丢了
+    if let names = try? JSONDecoder().decode([String].self, from: data) {
+      autoKeys = Set(names)
+      persist()
+      return
+    }
+    DLog("preload", "自动缓存名单读不出来，作废重建")
+    try? FileManager.default.removeItem(at: indexFile)
   }
 
   /// 调用方必须已持锁
   private static func persist() {
-    guard let data = try? JSONEncoder().encode(Array(autoKeys).sorted()) else { return }
+    let file = IndexFile(version: indexVersion, keys: Array(autoKeys).sorted())
+    guard let data = try? JSONEncoder().encode(file) else { return }
     try? data.write(to: indexFile, options: .atomic)
   }
 }
