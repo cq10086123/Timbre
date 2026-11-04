@@ -174,6 +174,8 @@ struct IconButton48: View {
 
 struct M3ListItem<Trailing: View>: View {
   var systemName: String?
+  /// 资源目录里的位图 / 矢量图名字（SF Symbols 没有的第三方 logo 走这个，比如 GitHub）
+  var imageName: String?
   var title: String
   var subtitle: String?
   var tint: Color = AppColor.onSurface
@@ -182,6 +184,7 @@ struct M3ListItem<Trailing: View>: View {
 
   init(
     systemName: String? = nil,
+    imageName: String? = nil,
     title: String,
     subtitle: String? = nil,
     tint: Color = AppColor.onSurface,
@@ -189,6 +192,7 @@ struct M3ListItem<Trailing: View>: View {
     @ViewBuilder trailing: () -> Trailing
   ) {
     self.systemName = systemName
+    self.imageName = imageName
     self.title = title
     self.subtitle = subtitle
     self.tint = tint
@@ -198,7 +202,17 @@ struct M3ListItem<Trailing: View>: View {
 
   var body: some View {
     let row = HStack(spacing: 0) {
-      if let systemName {
+      if let imageName {
+        // SVG 资源声明了 template 渲染模式，所以 foregroundColor 能给它上色，
+        // 和旁边的 SF Symbols 保持同一个灰度
+        Image(imageName)
+          .renderingMode(.template)
+          .resizable()
+          .scaledToFit()
+          .foregroundColor(AppColor.onSurfaceVariant)
+          .frame(width: 24, height: 24)
+          .padding(.trailing, 16)
+      } else if let systemName {
         Image(systemName: systemName)
           .font(.system(size: 24))
           .foregroundColor(AppColor.onSurfaceVariant)

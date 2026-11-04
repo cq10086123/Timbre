@@ -143,7 +143,7 @@ struct SettingsView: View {
           autoSleepTimerCard
 
           M3ListItem(
-            systemName: "chevron.left.forwardslash.chevron.right",
+            imageName: "GitHubMark",
             title: "开源项目",
             action: {
               if let url = URL(string: "https://github.com/cq10086123/Timbre") {
@@ -385,12 +385,15 @@ struct SettingsView: View {
         .font(AppFont.titleLarge())
         .foregroundColor(AppColor.onSurface)
       Spacer()
-      // 构建指纹：确认手里装的是哪一次构建，避免「装了新包看着还是旧界面」这类问题
+      // 构建指纹：确认手里装的是哪一次构建，避免「装了新包看着还是旧界面」这类问题。
+      // 只在 Debug 构建里显示 —— 正式版顶栏露一串 commit hash 对用户没有意义
+#if DEBUG
       Text(buildStamp)
         .font(AppFont.labelSmall())
         .foregroundColor(AppColor.onSurfaceVariant)
         .lineLimit(1)
         .padding(.trailing, 16)
+#endif
     }
     .frame(height: 64)
   }
@@ -406,7 +409,12 @@ struct SettingsView: View {
   private var appVersion: String {
     let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0"
     let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
+    #if DEBUG
+    // 调试包把构建指纹也带上，方便判断手里是不是刚编的那一次
     return "\(version) (\(build)) · \(buildStamp)"
+    #else
+    return "\(version) (\(build))"
+    #endif
   }
 }
 
