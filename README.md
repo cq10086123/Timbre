@@ -28,7 +28,7 @@
 | WebDAV / NAS | 填一次服务器地址，浏览目录直接导入 | 群晖、飞牛 fnOS、Alist 上的家庭书库 |
 | 在线书源 / `.jdr` | 导入接口源包，搜索即听 | 想听的书不在自己设备上 |
 
-[项目主页](https://cq10086123.github.io/Timbre/) · [功能说明](docs/features.md) · [常见问题](docs/faq.md) · [下载安装](docs/download.md)
+[项目主页](https://cq10086123.github.io/Timbre/) · [功能说明](docs/features.md) · [常见问题](docs/faq.md) · [下载安装](docs/download.md) · [接口制作](samples/README.md)
 
 ## 长音频稳定性与息屏播放
 
