@@ -1,3 +1,10 @@
-新增IOS版需要免签  双端 3.6.3版本 安卓无需更新
-WEBDAV备份 安卓和IOS通用 接下来验证鸿蒙
-夸克：https://pan.quark.cn/s/3e8dc42b49a6   或GitHub直接下载
+
+新增接口源：
+
+   听友 + 番茄
+
+及时更新：  夸克：https://pan.quark.cn/s/3e8dc42b49a6  或GitHub
+
+目前正在设计新版Timbre增加发现页 和打算和极简版分开 作为两个独立纯在
+
+写完之后会第一时间公告
