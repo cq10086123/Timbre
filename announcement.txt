@@ -3,7 +3,7 @@
 
    听友 + 番茄
 
-及时更新：  夸克：https://pan.quark.cn/s/3e8dc42b49a6  或GitHub
+及时更新：  夸克：https://pan.quark.cn/s/3e8dc42b49a6  GitHub在线链接同步源有几小时延迟，继续使用请直接夸克下载
 
 目前正在设计新版Timbre增加发现页 和打算和极简版分开 作为两个独立纯在
 
