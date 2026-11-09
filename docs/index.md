@@ -3,11 +3,11 @@ hide:
   - toc
 ---
 
-# Timbre
+# 提莫听书（Timbre）
 
-一款自由开源、本地优先的 Android 有声书播放器。
+一款自由开源、本地优先的 Android 有声书播放器 / 听书软件。
 
-Timbre 把你自己的有声书文件变成一个安静、顺手的听书库：记住每个位置的播放进度、书签、睡眠定时器、倍速播放、跳过片头片尾、自动封面，全部离线可用；还内置 WebDAV 远程书库，把 NAS 上的有声书直接挂进书架；支持导入自定义接口源（.jdr），在线搜索、取章节、拿播放直链全部在本机完成。
+提莫听书把你自己的有声书文件变成一个安静、顺手的听书库：记住每个位置的播放进度、书签、睡眠定时器、倍速播放、跳过片头片尾、自动封面，全部离线可用；还内置 WebDAV 远程书库，把 NAS 上的有声书直接挂进书架；支持导入自定义接口源（.jdr），在线搜索、取章节、拿播放直链全部在本机完成。
 
 [:material-download: &nbsp;下载最新版本](https://github.com/cq10086123/Timbre/releases/latest){ .md-button .md-button--primary }
 [:material-github: &nbsp;GitHub 仓库](https://github.com/cq10086123/Timbre){ .md-button }
@@ -16,7 +16,7 @@ Timbre 把你自己的有声书文件变成一个安静、顺手的听书库：�
   <img src="screenshots/shot-shelf.png" alt="Timbre 书架" />
 </div>
 
-## 为什么选择 Timbre？
+## 为什么选择提莫听书？
 
 <div class="grid cards" markdown>
 
@@ -70,7 +70,7 @@ Timbre 把你自己的有声书文件变成一个安静、顺手的听书库：�
 
 </div>
 
-## 💡 使用小贴士
+## 使用小贴士
 
 - **封面自动就位**：把封面图片放进音频文件夹即可自动作为书籍封面（多张随机选一张，没有也能按书名生成）；WebDAV 文件夹里的 `cover.jpg / artwork.png` 优先于音频内嵌图
 - **长按书架上的书籍**：在线书可**更新章节**（追更）、**缓存全书**（离线下载）、删除，还能改书名、换封面、标记阅读状态
@@ -78,4 +78,4 @@ Timbre 把你自己的有声书文件变成一个安静、顺手的听书库：�
 
 ## 它和上游项目的关系
 
-Timbre 基于开源项目 [Voice](https://github.com/PaulWoitaschek/Voice)（GPLv3）二次开发，在全量中文化之外增加了 WebDAV 远程书库、自定义接口源（.jdr）、跳过片头片尾、自动封面、应用内更新等功能。详见[关于页](about.md)。
+提莫听书基于开源项目 [Voice](https://github.com/PaulWoitaschek/Voice)（GPLv3）二次开发，在全量中文化之外增加了 WebDAV 远程书库、自定义接口源（.jdr）、跳过片头片尾、自动封面、应用内更新等功能。详见[关于页](about.md)。
